@@ -25,6 +25,8 @@ data class UiDeps(
     val isFake: Boolean = false,
     /** C 的角色卡编解码（charcard.js）；未接入时为 null，助手库的导入 / 导出给出提示 */
     val charCard: com.aichat.app.domain.rp.CharCardCodec? = null,
+    /** 用量统计（usage-stats.jsonl + meta）；为 null 时用量页显示空态而不是崩 */
+    val usage: com.aichat.app.domain.UsageRepository? = null,
 )
 
 val LocalUiDeps = staticCompositionLocalOf<UiDeps> { error("UiDeps 未提供") }

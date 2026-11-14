@@ -58,6 +58,9 @@ interface UsageRepository {                 // usage-stats.jsonl + usage-stats-m
     suspend fun append(record: JsonObject)
     suspend fun meta(): JsonObject
     suspend fun saveMeta(meta: JsonObject)
+
+    /** 读出全部条目（按 key 去重，保留首个）。用量页/统计要读，写路径不用，所以只在这里声明。 */
+    suspend fun readLog(): List<JsonObject>
 }
 
 // ============ 网络 / 领域契约（B 提供；A 消费） ============

@@ -74,6 +74,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             dest == SettingsDestination.Personas -> com.aichat.app.ui.library.PersonasScreen(onBack = back, toast = toast,
                 onStart = { p -> onStartPersona?.invoke(p); onClose() })
             dest == SettingsDestination.General -> GeneralSettings(onBack = back, toast = toast)
+            dest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
             dest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
             dest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(dest.title, back) {
@@ -122,7 +123,11 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         SettingsRow("助手库", "常用助手、角色卡 PNG / JSON 导入导出", "row-personas") { open(SettingsDestination.Personas) }
         listOf(SettingsDestination.Worlds, SettingsDestination.Knowledge, SettingsDestination.Usage, SettingsDestination.Balance)
-            .forEach { d -> SettingsRow(d.title, if (SettingsMounts.get(d) == null) "待实现" else null) { open(d) } }
+            .forEach { d ->
+                // 有挂载点、或已在 SettingsScreen 的 when 里直接实现（目前的 Usage），就不再标「待实现」
+                val done = SettingsMounts.get(d) != null || d == SettingsDestination.Usage
+                SettingsRow(d.title, if (done) null else "待实现") { open(d) }
+            }
     }
 }
 

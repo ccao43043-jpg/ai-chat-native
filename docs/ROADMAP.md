@@ -35,8 +35,14 @@
 ## 3. 未做的页面
 
 - 生图页（`ImageClient` / `ImageScreen`）
-- 用量页（`UsageStats` 核心已在，缺 UI）
-- 成本与余额（`CostCoreJs` / `Balance` 已移植，未接入）
+- 用量页 ✅ 已完成（`ui/settings/UsageScreen.kt` + `domain/cost/UsageReport.kt`）
+  - 区间切换（今天 / 7 天 / 30 天 / 全部）、汇总卡、按模型、最近 14 天
+  - 费用是**展示时**按 `usage-stats-meta.json` 的价目实时算的（`CostCoreJs.costOfEntry`），
+    不是写入时算的 —— 换价目表后历史费用会跟着变，与旧 JS 一致
+  - 已知边界：`peak` 折扣会让「auto」模式下的费用是标价的 0.5 倍（非高峰），
+    所以数字比"单价×用量"低一半是正常的
+  - 没做：自定义区间、按服务商/对话分组、CSV 导出（`UsageStatsCore.toCSV` 已就绪）
+- 成本与余额（`CostCoreJs` / `Balance` 已移植，未接入界面；顶栏 chip 仍只显示 token）
 
 ## 4. 发版门
 

@@ -275,7 +275,7 @@ class FileUsageRepository(private val fs: FileStore) : UsageRepository {
     override suspend fun meta(): JsonObject = withContext(Dispatchers.IO) { (store.json(META) as? JsonObject) ?: EmptyJson }
     override suspend fun saveMeta(meta: JsonObject) = withContext(Dispatchers.IO) { mutex.withLock { store.putJson(META, meta); Unit } }
     /** 读日志：按 key 去重（保留首个），同 app.js 278–281 */
-    suspend fun readLog(): List<JsonObject> = withContext(Dispatchers.IO) {
+    override suspend fun readLog(): List<JsonObject> = withContext(Dispatchers.IO) {
         val seen = HashSet<String>()
         (store.readJsonl(LOG) ?: emptyList()).mapNotNull { e ->
             val k = Js.prop(e, "key"); if (!Js.truthy(k) || !seen.add(Js.toStr(k))) null else Js.toJsonObject(e)
