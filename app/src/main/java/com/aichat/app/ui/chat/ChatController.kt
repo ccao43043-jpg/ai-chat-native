@@ -8,6 +8,9 @@ import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.Role
 import com.aichat.app.domain.model.Usage
 import com.aichat.app.data.files.FileText
+import com.aichat.app.plugins.js.JObj
+import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.rp.RpState
 import com.aichat.app.ui.common.UiDeps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -175,6 +178,38 @@ class ChatController(
         scope.launch {
             val c = deps.chats.load(id) ?: return@launch
             save(c.copy(title = t), touch = false)
+        }
+    }
+
+    /**
+     * RP 状态块编辑：把内容写进 `conv.rpState` 的对应块。
+     * `RpState.setBlock` 返回的是 `{state, changed}` 包裹，不是 state 本身。
+     */
+    fun setRpBlock(id: String, blockId: String, content: String) {
+        scope.launch {
+            val c = deps.chats.load(id) ?: return@launch
+            val raw = Js.fromJson(c.rpState) as? JObj ?: JObj()
+            // 必须过一遍 normalizeState：新对话的 rpState 是 {}，blocks 得先建出来，否则 setBlock 里 `as List<*>` 直接 NPE
+            val st = RpState.normalizeState(raw)
+            val res = RpState.setBlock(st, blockId, content, System.currentTimeMillis().toDouble(), null)
+            val next = res["state"] as? JObj ?: return@launch
+            save(c.copy(rpState = Js.toJson(next) as? JsonObject ?: c.rpState), touch = false)
+        }
+    }
+
+    /**
+     * RP 面板在「新对话」上也要能用：没有对话就先建一个（与 [send] 里的懒创建同一套）。
+     * 这样用户可以先写世界观/角色卡，再发第一句。
+     */
+    fun openRpPanel(): Conversation? = _state.value.conv
+
+    fun ensureConversation() {
+        if (_state.value.conv != null) return
+        val target = currentTarget() ?: run { toast("请先在设置里添加服务商和模型"); return }
+        scope.launch {
+            if (_state.value.conv != null) return@launch
+            val c = deps.chats.create(target.first.id, target.second)
+            _state.update { it.copy(convId = c.id, conv = c) }
         }
     }
 
