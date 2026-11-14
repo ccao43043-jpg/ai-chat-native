@@ -1,0 +1,350 @@
+package com.aichat.app.plugins.rp
+
+import com.aichat.app.plugins.js.JObj
+import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.js.jobj
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+/**
+ * rpcache 的纯函数部分（不碰 IO、不碰状态机）：把 JS 版 `www/rpcache.js` 里
+ * 「序列化 / 分层 / Token 估算 / 服务商适用性 / 上下文预算 / 请求组装」这几块搬过来。
+ *
+ * 行为基准是 JS 原实现，改动必须同步 [tools/rpcache-golden/gen-golden.cjs] 的 golden
+ * （`app/src/test/resources/golden/rpcache/core.json`）。
+ *
+ * 尚未移植（见到就说明还没做，别以为漏了）：章节摘要的生成/合并、世界书触发与冻结、
+ * langrangian 预算裁剪、指纹与诊断日志、面板 UI。这些不影响「请求长什么样」，
+ * 只影响「什么时候摘要」和「界面显示什么」。
+ */
+object RpCacheCore {
+
+    /** 静态层块定义：id → 输出标签 / gcache 层字母（JS 的 STATIC_DEFS）。 */
+    val STATIC_DEFS: List<Triple<String, String, String>> = listOf(
+        Triple("world", "WORLD", "B"),
+        Triple("character", "CHARACTER", "C"),
+        Triple("rules", "RP_RULES", "D"),
+        Triple("format", "OUTPUT_FORMAT", "D"),
+        Triple("fewshot", "FEW_SHOT", "D"),
+        Triple("prohibit", "PROHIBITIONS", "D"),
+        Triple("style", "STYLE", "D"),
+    )
+
+    private const val DEFAULT_MAX_CONTEXT = 100_000
+    private const val DEFAULT_OUTPUT_RESERVE = 12_000
+    private const val DEFAULT_SAFETY_MARGIN = 2_000
+    private const val DEFAULT_TRIGGER_TOKENS = 30_000
+    private const val DEFAULT_CHAPTER_CAP = 12_000
+
+    fun canonicalize(text: Any?): String = Lore.canonicalize(text)
+
+    private fun blockText(st: JObj?, id: String): String {
+        val b = RpState.getBlock(st, id) ?: return ""
+        return Js.str(b["content"])
+    }
+
+    fun staticText(st: JObj?, baseSystem: Any?): String {
+        val parts = ArrayList<String>()
+        val b = canonicalize(baseSystem)
+        if (b.isNotEmpty()) parts.add(b)
+        STATIC_DEFS.forEach { (id, tag, _) ->
+            val c = blockText(st, id)
+            if (c.isNotEmpty()) parts.add("[$tag]\n$c")
+        }
+        return parts.joinToString("\n\n")
+    }
+
+    /** 章节标签：JS 的 `slabel` = "#" + 三位序号。 */
+    fun slabel(no: Any?): String {
+        val n = Js.i32(no).coerceAtLeast(0)
+        return "#" + n.toString().padStart(3, '0')
+    }
+
+    fun chaptersOf(st: JObj?): List<JObj> =
+        (st?.get("chapters") as? List<*>)?.mapNotNull { it as? JObj } ?: emptyList()
+
+    /** L3：全部章节按顺序拼接；新章节只在末尾追加，前面逐字不变。 */
+    fun summaryText(st: JObj?): String = chaptersOf(st)
+        .filter { Js.str(it["content"]).isNotEmpty() }
+        .joinToString("\n\n") { "[CHAPTER_SUMMARY ${slabel(it["no"])}]\n${Js.str(it["content"])}" }
+
+    fun memoryText(st: JObj?): String {
+        val c = blockText(st, "memory")
+        return if (c.isEmpty()) "" else "[LONG_TERM_MEMORY]\n$c"
+    }
+
+    fun deltaText(st: JObj?): String {
+        val c = blockText(st, "delta")
+        return if (c.isEmpty()) "" else "[MEMORY_UPDATE]\n$c"
+    }
+
+    fun stateText(st: JObj?): String {
+        val c = blockText(st, "state")
+        return if (c.isEmpty()) "" else "[CURRENT_STATE]\n$c"
+    }
+
+    /** C-2：层序按变更频率从低到高，memory 变动不再毒化 summary 缓存。 */
+    fun buildSystem(st: JObj?, baseSystem: Any?): String =
+        listOf(staticText(st, baseSystem), summaryText(st), memoryText(st))
+            .filter { it.isNotEmpty() }
+            .joinToString("\n\n")
+
+    /** system 里「static + summary」这一段稳定前缀，供第二个缓存断点使用。 */
+    fun systemStablePrefix(st: JObj?, baseSystem: Any?): String =
+        listOf(staticText(st, baseSystem), summaryText(st))
+            .filter { it.isNotEmpty() }
+            .joinToString("\n\n")
+
+    data class Segment(val layer: String, val kind: String, val title: String, val gl: String, val text: String)
+
+    /** 结构化分段：`segments.joinToString("\n\n") == buildSystem`。 */
+    fun buildSystemSegments(st: JObj?, baseSystem: Any?): List<Segment> {
+        val out = ArrayList<Segment>()
+        val b = canonicalize(baseSystem)
+        if (b.isNotEmpty()) out.add(Segment("L1", "static", "base", "-", b))
+        STATIC_DEFS.forEach { (id, tag, gl) ->
+            val c = blockText(st, id)
+            if (c.isNotEmpty()) out.add(Segment("L1", "static", tag, gl, "[$tag]\n$c"))
+        }
+        val sm = summaryText(st)
+        if (sm.isNotEmpty()) out.add(Segment("L3", "static", "CHAPTER_SUMMARY", "S", sm))
+        val mm = memoryText(st)
+        if (mm.isNotEmpty()) out.add(Segment("L2", "dynamic", "LONG_TERM_MEMORY", "E", mm))
+        return out
+    }
+
+    /**
+     * 最后一条用户消息 = 本轮输入 + 记忆增量 + 当前状态（V2：输入在前）。
+     * 输入在开头，所以上一轮请求与本轮的公共前缀能一直延伸到上一轮输入的末尾。
+     */
+    fun finalUserContent(st: JObj?, input: Any?): String {
+        val tail = listOf(deltaText(st), stateText(st)).filter { it.isNotEmpty() }
+        if (tail.isEmpty()) return Js.str(input)
+        return (listOf(Js.str(input)).filter { it.isNotEmpty() } + tail).joinToString("\n\n")
+    }
+
+    fun imgSig(images: Any?): List<String> =
+        (images as? List<*>)?.map { x ->
+            val s = Js.str(x)
+            "${s.length}:${if (s.length > 48) s.takeLast(48) else s}"
+        } ?: emptyList()
+
+    fun serializeHistory(msgs: List<Any?>, n: Int? = null): String {
+        val arr = if (n == null) msgs else msgs.take(max(0, n))
+        val json = arr.map { m ->
+            val o = m as? JObj ?: jobj()
+            JsonArray(
+                listOf(
+                    JsonPrimitive(Js.str(o["role"])),
+                    JsonPrimitive(Js.str(o["content"])),
+                    JsonArray(imgSig(o["images"]).map { JsonPrimitive(it) }),
+                )
+            )
+        }
+        return JsonArray(json).toString()
+    }
+
+    /**
+     * 本地 Token 估算（DeepSeek 官方换算）：汉字/假名/谚文/全角 0.6、英文字母 0.3、
+     * 数字 0.5、ASCII 标点 0.6、空白 0.1、其它码点 1.5，最后向上取整。
+     */
+    fun estimateTokens(text: Any?): Int {
+        val s = Js.str(text)
+        var n = 0.0
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            i += Character.charCount(cp)
+            n += when {
+                (cp in 0x3000..0x9fff) || (cp in 0xac00..0xd7af) || (cp in 0xff00..0xffef) ||
+                    (cp in 0xf900..0xfaff) || (cp in 0x20000..0x2fa1f) -> 0.6
+                (cp in 65..90) || (cp in 97..122) -> 0.3
+                cp in 48..57 -> 0.5
+                cp == 32 || cp == 9 || cp == 10 || cp == 13 -> 0.1
+                cp < 128 -> 0.6
+                cp < 0x3000 -> 0.6
+                else -> 1.5
+            }
+        }
+        return kotlin.math.ceil(n).toInt()
+    }
+
+    /** 每条消息 = 正文 + 4（角色/分隔开销）+ 每张图 1000。 */
+    fun estimateItems(items: List<Any?>): Int = items.sumOf { m ->
+        val o = m as? JObj ?: jobj()
+        val imgN = (o["images"] as? List<*>)?.size ?: 0
+        estimateTokens(o["content"]) + 4 + imgN * 1000
+    }
+
+    // ---------------- 服务商缓存能力 / 上下文窗口 / 自动预算 ----------------
+
+    data class Cap(val vendor: String, val kind: String, val auto: Boolean, val ttl: Int, val label: String)
+
+    private val QWEN_EXPLICIT = Regex(
+        "^(qwen3\\.[78]-max|qwen3\\.[567]-plus|qwen3\\.[5-8]-flash|qwen3\\.8-(2\\.4t|27b)|qwen-plus|qwen-flash|qwen3-coder-flash|qwen3-vl-plus)"
+    )
+
+    fun capability(presetId: String?, baseUrl: String?, type: String?, model: String?): Cap {
+        val base = Js.str(baseUrl).lowercase()
+        val m = Js.str(model).lowercase()
+        val bare = m.substringAfterLast('/')
+        if (presetId == "deepseek" || base.contains("deepseek") || m.contains("deepseek")) {
+            return Cap("deepseek", "implicit", true, 24 * 3600, "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）")
+        }
+        val dashscope = presetId == "qwen" || presetId == "qwen-intl" ||
+            base.contains("dashscope") || base.contains(".maas.aliyuncs.com")
+        if (dashscope || m.contains("qwen") || m.contains("qwq")) {
+            return if (dashscope && QWEN_EXPLICIT.containsMatchIn(bare) && !bare.contains("flash-character")) {
+                Cap("qwen", "explicit", true, 300, "千问显式缓存（cache_control，5 分钟有效，命中时重置）+ 隐式缓存")
+            } else {
+                Cap("qwen", "implicit", true, 600, "千问隐式缓存（自动，命中按输入价 20%）")
+            }
+        }
+        if (type == "anthropic" || m.contains("claude")) {
+            return Cap("anthropic", "explicit", false, 300, "Claude cache_control（需手动启用）")
+        }
+        if (type == "gemini" || m.contains("gemini")) {
+            val adapter = when {
+                presetId == "openrouter" || base.contains("openrouter.ai") -> "openrouter"
+                (type == null || type == "openai") && m.contains("gemini") -> "openai-compat"
+                else -> "none"
+            }
+            val auto = adapter == "openrouter" || adapter == "openai-compat"
+            return Cap(
+                "gemini", "implicit", auto, 300,
+                if (auto) "Gemini 隐式缓存（适配器 $adapter）" else "Gemini 隐式缓存（需手动启用）"
+            )
+        }
+        if (presetId == "openai" || base.contains("api.openai.com") || Regex("^(gpt-|o\\d)").containsMatchIn(bare)) {
+            return Cap("openai", "implicit", false, 600, "OpenAI 自动前缀缓存（需手动启用）")
+        }
+        return Cap("other", "none", false, 0, "未知 / 无上下文缓存（不改写请求）")
+    }
+
+    data class CtxInfo(val window: Int, val tier: Int, val source: String)
+
+    private val CONTEXT_TABLE: List<Triple<Regex, Int, Int>> = listOf(
+        Triple(Regex("deepseek"), 128_000, 0),
+        Triple(Regex("qwen3\\.7-flash"), 1_000_000, 32_000),
+        Triple(Regex("qwen3-coder-flash"), 1_000_000, 32_000),
+        Triple(Regex("qwen3-vl-plus"), 256_000, 32_000),
+        Triple(Regex("qwen3\\.7-plus"), 1_000_000, 256_000),
+        Triple(Regex("qwen3\\.6-(plus|flash)"), 1_000_000, 256_000),
+        Triple(Regex("qwen3\\.5-(plus|flash)|qwen-plus-character|qwen-flash-character"), 0, 0),
+        Triple(Regex("character"), 32_000, 0),
+        Triple(Regex("qwen3\\.5-(plus|flash)"), 1_000_000, 128_000),
+        Triple(Regex("qwen-plus|qwen-flash|qwen-turbo"), 1_000_000, 128_000),
+        Triple(Regex("qwen3\\.8-flash"), 1_000_000, 0),
+        Triple(Regex("qwen3\\.[78]-max"), 256_000, 0),
+        Triple(Regex("qwen-max"), 32_000, 0),
+        Triple(Regex("qwen-long"), 10_000_000, 0),
+        Triple(Regex("qwq|qwen"), 128_000, 0),
+        Triple(Regex("claude"), 200_000, 0),
+        Triple(Regex("gemini"), 1_000_000, 0),
+        Triple(Regex("gpt-|^o\\d"), 400_000, 0),
+    )
+
+    fun contextInfo(model: String?, meta: JObj? = null): CtxInfo {
+        val m = Js.str(model).lowercase().substringAfterLast('/')
+        var window = 0
+        var tier = 0
+        var source = "default"
+        for ((re, w, t) in CONTEXT_TABLE) {
+            if (!re.containsMatchIn(m)) continue
+            if (w == 0) {
+                if (m.contains("character")) window = 32_000 else continue
+            } else {
+                window = w
+                tier = t
+            }
+            source = "table"
+            break
+        }
+        val metaContext = Js.i32(meta?.get("context"))
+        if (metaContext > 0) {
+            window = metaContext
+            source = "meta"
+        }
+        if (window == 0) window = 64_000
+        return CtxInfo(window, tier, source)
+    }
+
+    private fun round1k(n: Double): Int = max(1000, (n / 1000).roundToInt() * 1000)
+    private fun clamp(v: Double, a: Double, b: Double): Double = min(b, max(a, v))
+
+    data class Budget(
+        val maxContext: Int,
+        val outputReserve: Int,
+        val safetyMargin: Int,
+        val triggerTokens: Int,
+        val chapterCap: Int,
+        val window: Int,
+        val tier: Int,
+        val source: String,
+    )
+
+    /** 上限 = min(窗口, 价格第一档, 200K) × 0.8；输出预留 10%（4K–16K）；余量 2%（1K–4K）。 */
+    fun autoBudget(cap: Cap?, model: String?, meta: JObj? = null): Budget {
+        val ci = contextInfo(model, meta)
+        if (cap?.vendor == "deepseek" && ci.source != "meta") {
+            return Budget(
+                DEFAULT_MAX_CONTEXT, DEFAULT_OUTPUT_RESERVE, DEFAULT_SAFETY_MARGIN,
+                DEFAULT_TRIGGER_TOKENS, DEFAULT_CHAPTER_CAP, ci.window, 0, "deepseek-default"
+            )
+        }
+        val usable = min(ci.window.toDouble(), if (ci.tier > 0) ci.tier.toDouble() else Double.MAX_VALUE).let { min(it, 200_000.0) }
+        val maxCtx = round1k(max(8000.0, usable * 0.8))
+        return Budget(
+            maxContext = maxCtx,
+            outputReserve = round1k(clamp(maxCtx * 0.1, 4000.0, 16000.0)),
+            safetyMargin = clamp(maxCtx * 0.02, 1000.0, 4000.0).roundToInt(),
+            triggerTokens = round1k(maxCtx * 0.3),
+            chapterCap = round1k(clamp(maxCtx * 0.12, 4000.0, 24000.0)),
+            window = ci.window,
+            tier = ci.tier,
+            source = ci.source,
+        )
+    }
+
+    // ---------------- 请求组装 ----------------
+
+    data class Built(val system: String, val messages: List<Pair<String, String>>)
+
+    /**
+     * 组装最终请求：历史原样追加（前缀不动）+ 最后一条用户消息 = 输入 + 增量 + 状态。
+     * 注意：这里不做预算裁剪（JS 的 temporaryTrimPlan / lagrangian），调用方决定要不要裁。
+     */
+    fun assemble(system: String, hist: List<JObj>, input: JObj?, st: JObj?): Built {
+        val msgs = ArrayList<Pair<String, String>>(hist.size + 1)
+        hist.forEach { m -> msgs.add(Js.str(m["role"]) to Js.str(m["content"])) }
+        if (input != null) msgs.add("user" to finalUserContent(st, input["content"]))
+        return Built(system, msgs)
+    }
+
+    /** 估算各层 token（用于界面与预算判断）。 */
+    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>): JObj {
+        val input = items.lastOrNull() as? JObj
+        val hist = if (input != null && Js.str(input["role"]) == "user") items.dropLast(1) else items
+        return jobj(
+            "static" to estimateTokens(staticText(st, baseSystem)),
+            "memory" to estimateTokens(memoryText(st)),
+            "summary" to estimateTokens(summaryText(st)),
+            "history" to estimateItems(hist),
+            "delta" to estimateTokens(deltaText(st)),
+            "state" to estimateTokens(stateText(st)),
+            "input" to (if (input != null) estimateItems(listOf(input)) + 6 else 0),
+        )
+    }
+
+    /** 最旧的一批历史：除最近 keep 轮之外的全部（JS 的 oldestBatch）。 */
+    fun oldestBatch(hist: List<JObj>, keep: Int): List<JObj> {
+        val userIdx = hist.indices.filter { Js.str(hist[it]["role"]) == "user" }
+        val k = max(1, keep)
+        if (userIdx.size <= k) return emptyList()
+        return hist.take(userIdx[userIdx.size - k])
+    }
+}
