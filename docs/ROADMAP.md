@@ -34,7 +34,14 @@
 
 ## 3. 未做的页面
 
-- 生图页（`ImageClient` / `ImageScreen`）
+- 生图页 ✅ 已完成（`net/ImageGen.kt` + `net/DefaultImageClient.kt` + `ui/image/ImageScreen.kt`）
+  - 协议照 `providers.js:721–823` 分三支：OpenRouter → `POST /images` + `resolution`/`aspect_ratio`；
+    FLUX 3 / Seedream 档位模型 → 同样用档位，但路径是 `/images/generations`；
+    其余 OpenAI 兼容 → `size`（硅基流动改 `image_size` 并去掉 `n`，`kolors` 再加 `batch_size`）
+  - 响应解析兼容 `data[]` / `images[]`、`url` 与 `b64_json`（带 `media_type`/`mime_type`），
+    既无 url 又无 b64 的项跳过；非 JSON 响应不抛异常
+  - 图片渲染不引 Coil：`ui/common/RemoteImage.kt` 用 OkHttp + `BitmapFactory`，带 24 条 LRU
+  - 没做：参考图上传、历史落盘（现在只在内存里，最多 10 条）、保存到相册、聊天里「据此生图」
 - 用量页 ✅ 已完成（`ui/settings/UsageScreen.kt` + `domain/cost/UsageReport.kt`）
   - 区间切换（今天 / 7 天 / 30 天 / 全部）、汇总卡、按模型、最近 14 天
   - 费用是**展示时**按 `usage-stats-meta.json` 的价目实时算的（`CostCoreJs.costOfEntry`），
