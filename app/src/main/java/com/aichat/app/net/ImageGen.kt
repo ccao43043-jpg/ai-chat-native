@@ -25,6 +25,9 @@ object ImageGen {
     val SIZES = listOf("1024x1024", "1024x1792", "1792x1024", "512x512", "768x768")
     const val DEFAULT_SIZE = "1024x1024"
     const val HISTORY_LIMIT = 10
+
+    /** UI 选图上限：OpenRouter 收 16 张、其余 10 张，这里按较小的一边收。 */
+    const val MAX_REF_IMAGES = 10
     const val MSG_SLICE = 280
 
     /** providers.js 的 ASPECT_RATIOS（顺序影响"最接近"的取舍，别排序） */
