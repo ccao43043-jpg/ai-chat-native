@@ -394,6 +394,12 @@ object RpCacheCore {
         val dropped: Int,
         val needSummary: Boolean,
         val summaryReason: String?,
+        /** 章节合计 token（判断要不要合并用） */
+        val chapterTokens: Int,
+        /** 章节上限（settings.summary.chapter_cap_tokens） */
+        val cap: Int,
+        /** 该合并章节了：本轮要写摘要、章节数 > 1、合计超上限 */
+        val needConsolidate: Boolean,
         val batch: List<JObj>,
         val calib: Double,
     )
@@ -467,11 +473,17 @@ object RpCacheCore {
             }
         }
 
+        val chapterTokens = (tok["summary"] as? Number)?.toInt() ?: 0
+        val cap = maxOf(1000, numOf(sum["chapter_cap_tokens"], 12000))
+        // 只在"本轮真要写摘要"时才考虑合并：没有新章要提交，合并等于白白重建一次缓存
+        val needConsolidate = reason != null && chapters.size > 1 && chapterTokens >= cap
         return Plan(
             st = st, system = system, hist = hist, input = input, unsummarized = unsummarized,
             tokens = JObj(tok), limit = limit, overBudget = overBudget,
             trimmed = start > 0, tempTrim = false, dropped = start,
-            needSummary = reason != null, summaryReason = reason, batch = batch, calib = k,
+            needSummary = reason != null, summaryReason = reason,
+            chapterTokens = chapterTokens, cap = cap, needConsolidate = needConsolidate,
+            batch = batch, calib = k,
         )
     }
 

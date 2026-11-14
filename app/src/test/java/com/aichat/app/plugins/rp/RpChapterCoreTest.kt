@@ -24,6 +24,9 @@ class RpChapterCoreTest {
 
     private fun g(key: String): Any? = golden[key]
 
+    /** golden 里那份质量达标的八分区摘要，合并用例也要用它当"合法输入" */
+    private val good: String = (g("good") as Map<*, *>).let { Js.str(it["text"]) }
+
     private val BATCH4 = listOf(
         jobj("id" to "m1", "role" to "user", "content" to "船还好吗？"),
         jobj("id" to "m2", "role" to "assistant", "content" to "桅杆断了，帆还能补。"),
@@ -164,5 +167,64 @@ class RpChapterCoreTest {
         assertEquals("顺序无关、内容相关", a, b)
         assertTrue(a!!.startsWith("sha256:"))
         assertNull(RpChapterCore.sourceFp(items, listOf("zzz")))
+    }
+
+    @Test
+    fun consolidateKeepsOneChapterAndArchivesTheRest() {
+        val base = RpState.normalizeState(jobj("blocks" to emptyList<Any?>()))
+        val old1 = jobj("no" to 1, "content" to good, "coveredIds" to listOf("m1", "m2"), "hash" to "h1")
+        val old2 = jobj("no" to 2, "content" to good, "coveredIds" to listOf("m3"), "hash" to "h2")
+        val st = JObj(base.toMutableMap().also {
+            it["chapters"] = arrayListOf(old1, old2)
+            it["chapterSeq"] = 2
+            it["window"] = jobj("startId" to "m3", "startOrdinal" to 2)
+            it["overflow"] = jobj("tempStartId" to "m9")
+        })
+
+        val r = RpChapterCore.consolidate(st, good, null, emptyList(), 9L, 6, 6)
+        assertTrue("合并应成功", r.ok)
+        val next = r.state
+        val chapters = next["chapters"] as List<*>
+        assertEquals("合并后只剩一章", 1, chapters.size)
+        val ch = chapters[0] as Map<*, *>
+        assertEquals("旧章节号进 mergedFrom", listOf(1, 2), ch["mergedFrom"])
+        assertEquals("覆盖范围取并集", 3, (ch["coveredIds"] as List<*>).size)
+        assertEquals("章节号 = 新的 seq", 3, (next["chapterSeq"] as Number).toInt())
+        assertEquals("合并后窗口回到最前", 0, ((next["window"] as JObj)["startOrdinal"] as Number).toInt())
+        assertNull("合并后清掉临时裁剪", next["overflow"])
+        assertEquals("两章都进归档", 2, (next["archive"] as List<*>).size)
+        val archived = (next["archive"] as List<*>)[0] as Map<*, *>
+        assertEquals("归档原因 = merge", "merge", Js.str(archived["archivedWhy"]))
+        assertEquals(9L, (archived["archivedAt"] as Number).toLong())
+    }
+
+    @Test
+    fun consolidateRejectsLowQualityWithoutTouchingState() {
+        val base = RpState.normalizeState(jobj("blocks" to emptyList<Any?>()))
+        val st = JObj(base.toMutableMap().also {
+            it["chapters"] = arrayListOf(jobj("no" to 1, "content" to good, "coveredIds" to listOf("m1")))
+            it["chapterSeq"] = 1
+        })
+        val bad = "FACTS:\n- 只有一条事实。"
+        val r = RpChapterCore.consolidate(st, bad, null, emptyList(), 1L, 1, 1)
+        assertFalse("分区不全必须拒绝", r.ok)
+        assertEquals("invalid_summary", r.reason)
+        assertTrue("拒绝时 state 原样返回", r.state === st)
+    }
+
+    @Test
+    fun consolidateAppendsToExistingArchive() {
+        val base = RpState.normalizeState(jobj("blocks" to emptyList<Any?>()))
+        val st = JObj(base.toMutableMap().also {
+            it["chapters"] = arrayListOf(jobj("no" to 1, "content" to good, "coveredIds" to emptyList<String>()),
+                jobj("no" to 2, "content" to good, "coveredIds" to emptyList<String>()))
+            it["chapterSeq"] = 2
+            it["archive"] = arrayListOf(jobj("no" to 0, "content" to "以前的归档", "archivedWhy" to "merge", "archivedAt" to 1L))
+        })
+        val r = RpChapterCore.consolidate(st, good, null, emptyList(), 4L, 2, 2)
+        assertTrue(r.ok)
+        val archive = r.state["archive"] as List<*>
+        assertEquals("旧归档保留、新归档追加", 3, archive.size)
+        assertEquals("最早的还在最前", "以前的归档", Js.str((archive[0] as Map<*, *>)["content"]))
     }
 }

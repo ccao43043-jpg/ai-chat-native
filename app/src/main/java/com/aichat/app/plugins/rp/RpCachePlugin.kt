@@ -134,6 +134,25 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     private suspend fun summarize(conv: Conversation, st: JObj, p: RpCacheCore.Plan): JObj? {
         val a = ask ?: return null
         val batch = p.batch
+        // 章节总量超上限时走合并：把已有章节（+ 本批）压成一章，否则章节会越积越多、system 越来越长
+        if (p.needConsolidate) {
+            val prompt = RpChapterCore.buildConsolidatePrompt(
+                RpCacheCore.chaptersOf(st),
+                batch,
+                RpCacheCore.memoryText(st).ifEmpty { null },
+            )
+            val text = runCatching { a(conv, prompt) }.getOrNull() ?: return null
+            val r = RpChapterCore.consolidate(
+                st = st,
+                content = text,
+                batch = batch,
+                coveredIds = batch.map { Js.str(it["id"]) },
+                at = host.now(),
+                rounds = RpCacheCore.roundsOf(p.unsummarized) + RpCacheCore.roundsOf(listOfNotNull(p.input)),
+                atRound = RpCacheCore.roundsOf(p.unsummarized) + RpCacheCore.roundsOf(listOfNotNull(p.input)),
+            )
+            return if (r.ok) r.state else null
+        }
         if (batch.isEmpty()) return null
         val prompt = RpChapterCore.buildSummaryPrompt(
             RpCacheCore.chaptersOf(st),
