@@ -95,6 +95,10 @@ object RpChapterCore {
         val missing: List<String>,
         val critEmpty: List<String>,
         val quality: Double,
+        /** 有账本时挂一致性校验（旧版 rpcache.js 的 parseSummary opts.ledger）。 */
+        val ledgerCheck: RpMemoryCore.LedgerCheck? = null,
+        /** 质量不过关且因账本冲突时，给调用方一句可读的修正提示。 */
+        val retryHint: String? = null,
     )
 
     /** 宽松清洗：去代码块、去掉自带的 `[CHAPTER_SUMMARY]` 标题行、再 canonicalize。 */
@@ -105,13 +109,17 @@ object RpChapterCore {
         return RpCacheCore.canonicalize(t)
     }
 
-    fun parseSummary(raw: Any?): Parsed {
+    fun parseSummary(raw: Any?, ledger: List<JObj>? = null): Parsed {
         val t = cleanSummary(raw)
         val missing = SECTIONS.filter { !Regex("(^|\\n)\\s*[#*]*\\s*$it\\b", RegexOption.IGNORE_CASE).containsMatchIn(t) }
         val critEmpty = CRITICAL.filter { isEmptySectionBody(sectionBody(t, it)) }
-        val quality = scoreSummary(t)
+        var quality = scoreSummary(t)
+        // 账本一致性：摘要里与当前事实冲突的断言会扣分（0.10/条），查不到的断言轻扣（0.03/条）。
+        val check = if (ledger != null) RpMemoryCore.checkSummaryAgainstLedger(t, ledger, quality) else null
+        if (check != null) quality = check.summaryQuality
         val ok = t.isNotEmpty() && missing.isEmpty() && quality >= MIN_QUALITY && critEmpty.size < CRITICAL.size
-        return Parsed(ok, t, missing, critEmpty, quality)
+        val hint = if (!ok && (check?.conflictCount ?: 0) > 0) RpMemoryCore.buildLedgerConflictHint(check) else null
+        return Parsed(ok, t, missing, critEmpty, quality, check, hint)
     }
 
     /** 新章节提示词：只总结「本批新移出的旧对话」，之前的章节只读参考、不要求复述。 */

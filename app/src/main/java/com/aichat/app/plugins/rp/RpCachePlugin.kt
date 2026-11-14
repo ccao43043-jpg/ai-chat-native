@@ -361,4 +361,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         n >= 1_000 -> String.format("%.1fk", n / 1_000.0)
         else -> n.toString()
     }
+    /** 账本（`rpState.ledger`）转成纯函数层用的 List<JObj>。 */
+    private fun ledgerOf(st: JObj): List<JObj>? {
+        val raw = st["ledger"] as? List<*> ?: return null
+        return raw.mapNotNull { it as? JObj }.takeIf { it.isNotEmpty() }
+    }
 }

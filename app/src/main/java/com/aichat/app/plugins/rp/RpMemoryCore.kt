@@ -278,10 +278,11 @@ object RpMemoryCore {
     }
 
     /** 合并结果；`list` 是合并后的全部条目。 */
-    data class MergeResult(val list: List<JObj>, val added: Int, val merged: Int, val conflicts: Int, val superseded: Int) {
+    data class MergeResult(val list: List<JObj>, val added: Int, val merged: Int, val conflicts: Int, val superseded: Int, val ledger: List<JObj>? = null) {
         fun toJs(): JObj = jobj(
             "list" to list, "added" to added, "merged" to merged,
             "conflicts" to conflicts, "superseded" to superseded,
+            "ledger" to ledger,
         )
     }
 
@@ -296,6 +297,8 @@ object RpMemoryCore {
         val turn = (opts["turn"] as? Number)?.toInt()
         val sourceMsgId = opts["sourceMsgId"] as? String
         val suffix = (at % 100_000).toString()
+        val ledgerIn = (opts["ledger"] as? List<*>)?.mapNotNull { it as? JObj }
+        val changed = ArrayList<JObj>()
 
         for (n in incoming ?: emptyList()) {
             val nn = norm(n["text"])
@@ -553,4 +556,296 @@ object RpMemoryCore {
     /** 把注入文本追加到消息内容末尾（字符串模型；旧版的多段 content 已在原生侧归一成 String）。 */
     fun appendToContent(content: String?, add: String): String =
         if (content.isNullOrEmpty()) add else "$content\n\n$add"
+    // ---------------- §6 事实账本（ledger）：生效区间 + 摘要一致性 ----------------
+
+    fun hashStr(s: String): Int {
+        var h = 0
+        for (ch in s) h = (h shl 5) - h + ch.code
+        return h
+    }
+
+    /** 三元组 → 账本键：subject + attribute(=family) + value(=object + polarity/predicate/raw)。 */
+    fun tripleToFactParts(t: RelTriple?): JObj? {
+        if (t == null) return null
+        val attribute = t.family?.takeIf { it.isNotEmpty() }
+            ?: t.predicate.takeIf { it.isNotEmpty() } ?: "misc"
+        return jobj(
+            "subject" to t.subject,
+            "attribute" to attribute,
+            "value" to jobj(
+                "object" to t.obj.ifEmpty { "_" },
+                "polarity" to t.polarity,
+                "predicate" to t.predicate,
+                "raw" to t.raw,
+            ),
+        )
+    }
+
+    /** JS 的 `String(x || '')`：null / undefined / 字符串 "undefined" 都当空。 */
+    private fun sv(v: Any?): String = when {
+        v == null -> ""
+        v is String -> v
+        else -> Js.str(v).takeIf { it != "undefined" && it != "null" } ?: ""
+    }
+
+    fun valuesEquivalent(a: Any?, b: Any?): Boolean {
+        if (a == null || b == null) return false
+        if (a is String || b is String) {
+            val sa = sv(a); val sb = sv(b)
+            val na = norm(sa); val nb = norm(sb)
+            if (na.isEmpty() || nb.isEmpty()) return false
+            return na == nb || na.contains(nb) || nb.contains(na) || similarity(sa, sb) >= 0.8
+        }
+        val va = a as? Map<*, *> ?: return false
+        val vb = b as? Map<*, *> ?: return false
+        val pa = (va["polarity"] as? Number)?.toInt() ?: 0
+        val pb = (vb["polarity"] as? Number)?.toInt() ?: 0
+        val oa = sv(va["object"]); val ob = sv(vb["object"])
+        if (pa != 0 && pb != 0 && pa == pb && sameEntity(oa, ob)) return true
+        if (pa == 0 && pb == 0 && sameEntity(oa, ob)) return true
+        val prA = sv(va["predicate"]); val prB = sv(vb["predicate"])
+        if (prA.isNotEmpty() && prB.isNotEmpty() && prA == prB && sameEntity(oa, ob)) return true
+        val ra = norm(sv(va["raw"]).ifEmpty { prA })
+        val rb = norm(sv(vb["raw"]).ifEmpty { prB })
+        if (ra.isNotEmpty() && rb.isNotEmpty() &&
+            (ra == rb || ra.contains(rb) || rb.contains(ra) || similarity(sv(va["raw"]), sv(vb["raw"])) >= 0.8)
+        ) return true
+        return false
+    }
+
+    fun valuesConflict(a: Any?, b: Any?): Boolean {
+        if (a == null || b == null) return false
+        val va = a as? Map<*, *> ?: return false
+        val vb = b as? Map<*, *> ?: return false
+        val pa = (va["polarity"] as? Number)?.toInt() ?: 0
+        val pb = (vb["polarity"] as? Number)?.toInt() ?: 0
+        if (pa != 0 && pb != 0 && pa != pb && sameEntity(sv(va["object"]), sv(vb["object"]))) return true
+        return false
+    }
+
+    fun valuesDiffer(a: Any?, b: Any?): Boolean {
+        if (valuesEquivalent(a, b)) return false
+        if (valuesConflict(a, b)) return true
+        val va = a as? Map<*, *>; val vb = b as? Map<*, *>
+        if (va != null && vb != null) {
+            if (!sameEntity(sv(va["object"]), sv(vb["object"]))) return true
+            val pa = (va["polarity"] as? Number)?.toInt() ?: 0
+            val pb = (vb["polarity"] as? Number)?.toInt() ?: 0
+            if (pa != pb) return true
+            val prA = sv(va["predicate"]); val prB = sv(vb["predicate"])
+            if (prA.isNotEmpty() && prB.isNotEmpty() && prA != prB && pa == 0) return true
+        }
+        return !valuesEquivalent(a, b)
+    }
+
+    fun factFromText(text: String?, meta: Map<String, Any?> = emptyMap()): JObj {
+        val t = Js.str(text)
+        val triple = extractRelationTriple(t)
+        val parts = tripleToFactParts(triple)
+        val turn = (meta["turn"] as? Number)?.toInt() ?: 0
+        val id = (meta["id"] as? String)?.takeIf { it.isNotEmpty() }
+            ?: ("f" + turn + "_" + kotlin.math.abs(hashStr(t) % 100000))
+        val sourceMsgId = meta["sourceMsgId"]
+        val quote = (meta["quote"] as? String)?.takeIf { it.isNotEmpty() } ?: t.take(120)
+        if (parts == null) {
+            return jobj(
+                "id" to id,
+                "subject" to (norm(t.take(8)).ifEmpty { "_" }),
+                "attribute" to "note",
+                "value" to jobj("object" to norm(t), "polarity" to 0, "predicate" to "", "raw" to t),
+                "validFromTurn" to turn, "validToTurn" to null,
+                "sourceMsgId" to sourceMsgId,
+                "confidence" to clamp01(meta["confidence"] ?: 0.5),
+                "supersededBy" to null, "quote" to quote,
+            )
+        }
+        return jobj(
+            "id" to id,
+            "subject" to parts["subject"],
+            "attribute" to parts["attribute"],
+            "value" to parts["value"],
+            "validFromTurn" to turn, "validToTurn" to null,
+            "sourceMsgId" to sourceMsgId,
+            "confidence" to clamp01(meta["confidence"] ?: 0.7),
+            "supersededBy" to null, "quote" to quote,
+        )
+    }
+
+    fun sameFactKey(a: JObj?, b: JObj?): Boolean {
+        if (a == null || b == null) return false
+        return sameEntity(sv(a["subject"]), sv(b["subject"])) && sv(a["attribute"]) == sv(b["attribute"])
+    }
+
+    fun currentFacts(ledger: List<JObj>?, atTurn: Int?): List<JObj> = (ledger ?: emptyList()).filter { f ->
+        if (f["supersededBy"] != null) return@filter false
+        val to = f["validToTurn"]
+        if (to != null) {
+            if (atTurn == null) return@filter false
+            val from = (f["validFromTurn"] as? Number)?.toInt() ?: 0
+            return@filter from <= atTurn && atTurn < ((to as? Number)?.toInt() ?: 0)
+        }
+        if (atTurn != null && ((f["validFromTurn"] as? Number)?.toInt() ?: 0) > atTurn) return@filter false
+        true
+    }
+
+    data class Upsert(val ledger: List<JObj>, val action: String, val fact: JObj, val closed: JObj?)
+
+    /** 追加/更新事实：同 (subject,attribute) 且未关闭时，等价合并置信度，否则关闭旧的写新的。 */
+    fun upsertFact(ledger: List<JObj>?, fact: JObj, turn: Int?): Upsert {
+        val out = (ledger ?: emptyList()).map { f ->
+            val copy = LinkedHashMap<String, Any?>(f)
+            (f["value"] as? Map<*, *>)?.let { v -> copy["value"] = LinkedHashMap<String, Any?>(v as Map<String, Any?>) }
+            copy
+        }.toMutableList()
+        val neu = LinkedHashMap<String, Any?>(fact)
+        (fact["value"] as? Map<*, *>)?.let { v -> neu["value"] = LinkedHashMap<String, Any?>(v as Map<String, Any?>) }
+        val t = turn ?: ((neu["validFromTurn"] as? Number)?.toInt() ?: 0)
+        neu["validFromTurn"] = t
+        if (!neu.containsKey("validToTurn")) neu["validToTurn"] = null
+        if (!neu.containsKey("supersededBy")) neu["supersededBy"] = null
+        if (neu["confidence"] == null) neu["confidence"] = 0.7
+        neu["confidence"] = clamp01(neu["confidence"])
+        if (neu["id"] == null || Js.str(neu["id"]).isEmpty()) {
+            val raw = sv(neu["subject"]) + "|" + sv(neu["attribute"]) + "|" + Js.stringify(neu["value"])
+            neu["id"] = "f" + t + "_" + kotlin.math.abs(hashStr(raw) % 100000)
+        }
+        val open = out.firstOrNull { sameFactKey(it, neu) && it["validToTurn"] == null && it["supersededBy"] == null }
+        if (open == null) {
+            out.add(neu)
+            return Upsert(out, "add", neu, null)
+        }
+        if (valuesEquivalent(open["value"], neu["value"])) {
+            open["confidence"] = mergeConfidence(open["confidence"], neu["confidence"])
+            val nq = sv(neu["quote"]); val oq = sv(open["quote"])
+            if (nq.isNotEmpty() && (oq.isEmpty() || nq.length > oq.length)) open["quote"] = nq
+            if (neu["sourceMsgId"] != null && open["sourceMsgId"] == null) open["sourceMsgId"] = neu["sourceMsgId"]
+            return Upsert(out, "merge", open, null)
+        }
+        open["validToTurn"] = t
+        open["supersededBy"] = neu["id"]
+        out.add(neu)
+        val action = if (valuesConflict(open["value"], neu["value"])) "conflict" else "update"
+        return Upsert(out, action, neu, open)
+    }
+
+    /** 按 subject 聚合当前有效事实；超预算按 confidence × recency 取。 */
+    fun renderLedger(ledger: List<JObj>?, opts: Map<String, Any?> = emptyMap()): String {
+        val atTurn = (opts["atTurn"] as? Number)?.toInt()
+        val nowTurn = (opts["nowTurn"] as? Number)?.toInt() ?: (atTurn ?: 0)
+        val budget = (opts["budget"] as? Number)?.toInt() ?: ((opts["maxFacts"] as? Number)?.toInt() ?: 12)
+        val tau = (opts["tau"] as? Number)?.toDouble() ?: 20.0
+        val scored = currentFacts(ledger, atTurn).map { f ->
+            val age = maxOf(0, nowTurn - ((f["validFromTurn"] as? Number)?.toInt() ?: 0))
+            val recency = kotlin.math.exp(-age / maxOf(1.0, tau))
+            f to clamp01(f["confidence"] ?: 0.5) * recency
+        }.sortedWith(compareByDescending<Pair<JObj, Double>> { it.second }
+            .thenByDescending { (it.first["validFromTurn"] as? Number)?.toInt() ?: 0 })
+        val picked = if (budget > 0) scored.take(budget) else scored
+        val bySub = LinkedHashMap<String, MutableList<JObj>>()
+        picked.forEach { (f, _) ->
+            val k = sv(f["subject"]).ifEmpty { "_" }
+            bySub.getOrPut(k) { mutableListOf() }.add(f)
+        }
+        val lines = ArrayList<String>()
+        bySub.forEach { (sub, arr) ->
+            arr.forEach { f ->
+                val v = f["value"] as? Map<*, *>
+                val raw = sv(v?.get("raw"))
+                val pred = sv(v?.get("predicate")).ifEmpty { sv(f["attribute"]) }
+                val obj = sv(v?.get("object"))
+                val label = raw.ifEmpty { pred + (if (obj.isNotEmpty() && obj != "_") obj else "") }
+                val quote = sv(f["quote"]).ifEmpty { label }
+                lines.add("- [" + sub + "/" + sv(f["attribute"]) + "] " + quote)
+            }
+        }
+        if (lines.isEmpty()) return ""
+        return "[MEMORY_LEDGER]" + "\n" + lines.joinToString("\n")
+    }
+
+    /** 回滚：只保留 sourceMsgId 在 keep 内的事实；若关闭它的 superseder 已被剪掉则重新打开。 */
+    fun pruneBySourceIds(ledger: List<JObj>?, keepIds: Set<String>): List<JObj> {
+        val out = (ledger ?: emptyList())
+            .filter { f -> val s = sv(f["sourceMsgId"]); s.isEmpty() || keepIds.contains(s) }
+            .map { f ->
+                val copy = LinkedHashMap<String, Any?>(f)
+                (f["value"] as? Map<*, *>)?.let { v -> copy["value"] = LinkedHashMap<String, Any?>(v as Map<String, Any?>) }
+                copy
+            }.toMutableList()
+        val ids = out.map { sv(it["id"]) }.toSet()
+        out.forEach { f ->
+            val sup = sv(f["supersededBy"])
+            if (sup.isNotEmpty() && !ids.contains(sup)) {
+                f["supersededBy"] = null
+                f["validToTurn"] = null
+            }
+        }
+        return out
+    }
+
+    /** 从摘要文本抽断言句（分区行 / 列表项）。 */
+    fun assertionLines(summaryText: String?): List<String> {
+        val heads = Regex("^(FACTS|CHARACTER_KNOWLEDGE|PLAYER_KNOWLEDGE|SECRET|UNRESOLVED|RELATIONSHIPS|OBJECTS|LOCATION)\\b", RegexOption.IGNORE_CASE)
+        val none = Regex("^(无|none|n/?a)$", RegexOption.IGNORE_CASE)
+        return Js.str(summaryText).split("\n")
+            .map { it.replace(Regex("^\\s*[-*•#]+\\s*"), "").trim() }
+            .filter { it.isNotEmpty() && !heads.containsMatchIn(it) && !none.matches(it) }
+    }
+
+    data class LedgerCheck(
+        val conflictCount: Int,
+        val unsupportedCount: Int,
+        val conflicts: List<JObj>,
+        val unsupported: List<JObj>,
+        val baseScore: Double,
+        val summaryQuality: Double,
+    )
+
+    fun checkSummaryAgainstLedger(summaryText: String?, ledger: List<JObj>?, baseScore: Double? = null): LedgerCheck {
+        val base = baseScore ?: 1.0
+        val cur = currentFacts(ledger, null)
+        val subjects = cur.map { sv(it["subject"]) }.toSet()
+        val attrsBySub = HashMap<String, MutableSet<String>>()
+        cur.forEach { f -> attrsBySub.getOrPut(sv(f["subject"])) { LinkedHashSet() }.add(sv(f["attribute"])) }
+        var conflictCount = 0; var unsupportedCount = 0
+        val conflicts = ArrayList<JObj>(); val unsupported = ArrayList<JObj>()
+        assertionLines(summaryText).forEach { line ->
+            val t = extractRelationTriple(line)
+            if (t == null) {
+                unsupportedCount++; unsupported.add(jobj("line" to line, "reason" to "no_triple")); return@forEach
+            }
+            val parts = tripleToFactParts(t)!!
+            val sub = subjects.firstOrNull { sameEntity(it, sv(parts["subject"])) }
+            if (sub == null) {
+                unsupportedCount++
+                unsupported.add(jobj("line" to line, "reason" to "unknown_subject", "subject" to parts["subject"]))
+                return@forEach
+            }
+            val attrs = attrsBySub[sub] ?: emptySet<String>()
+            if (!attrs.contains(sv(parts["attribute"]))) {
+                unsupportedCount++
+                unsupported.add(jobj("line" to line, "reason" to "unknown_attr", "subject" to parts["subject"], "attribute" to parts["attribute"]))
+                return@forEach
+            }
+            val open = cur.firstOrNull { sameEntity(sv(it["subject"]), sv(parts["subject"])) && sv(it["attribute"]) == sv(parts["attribute"]) }
+            if (open == null) {
+                unsupportedCount++; unsupported.add(jobj("line" to line, "reason" to "no_open")); return@forEach
+            }
+            if (valuesConflict(open["value"], parts["value"]) || !valuesEquivalent(open["value"], parts["value"])) {
+                conflictCount++
+                conflicts.add(jobj("line" to line, "subject" to parts["subject"], "attribute" to parts["attribute"], "ledger" to open, "asserted" to parts["value"]))
+            }
+        }
+        val q = maxOf(0.0, kotlin.math.round((base - 0.10 * conflictCount - 0.03 * unsupportedCount) * 100) / 100)
+        return LedgerCheck(conflictCount, unsupportedCount, conflicts, unsupported, base, q)
+    }
+
+    fun buildLedgerConflictHint(check: LedgerCheck?): String {
+        if (check == null || check.conflicts.isEmpty()) return ""
+        val body = check.conflicts.take(8).joinToString("\n") { c ->
+            val lv = c["ledger"] as? Map<*, *>
+            val q = sv(lv?.get("quote")).ifEmpty { sv((lv?.get("value") as? Map<*, *>)?.get("raw")) }
+            "- " + sv(c["subject"]) + "/" + sv(c["attribute"]) + "：摘要「" + sv(c["line"]) + "」与账本「" + q + "」冲突"
+        }
+        return "账本冲突（请修正后再提交）：" + "\n" + body
+    }
 }

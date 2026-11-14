@@ -129,7 +129,8 @@ class RpMemoryPlugin(
             val raw = ask(conv, prompt) ?: throw IllegalStateException("没有可用的服务商或模型")
             val items = RpMemoryCore.parseExtraction(raw)
             val turns = userTurns(conv)
-            val res = RpMemoryCore.mergeEntries(entries, items, System.currentTimeMillis(), if (manual) "manual" else "auto", jobj("turn" to turns))
+            val ledgerIn = (bucket["ledger"] as? List<*>)?.mapNotNull { it as? JObj }
+            val res = RpMemoryCore.mergeEntries(entries, items, System.currentTimeMillis(), if (manual) "manual" else "auto", jobj("turn" to turns, "ledger" to ledgerIn))
             val merged = res.list
 
             mutex.withLock {
@@ -140,6 +141,7 @@ class RpMemoryPlugin(
                         "lastTurn" to turns,
                         "lastAt" to System.currentTimeMillis(),
                         "lastError" to "",
+                        "ledger" to (res.ledger ?: ledgerIn),
                     )
                 )
                 store.save(JsonObject(all))

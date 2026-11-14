@@ -592,7 +592,23 @@ class ChatController(
     fun deleteMessage(msgId: String) {
         val c = _state.value.conv ?: return
         if (_state.value.isStreaming) return
-        scope.launch { save(c.copy(messages = c.messages.filterNot { it.id == msgId }), touch = true) }
+        scope.launch {
+            val kept = c.messages.filterNot { it.id == msgId }
+            // 旧版删消息时会按 sourceMsgId 回滚事实账本（rpmemory.pruneBySourceIds）：
+            // 保留没有任何出处的老条目；关闭它的新事实也被删掉时，旧事实重新打开。
+            val nextState = runCatching {
+                val st = com.aichat.app.plugins.rp.RpState.normalizeState(
+                    com.aichat.app.plugins.js.Js.fromJson(c.rpState) as? com.aichat.app.plugins.js.JObj
+                        ?: com.aichat.app.plugins.js.JObj()
+                )
+                val ledger = (st["ledger"] as? List<*>)?.mapNotNull { it as? com.aichat.app.plugins.js.JObj }
+                if (ledger != null) {
+                    st["ledger"] = com.aichat.app.plugins.rp.RpMemoryCore.pruneBySourceIds(ledger, kept.map { it.id }.toSet())
+                }
+                com.aichat.app.plugins.js.Js.toJson(st) as? JsonObject ?: c.rpState
+            }.getOrDefault(c.rpState)
+            save(c.copy(messages = kept, rpState = nextState), touch = true)
+        }
     }
 
     /** 编辑器提示（app.js editMsg 的 hint / warn） */

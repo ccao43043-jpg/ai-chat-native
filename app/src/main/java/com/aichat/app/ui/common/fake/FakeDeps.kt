@@ -59,10 +59,13 @@ class FakePluginRegistry : PluginRegistry {
  *  - 第一个事件是 Started(userMsgId, assistantMsgId)（契约 #c）；输入含「#notice」时演示 Notice。
  */
 class FakeChatEngine(private val repo: ChatRepository, private val chunkDelayMs: Long = 35,
-                     private val now: () -> Long = System::currentTimeMillis) : ChatEngine {
+                     private val now: () -> Long = System::currentTimeMillis,
+                     // 测试用观察点：记录 UI 传给引擎的入参（附件链路以前只断言了落盘，没断言到引擎）
+                     private val onSend: ((String, List<String>, List<FileAttachment>) -> Unit)? = null) : ChatEngine {
     private val running = ConcurrentHashMap<String, Job>()
 
     override fun send(convId: String, userText: String, images: List<String>, files: List<FileAttachment>): Flow<StreamEvent> = flow {
+        onSend?.invoke(userText, images, files)
         val conv = repo.load(convId) ?: run { emit(StreamEvent.Error(0, "对话不存在", "")); return@flow }
         val user = Message(fakeId("m"), Role.USER, userText, now(), images = images, files = files.map { com.aichat.app.data.codec.AttachmentCodec.encode(it) })
         val title = if (conv.messages.isEmpty() && conv.title == "新对话") userText.lineSequence().first().take(24).ifBlank { "新对话" } else conv.title
