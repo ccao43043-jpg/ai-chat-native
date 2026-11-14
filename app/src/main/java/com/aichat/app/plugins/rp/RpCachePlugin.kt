@@ -59,24 +59,33 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val idx = ctx.messages.indexOfLast { it.role == Role.USER }
         if (idx < 0) return ctx
 
-        // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
         val items = ctx.messages.mapIndexed { i, m ->
             jobj(
                 "id" to (m.srcId ?: "i$i"), "role" to m.role.wire,
                 "content" to m.content, "images" to m.images,
             )
         }
-        val p0 = RpCacheCore.plan(st, base, items)
+
+        // 世界书：新触发的条目冻结到最后一条 user 消息上（只追加），再把已有冻结记录拼回去。
+        // 顺序与旧版一致：先 fire（推进 sticky/cooldown）→ 再 applyFrozen（按锚点追加）→ 再 plan。
+        val fireId = items.lastOrNull()?.let { Js.str(it["id"]) } ?: ""
+        val (stFired, _) = if (fireId.isNotEmpty() && Js.str(items.last()["role"]) == "user") {
+            RpLoreCore.fireLore(st, items, host.now(), jobj("convId" to ctx.conv.id))
+        } else st to emptyList()
+        val itemsLore = RpLoreCore.applyFrozenLore(stFired, items)
+
+        // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
-        var stBase = st
+        var stBase = stFired
         var summaryFail: String? = null
         if (p0.needSummary && ask != null) {
-            val r = summarize(ctx.conv, st, p0)
+            val r = summarize(ctx.conv, stFired, p0)
             if (r != null) stBase = r else summaryFail = "summary_failed"
         }
-        val pRaw = if (stBase !== st) RpCacheCore.plan(stBase, base, items) else p0
+        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore) else p0
 
         val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now()) else stBase to pRaw
 

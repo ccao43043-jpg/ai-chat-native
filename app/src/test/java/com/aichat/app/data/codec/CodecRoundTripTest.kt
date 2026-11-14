@@ -124,4 +124,23 @@ class CodecRoundTripTest {
         val enc = UsageStoreCodec.encode(fromProvider)
         assertEquals(listOf("prompt", "completion", "cost"), enc.keys.toList())
     }
+
+    @Test fun rpRootKeysStayOutOfExtras() {
+        // 这些根键以前会掉进 extras：面板填不进 rpState、lore 冻结与窗口状态在重载后丢失。
+        val roots = listOf(
+            "blocks", "settings", "chapters", "summaries", "archive", "chapterSeq", "lastSummaryRound",
+            "calib", "window", "overflow", "seq", "staticVersion", "baseHash",
+            "lore", "loreText", "loreTextHash", "loreFired", "loreState", "loreTrace",
+            "loreNeedsRebuild", "loreEditedWhileFrozen",
+        )
+        val body = roots.joinToString(",") { if (it == "calib" || it == "chapterSeq" || it == "seq") "\"$it\":1" else "\"$it\":{\"k\":1}" }
+        val raw = obj("{\"id\":\"c1\",\"title\":\"t\",\"providerId\":\"p\",\"model\":\"m\",\"createdAt\":1,\"updatedAt\":2,\"messages\":[],$body}")
+        val conv = ConversationCodec.decode(raw)
+        roots.forEach { k ->
+            assertTrue("$k 应进 rpState", conv.rpState.containsKey(k))
+            assertFalse("$k 不该进 extras", conv.extras.containsKey(k))
+        }
+        val back = ConversationCodec.encode(conv)
+        roots.forEach { k -> assertTrue("$k 编码后应仍在顶层", back.containsKey(k)) }
+    }
 }

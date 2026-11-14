@@ -55,6 +55,9 @@ object RpCacheCore {
             val c = blockText(st, id)
             if (c.isNotEmpty()) parts.add("[$tag]\n$c")
         }
+        // 常驻世界书条目属于「几乎不改」的层，排在静态块之后（JS 的 staticText 同序）
+        val lore = RpLoreCore.constantLoreText(st)
+        if (lore.isNotEmpty()) parts.add(lore)
         return parts.joinToString("\n\n")
     }
 
@@ -111,6 +114,8 @@ object RpCacheCore {
             if (c.isNotEmpty()) out.add(Segment("L1", "static", tag, gl, "[$tag]\n$c"))
         }
         val sm = summaryText(st)
+        val lore = RpLoreCore.constantLoreText(st)
+        if (lore.isNotEmpty()) out.add(Segment("L1", "static", "LORE", "D", lore))
         if (sm.isNotEmpty()) out.add(Segment("L3", "static", "CHAPTER_SUMMARY", "S", sm))
         val mm = memoryText(st)
         if (mm.isNotEmpty()) out.add(Segment("L2", "dynamic", "LONG_TERM_MEMORY", "E", mm))
