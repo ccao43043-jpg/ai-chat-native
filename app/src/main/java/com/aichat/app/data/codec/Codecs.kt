@@ -222,14 +222,24 @@ object ConversationCodec : Codec<Conversation> {
         "loreNeedsRebuild", "loreEditedWhileFrozen",
         "affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb",
     )
+    // 落盘位置和旧版一致：这几支在会话顶层，其余（rpcache 的整套状态）在 plugins.rpcache.state 里。
+    // 早期把 rpcache 的键也写到顶层，旧版 JS 读自己的存档时看不见，导出/导入就对不上了。
+    private val RP_TOP_KEYS = setOf("affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb")
     private val id = Fields.strReq("id"); private val title = Fields.str("title"); private val providerId = Fields.str("providerId"); private val model = Fields.str("model")
     private val createdAt = Fields.long("createdAt"); private val updatedAt = Fields.long("updatedAt")
     private val messages = F("messages", Fields.list("messages", MessageCodec).dec, { v: List<Message> -> JsonArray(v.map(MessageCodec::encode)) })
     private val personaName = Fields.strOrNull("personaName"); private val personaEmoji = Fields.strOrNull("personaEmoji"); private val systemPrompt = Fields.strOrNull("systemPrompt")
     private val templateId = Fields.strOrNull("templateId"); private val templateName = Fields.strOrNull("templateName"); private val templateEmoji = Fields.strOrNull("templateEmoji")
     override fun decode(o: JsonObject): Conversation {
-        val rest = JsonObject(o.filterKeys { it !in RP_KEYS }); val rp = JsonObject(o.filterKeys { it in RP_KEYS })
-        val r = Reader(rest)
+        // ConvLog.toConv 把章节放在 plugins.rpcache.state.chapters（与旧版 JS 落盘位置一致），而插件读的是 rpState 根键。
+        // 不在这里抬上来，章节就会被「看得见落盘、读不到内容」：RP 检视永远 0 章、章节面板永远空。
+        val nested = ((o["plugins"] as? JsonObject)?.get("rpcache") as? JsonObject)?.get("state") as? JsonObject
+        val rp = if (nested == null || nested.isEmpty()) JsonObject(o.filterKeys { it in RP_KEYS })
+        else JsonObject(LinkedHashMap<String, kotlinx.serialization.json.JsonElement>().apply {
+            nested.forEach { (k, v) -> if (k in RP_KEYS) put(k, v) }   // 嵌套里的先放
+            o.filterKeys { it in RP_KEYS }.forEach { (k, v) -> put(k, v) }  // 顶层优先
+        })
+        val rest = JsonObject(o.filterKeys { it !in RP_KEYS }); val r = Reader(rest)
         return Conversation(r.read(id), r.read(title), r.read(providerId), r.read(model), r.read(createdAt), r.read(updatedAt), r.read(messages),
             r.read(personaName), r.read(personaEmoji), r.read(systemPrompt), r.read(templateId), r.read(templateName), r.read(templateEmoji), rp, r.extras())
     }
@@ -238,7 +248,29 @@ object ConversationCodec : Codec<Conversation> {
             put(id, e.id); put(title, e.title); put(providerId, e.providerId); put(model, e.model); put(createdAt, e.createdAt); put(updatedAt, e.updatedAt)
             put(messages, e.messages); put(personaName, e.personaName); put(personaEmoji, e.personaEmoji); put(systemPrompt, e.systemPrompt)
             put(templateId, e.templateId); put(templateName, e.templateName); put(templateEmoji, e.templateEmoji) }.build()
-        return JsonObject(LinkedHashMap(base).apply { e.rpState.forEach { (k, v) -> put(k, v) } })
+        val out = LinkedHashMap(base)
+        // rpcache 的整套状态写回 plugins.rpcache.state（旧版位置）；JsonNull 视为 undefined，不落盘。
+        val nested = LinkedHashMap<String, JsonElement>()
+        e.rpState.forEach { (k, v) ->
+            if (k in RP_TOP_KEYS) out[k] = v
+            else if (v !is JsonNull) nested[k] = v
+        }
+        val existingPlugins = out["plugins"] as? JsonObject
+        val existingRpc = existingPlugins?.get("rpcache") as? JsonObject
+        val existingState = existingRpc?.get("state") as? JsonObject
+        if (existingState != null || nested.isNotEmpty()) {
+            val state = LinkedHashMap<String, JsonElement>()
+            existingState?.forEach { (k, v) -> state[k] = v }
+            state.putAll(nested)
+            val rpc = LinkedHashMap<String, JsonElement>()
+            existingRpc?.forEach { (k, v) -> rpc[k] = v }
+            if (state.isNotEmpty() || existingState != null) rpc["state"] = JsonObject(state) else rpc.remove("state")
+            val plugins = LinkedHashMap<String, JsonElement>()
+            existingPlugins?.forEach { (k, v) -> plugins[k] = v }
+            if (rpc.isNotEmpty()) plugins["rpcache"] = JsonObject(rpc) else plugins.remove("rpcache")
+            if (plugins.isNotEmpty()) out["plugins"] = JsonObject(plugins) else out.remove("plugins")
+        }
+        return JsonObject(out)
     }
 }
 
