@@ -1,0 +1,42 @@
+name: diag
+# 一次性诊断：把 gradle 输出尾部推到 ci-logs 分支，便于在拿不到 Actions 日志时读回。
+on:
+  push:
+    paths: ['.github/workflows/diag.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: gradle
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest > /tmp/test.log 2>&1
+          echo "TEST_EXIT=$?" >> /tmp/test.log
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug > /tmp/apk.log 2>&1
+          echo "APK_EXIT=$?" >> /tmp/apk.log
+          mkdir -p /tmp/out
+          tail -c 150000 /tmp/test.log > /tmp/out/test.log
+          tail -c 120000 /tmp/apk.log > /tmp/out/apk.log
+      - name: push
+        if: always()
+        run: |
+          git config user.name "dsh-bot"
+          git config user.email "dsh-bot@users.noreply.github.com"
+          mkdir -p .ci
+          cp /tmp/out/test.log .ci/test.log
+          cp /tmp/out/apk.log .ci/build.log
+          git checkout -B ci-logs
+          git add -f .ci/test.log .ci/build.log
+          git commit -m "ci log $(date -u +%FT%TZ)"
+          git push -f origin ci-logs

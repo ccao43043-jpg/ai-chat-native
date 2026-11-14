@@ -1,0 +1,1011 @@
+{
+ "generated_from": "app/src/main/assets/www/rpcache.js",
+ "cases": {
+  "f1": {
+   "system": "你是一位角色扮演助手。",
+   "segments": [
+    {
+     "layer": "L1",
+     "kind": "static",
+     "title": "base",
+     "gl": "-",
+     "text": "你是一位角色扮演助手。"
+    }
+   ],
+   "stablePrefix": "你是一位角色扮演助手。",
+   "finalUser": "你好",
+   "tokens": {
+    "zh": 3,
+    "en": 4,
+    "mix": 8,
+    "empty": 0
+   },
+   "history": "[[\"user\",\"你会游泳吗？\",[]],[\"assistant\",\"薇拉皱眉：“在水边长大的人，未必喜欢水。”\",[]],[\"user\",\"那我们绕开码头走。\",[]]]"
+  },
+  "f2": {
+   "system": "你是一位角色扮演助手。\n\n[WORLD]\n蒸汽朋克港城，永夜，齿轮与锅炉。\n\n[CHARACTER]\n薇拉，机械师，19 岁，说话简短。\n\n[RP_RULES]\nNPC 不能说破玩家的心思。\n\n[CHAPTER_SUMMARY #001]\n第一章：玩家进城，与薇拉在废料场相遇。\n\n[CHAPTER_SUMMARY #002]\n第二章：两人一起修好了升降机。\n\n[LONG_TERM_MEMORY]\n玩家在第三章救过薇拉。",
+   "segments": [
+    {
+     "layer": "L1",
+     "kind": "static",
+     "title": "base",
+     "gl": "-",
+     "text": "你是一位角色扮演助手。"
+    },
+    {
+     "layer": "L1",
+     "kind": "static",
+     "title": "WORLD",
+     "id": "world",
+     "gl": "B",
+     "text": "[WORLD]\n蒸汽朋克港城，永夜，齿轮与锅炉。"
+    },
+    {
+     "layer": "L1",
+     "kind": "static",
+     "title": "CHARACTER",
+     "id": "character",
+     "gl": "C",
+     "text": "[CHARACTER]\n薇拉，机械师，19 岁，说话简短。"
+    },
+    {
+     "layer": "L1",
+     "kind": "static",
+     "title": "RP_RULES",
+     "id": "rules",
+     "gl": "D",
+     "text": "[RP_RULES]\nNPC 不能说破玩家的心思。"
+    },
+    {
+     "layer": "L3",
+     "kind": "static",
+     "title": "CHAPTER_SUMMARY",
+     "gl": "S",
+     "text": "[CHAPTER_SUMMARY #001]\n第一章：玩家进城，与薇拉在废料场相遇。\n\n[CHAPTER_SUMMARY #002]\n第二章：两人一起修好了升降机。"
+    },
+    {
+     "layer": "L2",
+     "kind": "dynamic",
+     "title": "LONG_TERM_MEMORY",
+     "gl": "E",
+     "text": "[LONG_TERM_MEMORY]\n玩家在第三章救过薇拉。"
+    }
+   ],
+   "stablePrefix": "你是一位角色扮演助手。\n\n[WORLD]\n蒸汽朋克港城，永夜，齿轮与锅炉。\n\n[CHARACTER]\n薇拉，机械师，19 岁，说话简短。\n\n[RP_RULES]\nNPC 不能说破玩家的心思。\n\n[CHAPTER_SUMMARY #001]\n第一章：玩家进城，与薇拉在废料场相遇。\n\n[CHAPTER_SUMMARY #002]\n第二章：两人一起修好了升降机。",
+   "finalUser": "你怕水是因为那次事故吗？\n\n[MEMORY_UPDATE]\n薇拉刚刚提到她怕水。\n\n[CURRENT_STATE]\n时间：第 4 天清晨｜地点：锅炉房｜情绪：戒备",
+   "staticText": "你是一位角色扮演助手。\n\n[WORLD]\n蒸汽朋克港城，永夜，齿轮与锅炉。\n\n[CHARACTER]\n薇拉，机械师，19 岁，说话简短。\n\n[RP_RULES]\nNPC 不能说破玩家的心思。",
+   "summaryText": "[CHAPTER_SUMMARY #001]\n第一章：玩家进城，与薇拉在废料场相遇。\n\n[CHAPTER_SUMMARY #002]\n第二章：两人一起修好了升降机。",
+   "memoryText": "[LONG_TERM_MEMORY]\n玩家在第三章救过薇拉。",
+   "deltaText": "[MEMORY_UPDATE]\n薇拉刚刚提到她怕水。",
+   "stateText": "[CURRENT_STATE]\n时间：第 4 天清晨｜地点：锅炉房｜情绪：戒备",
+   "estimateItems": 47,
+   "history": "[[\"user\",\"你会游泳吗？\",[]],[\"assistant\",\"薇拉皱眉：“在水边长大的人，未必喜欢水。”\",[]]]",
+   "assembled": {
+    "system": "你是一位角色扮演助手。\n\n[WORLD]\n蒸汽朋克港城，永夜，齿轮与锅炉。\n\n[CHARACTER]\n薇拉，机械师，19 岁，说话简短。\n\n[RP_RULES]\nNPC 不能说破玩家的心思。\n\n[CHAPTER_SUMMARY #001]\n第一章：玩家进城，与薇拉在废料场相遇。\n\n[CHAPTER_SUMMARY #002]\n第二章：两人一起修好了升降机。\n\n[LONG_TERM_MEMORY]\n玩家在第三章救过薇拉。",
+    "messages": [
+     {
+      "role": "user",
+      "content": "你会游泳吗？"
+     },
+     {
+      "role": "assistant",
+      "content": "薇拉皱眉：“在水边长大的人，未必喜欢水。”"
+     },
+     {
+      "role": "user",
+      "content": "那我们绕开码头走。"
+     },
+     {
+      "role": "user",
+      "content": "你怕水是因为那次事故吗？\n\n[MEMORY_UPDATE]\n薇拉刚刚提到她怕水。\n\n[CURRENT_STATE]\n时间：第 4 天清晨｜地点：锅炉房｜情绪：戒备"
+     }
+    ],
+    "tokens": {
+     "static": 45,
+     "memory": 14,
+     "summary": 38,
+     "history": 35,
+     "delta": 12,
+     "state": 19,
+     "input": 18,
+     "total": 181,
+     "raw_total": 181
+    },
+    "overBudget": false,
+    "trimmed": false
+   }
+  },
+  "capability": [
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "type": "openai",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "explicit",
+     "auto": true,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024,
+      "lookback": 20
+     },
+     "label": "千问显式缓存（cache_control，5 分钟有效，命中时重置）+ 隐式缓存"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "qwen",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "type": "openai",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "gemini",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 300,
+     "explicit": null,
+     "label": "Gemini 隐式缓存（适配器 openrouter）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "openai",
+     "kind": "implicit",
+     "auto": false,
+     "ttl": 600,
+     "explicit": null,
+     "label": "OpenAI 自动前缀缓存（需手动启用）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "type": "openai",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "other",
+     "kind": "none",
+     "auto": false,
+     "ttl": 0,
+     "explicit": null,
+     "label": "未知 / 无上下文缓存（不改写请求）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "type": "anthropic",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "gemini",
+     "kind": "implicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": null,
+     "label": "Gemini 隐式缓存（需手动启用）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "gemini",
+     "kind": "implicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": null,
+     "label": "Gemini 隐式缓存（需手动启用）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "type": "gemini",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "gemini",
+     "kind": "implicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": null,
+     "label": "Gemini 隐式缓存（需手动启用）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "deepseek-chat",
+    "cap": {
+     "vendor": "deepseek",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 86400,
+     "explicit": null,
+     "label": "DeepSeek 自动前缀缓存（硬盘缓存，通常数小时到数天）"
+    },
+    "info": {
+     "window": 128000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "qwen3.7-plus",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 256000,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "qwen-max",
+    "cap": {
+     "vendor": "qwen",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 600,
+     "explicit": null,
+     "label": "千问隐式缓存（自动，命中按输入价 20%）"
+    },
+    "info": {
+     "window": 32000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "claude-3-7-sonnet",
+    "cap": {
+     "vendor": "anthropic",
+     "kind": "explicit",
+     "auto": false,
+     "ttl": 300,
+     "explicit": {
+      "maxMarkers": 4,
+      "minTokens": 1024
+     },
+     "label": "Claude cache_control（需手动启用）"
+    },
+    "info": {
+     "window": 200000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "gemini-2.0-flash",
+    "cap": {
+     "vendor": "gemini",
+     "kind": "implicit",
+     "auto": true,
+     "ttl": 300,
+     "explicit": null,
+     "label": "Gemini 隐式缓存（适配器 openai-compat）"
+    },
+    "info": {
+     "window": 1000000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "gpt-4o",
+    "cap": {
+     "vendor": "openai",
+     "kind": "implicit",
+     "auto": false,
+     "ttl": 600,
+     "explicit": null,
+     "label": "OpenAI 自动前缀缓存（需手动启用）"
+    },
+    "info": {
+     "window": 400000,
+     "tier": 0,
+     "source": "table"
+    }
+   },
+   {
+    "provider": "custom",
+    "baseUrl": "http://10.0.2.2:8787/v1",
+    "type": "openai",
+    "model": "mock-1",
+    "cap": {
+     "vendor": "other",
+     "kind": "none",
+     "auto": false,
+     "ttl": 0,
+     "explicit": null,
+     "label": "未知 / 无上下文缓存（不改写请求）"
+    },
+    "info": {
+     "window": 64000,
+     "tier": 0,
+     "source": "default"
+    }
+   }
+  ],
+  "budget": [
+   {
+    "model": "deepseek-chat",
+    "budget": {
+     "max_context": 100000,
+     "output_reserve": 12000,
+     "safety_margin": 2000,
+     "trigger_tokens": 30000,
+     "chapter_cap_tokens": 12000,
+     "window": 128000,
+     "tier": 0,
+     "source": "deepseek-default"
+    }
+   },
+   {
+    "model": "qwen3.7-plus",
+    "budget": {
+     "max_context": 100000,
+     "output_reserve": 12000,
+     "safety_margin": 2000,
+     "trigger_tokens": 30000,
+     "chapter_cap_tokens": 12000,
+     "window": 1000000,
+     "tier": 0,
+     "source": "deepseek-default"
+    }
+   },
+   {
+    "model": "claude-3-7-sonnet",
+    "budget": {
+     "max_context": 100000,
+     "output_reserve": 12000,
+     "safety_margin": 2000,
+     "trigger_tokens": 30000,
+     "chapter_cap_tokens": 12000,
+     "window": 200000,
+     "tier": 0,
+     "source": "deepseek-default"
+    }
+   },
+   {
+    "model": "gemini-2.0-flash",
+    "budget": {
+     "max_context": 100000,
+     "output_reserve": 12000,
+     "safety_margin": 2000,
+     "trigger_tokens": 30000,
+     "chapter_cap_tokens": 12000,
+     "window": 1000000,
+     "tier": 0,
+     "source": "deepseek-default"
+    }
+   },
+   {
+    "model": "mock-1",
+    "budget": {
+     "max_context": 100000,
+     "output_reserve": 12000,
+     "safety_margin": 2000,
+     "trigger_tokens": 30000,
+     "chapter_cap_tokens": 12000,
+     "window": 64000,
+     "tier": 0,
+     "source": "deepseek-default"
+    }
+   }
+  ]
+ }
+}

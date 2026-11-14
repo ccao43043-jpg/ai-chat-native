@@ -156,6 +156,8 @@ class PluginRegistryImpl(
             val reg = PluginRegistryImpl(clock)
             val impls: MutableMap<String, (PluginHost) -> ChatPlugin> = LinkedHashMap()
             if (knowledge != null) impls["knowledge"] = knowledge
+            // rpcache：只有对话真的填过 RP 块时才自动生效（autoActive），普通对话请求逐字节不变
+            impls["rpcache"] = { h -> com.aichat.app.plugins.rp.RpCachePlugin(h) }
             impls["usage"] = { _ -> com.aichat.app.plugins.usage.UsagePlugin() }
             impls["gcache"] = { h -> com.aichat.app.plugins.cache.GCachePluginImpl(h) }
             impls["mmcache"] = { h -> com.aichat.app.plugins.cache.MmCachePluginImpl(h) }
