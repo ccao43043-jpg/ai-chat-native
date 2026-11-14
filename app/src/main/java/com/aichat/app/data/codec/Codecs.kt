@@ -212,7 +212,9 @@ object MessageCodec : Codec<Message> {
  * personaId、worldRef 以外的扩展……）进 extras。章节在 extras.plugins.rpcache.state.chapters（与 JS 相同位置）。
  */
 object ConversationCodec : Codec<Conversation> {
-    val RP_KEYS = listOf("chapters", "affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb")
+    // blocks / settings 是 RP 状态的根键（JS 的 conv.blocks / conv.settings 就在顶层），必须算进 rpState：
+    // 否则它们会掉进 extras，rpcache 插件读 conv.rpState 时看到的永远是空的（面板填了也不生效）。
+    val RP_KEYS = listOf("blocks", "settings", "chapters", "affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb")
     private val id = Fields.strReq("id"); private val title = Fields.str("title"); private val providerId = Fields.str("providerId"); private val model = Fields.str("model")
     private val createdAt = Fields.long("createdAt"); private val updatedAt = Fields.long("updatedAt")
     private val messages = F("messages", Fields.list("messages", MessageCodec).dec, { v: List<Message> -> JsonArray(v.map(MessageCodec::encode)) })

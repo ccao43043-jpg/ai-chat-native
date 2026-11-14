@@ -106,7 +106,12 @@ class ChatControllerTest {
         val aid = conv0.messages[1].id
         val first = conv0.messages[1].content
         assertEquals(com.aichat.app.ui.chat.Plan.Done, c.planRegenerate(aid))
- until { c.state.value.isStreaming }; c.idle()
+        // 不能只等 isStreaming：假引擎快的时候整段流式可能在一次 5ms 轮询之间就开始并结束了，
+        // CI 上因此偶发超时（PR #12 的 build 就是这么红的）。直接等"第二个版本出现"更稳。
+        until("重生成落盘") {
+            c.state.value.conv?.messages?.getOrNull(1)?.let { Versions.count(it) >= 2 } == true
+        }
+        c.idle()
         var m = repo.load(conv0.id)!!.messages[1]
         assertEquals(aid, m.id); assertEquals(2, Versions.count(m)); assertEquals(1, Versions.index(m))
         assertTrue(m.content.isNotEmpty())

@@ -89,6 +89,7 @@ fun ChatScreen(
     var panel by rememberSaveable { mutableStateOf<String?>(null) }
     var sheet by rememberSaveable { mutableStateOf(0) }          // 1 = 提示词库，2 = 模板
     var convPlugins by remember { mutableStateOf(false) }
+    var rpPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -157,6 +158,12 @@ fun ChatScreen(
                                 DropdownMenuItem(text = { Text("设置") }, onClick = { menu = false; onOpenSettings(SettingsDestination.Main) })
                                 if (conv != null) DropdownMenuItem(text = { Text("导出本对话") }, onClick = { menu = false; exportConv(conv.id) })
                                 if (conv != null) DropdownMenuItem(text = { Text("本对话插件") }, onClick = { menu = false; convPlugins = true })
+            DropdownMenuItem(text = { Text("RP 状态") }, onClick = {
+                menu = false
+                // 新对话还没有 conv：先建一个，这样可以先写设定再发第一句
+                controller.ensureConversation()
+                rpPanel = true
+            })
                                 DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
                                 extraMenu.forEach { (label, act) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; act() }) }
                             }
@@ -318,6 +325,13 @@ fun ChatScreen(
                 }
             } },
             confirmButton = { TextButton(onClick = { convPlugins = false }) { Text("完成") } })
+    }
+    if (rpPanel && conv != null) {
+        RpPanelDialog(
+            conv = conv,
+            onDismiss = { rpPanel = false },
+            onSave = { blockId, content -> controller.setRpBlock(conv.id, blockId, content) },
+        )
     }
 
     if (picker) ModelPicker(settings.providers, target?.first?.id, target?.second,
