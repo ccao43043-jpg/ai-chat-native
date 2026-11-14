@@ -1,7 +1,8 @@
 name: seed
 # 一次性：把 ai-chat-app 的 native/i2 树搬进这个新仓库，剪掉 WebView/JS 遗留，提交后自删。
-on: push
-  paths: ['.github/workflows/seed.yml']
+on:
+  push:
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -9,15 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: 环境
+        run: |
+          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF"
+          git --version; rsync --version | head -1; bash --version | head -1
+          ls -A
       - name: 拉源码包并剪枝
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           SHA=66822289dac2a3814228579322d9d33578a0fe5a
           TMP=$(mktemp -d)
-          curl -sSL "https://codeload.github.com/ccao43043-jpg/ai-chat-app/tar.gz/$SHA" -o "$TMP/src.tgz"
+          curl -sSL -o "$TMP/src.tgz" "https://codeload.github.com/ccao43043-jpg/ai-chat-app/tar.gz/$SHA"
           echo "downloaded $(stat -c%s "$TMP/src.tgz") bytes"
           tar -xzf "$TMP/src.tgz" -C "$TMP"
           SRC="$TMP/ai-chat-app-$SHA"
+          ls -A "$SRC" | head -30
           # 旧产品的骨头：WebView 前端、旧 JS 测试、桌面壳、旧发布日志
           rm -rf "$SRC/app/src/main/assets" "$SRC/tests" "$SRC/design" "$SRC/desktop" \
                  "$SRC/CHANGELOG.md" "$SRC/package.json" "$SRC/.github/workflows/test.yml"
@@ -25,9 +34,9 @@ jobs:
           rsync -a --exclude='.git/' "$SRC"/ .
           rm -f .github/workflows/seed.yml   # 本工作流自删
           echo "--- 将要提交的顶层 ---"; ls -A
-          echo "--- 统计 ---"; find . -path ./.git -prune -o -type f -print | wc -l
+          echo "--- 文件数 ---"; find . -path ./.git -prune -o -type f -print | wc -l
           git config user.name  "ccao43043-jpg"
           git config user.email "ccao43043@gmail.com"
           git add -A
           git commit -m "初始提交：原生 v1 起点（源自 ai-chat-app native/i2 ${SHA:0:7}）"
-          git push origin HEAD:main
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
