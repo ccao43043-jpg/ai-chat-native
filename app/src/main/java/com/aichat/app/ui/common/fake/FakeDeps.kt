@@ -162,6 +162,6 @@ object FakeDeps {
             data.settings.update { it.copy(providers = ProviderPresets.defaults()) }
         }
         return UiDeps(data.chats, data.settings, data.library, data.keys, FakeChatEngine(data.chats, engineDelayMs, now), plugins,
-            data.migration, isFake = true)
+            data.migration, isFake = true, usage = data.usage)
     }
 }
