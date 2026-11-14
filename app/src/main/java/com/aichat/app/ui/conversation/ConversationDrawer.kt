@@ -1,19 +1,24 @@
 package com.aichat.app.ui.conversation
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -41,6 +46,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.ConversationMeta
+import com.aichat.app.ui.common.pressScale
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,7 +77,17 @@ fun ConversationDrawer(
         HorizontalDivider()
         if (index.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("还没有对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Edit, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.size(8.dp))
+                    Text("还没有对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "点右上角「新对话」开始",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
@@ -109,11 +125,18 @@ fun ConversationDrawer(
 @Composable
 private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onExport: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
+    val src = remember { MutableInteractionSource() }
     Surface(
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
-            .combinedClickable(onClick = onClick, onLongClick = { menu = true }).testTag("conv-${m.id}"),
+            .pressScale(src)
+            .combinedClickable(
+                interactionSource = src,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = { menu = true },
+            ).testTag("conv-${m.id}"),
     ) {
         Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
