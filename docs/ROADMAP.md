@@ -16,8 +16,17 @@
 仍缺席（代码已在 `plugins/`，缺 panel / 深化逻辑）：
 
 - `affect` 面板：走势图、漏标率、护栏统计、估计器切换；`invalidateFrom`（切版本/编辑后清除受影响的 affect）
-- `rpcache` 的深化：章节摘要生成与合并、世界书触发与冻结（`constantLoreText` 未移植）、预算裁剪与 `plan` 的 trim 分支、命中率徽章与「检视 › 缓存」面板
-- RP 面板本身：没有任何 UI 能填 `conv.rpState` 的块，所以上面两条目前只有单测覆盖，设备上跑不到
+- `rpcache` 的深化：章节摘要生成与合并、世界书触发与冻结（`constantLoreText` 未移植）、预算裁剪与 `plan` 的 trim 分支、「检视 › 缓存」面板
+- 存量欠账：`rpmemory.js`（约 46 KB）尚未移植
+
+已完成（本仓库此前的两轮）：
+
+- RP 面板：对话溢出菜单 →「RP 状态」，可编辑 7 个 L1 块（世界 / 角色 / 规则 / 输出格式 / 示例 / 禁止 / 风格）。
+  修根因时发现 `ConversationCodec.RP_KEYS` 少了 `blocks` 和 `settings` 两个根键，导致 `rpState` 永远为空、
+  `rpcache` 在设备上**从未生效且完全静默**——现已补上并加注释。
+- `rpcache` 可见性三件套：每条回复的「缓存 67%」徽章（不支持统计时显示「缓存 不支持统计」，异常时 `⚠`）、
+  顶栏「命中 67%」（点开有上下文用量）、被章节覆盖/超出预算的消息变灰并给出说明。
+  判定口径照 `rp-plugin.js`：`pct` 一位小数、`tone` 0.7/0.3 分档、异常用前 5 次均值（≥50% 且低于均值 30 个点且不足其 60%）。
 
 注册顺序固定：`knowledge → rpcache → usage → gcache → mmcache → affect`。
 

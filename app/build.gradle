@@ -49,7 +49,20 @@ android {
     kotlinOptions { jvmTarget = '17' }
     buildFeatures { compose true; buildConfig true }
     packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
-    testOptions { unitTests.returnDefaultValues = true }
+    testOptions {
+        unitTests.returnDefaultValues = true
+        // CI 上失败时只打一行 "AssertionError at XxxTest.kt:102"，看不出断言内容；
+        // 打开完整异常格式后，控制台日志里能直接看到 expected/actual 与栈。
+        unitTests.all {
+            it.testLogging {
+                events("failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+            }
+        }
+    }
     // 旧 WebView 前端（src/main/assets/www）只作 golden 对照与 node 测试的参考实现，不打进 APK
     sourceSets { main { assets.srcDirs = [] } }
 }
