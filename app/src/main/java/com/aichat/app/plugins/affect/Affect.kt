@@ -431,4 +431,109 @@ object Affect {
         }
         return jobj("start" to start, "end" to if (end < 0) (if (start >= 0) start + w.length else -1) else end, "quote" to if (start >= 0) Js.slice(u, start, end) else w, "approx" to true)
     }
+
+
+    // ---- 漏标补偿 / 面板统计（对齐 affect.js 的 affectSnapshots / missingStats / guardStats / series / invalidateFrom）----
+
+    /** 最近 n 条带 affect 的 assistant 快照。 */
+    fun affectSnapshots(conv: Any?, n: Int = MISS_WINDOW): List<JObj> {
+        val out = ArrayList<JObj>()
+        val ms = (conv?.let { it["messages"] } as? List<*>) ?: return out
+        ms.forEach { m ->
+            val mm = m as? Map<*, *> ?: return@forEach
+            if (Js.str(mm["role"]) != "assistant") return@forEach
+            (mm["affect"] as? JObj)?.let { out.add(it) }
+        }
+        return if (n > 0 && out.size > n) out.subList(out.size - n, out.size).toList() else out
+    }
+
+    /** 最近 n 轮漏标统计：{total, missing, rate}。 */
+    fun missingStats(conv: Any?, n: Int = MISS_WINDOW): JObj {
+        val snaps = affectSnapshots(conv, n)
+        var missing = 0
+        snaps.forEach { s ->
+            if (Js.truthy(s["stateMissing"]) || Js.str(s["p"]).contains("missing_state")) missing++
+        }
+        return jobj("total" to snaps.size, "missing" to missing,
+            "rate" to if (snaps.isEmpty()) 0.0 else missing.toDouble() / snaps.size)
+    }
+
+    fun shouldDemoState(conv: Any?, n: Int = MISS_WINDOW): Boolean =
+        ((missingStats(conv, n)["missing"] as? Number)?.toInt() ?: 0) >= MISS_THRESHOLD
+
+    /** 从已存盘（已剥离）的 affect 重建示范 <state> 行。 */
+    fun rebuildStateTag(affect: Any?): String {
+        val a = affect?.let { it["a"] }
+        val raw = Js.toNumber(a)
+        val n = if (raw.isFinite()) raw else 0.0
+        val sb = StringBuilder("<state>{\"a\":")
+        sb.append(Js.numToString(n))
+        fun clean(v: Any?): String {
+            val s = Js.str(v)
+            return if (s == "null" || s == "undefined") "" else s
+        }
+        val m = clean(affect?.let { it["m"] })
+            .ifEmpty { clean(affect?.let { it["mood"] }) }
+            .ifEmpty { "平静" }
+        sb.append(",\"m\":").append(Js.stringify(m))
+        val why = clean(affect?.let { it["why"] })
+        if (why.isNotEmpty()) sb.append(",\"why\":").append(Js.stringify(Js.slice(why, 0, 80)))
+        sb.append("}</state>")
+        return sb.toString()
+    }
+
+    /** 护栏命中汇总：soft / hard / all 计数表 + 两个总数（`why:` 前缀不算命中，与 JS 一致）。 */
+    fun guardStats(conv: Any?): JObj {
+        val soft = LinkedHashMap<String, Int>()
+        val hard = LinkedHashMap<String, Int>()
+        val all = LinkedHashMap<String, Int>()
+        val ms = (conv?.let { it["messages"] } as? List<*>) ?: emptyList<Any?>()
+        ms.forEach { m ->
+            val mm = m as? Map<*, *> ?: return@forEach
+            val g = ((mm["affect"] as? Map<*, *>)?.get("g") as? Map<*, *>)?.get("guard") as? List<*> ?: return@forEach
+            g.forEach { h ->
+                val hs = Js.str(h)
+                if (hs.isEmpty() || hs.startsWith("why:")) return@forEach
+                all[hs] = (all[hs] ?: 0) + 1
+                if (hs == "abuse_soft" || hs.endsWith("_soft")) soft[hs] = (soft[hs] ?: 0) + 1
+                else hard[hs] = (hard[hs] ?: 0) + 1
+            }
+        }
+        return jobj("soft" to soft, "hard" to hard, "all" to all,
+            "softCount" to soft.values.sum(), "hardCount" to hard.values.sum())
+    }
+
+    /** 最近 n 条好感序列（sparkline 用）。 */
+    fun series(conv: Any?, n: Int = 30): List<Double> {
+        val out = ArrayList<Double>()
+        val ms = (conv?.let { it["messages"] } as? List<*>) ?: return out
+        ms.forEach { m ->
+            val mm = m as? Map<*, *> ?: return@forEach
+            if (Js.str(mm["role"]) != "assistant") return@forEach
+            val a = (mm["affect"] as? Map<*, *>)?.get("aff") ?: return@forEach
+            val v = Js.toNumber(a)
+            if (v.isFinite()) out.add(v)
+        }
+        return if (n > 0 && out.size > n) out.subList(out.size - n, out.size).toList() else out
+    }
+
+    /** 切版本 / 编辑后，从 idx 起清掉 affect 与 affectInj（含各版本快照），返回清除条数。 */
+    fun invalidateFrom(conv: JObj, idx: Int): Int {
+        val ms = conv["messages"] as? List<*> ?: return 0
+        var n = 0
+        for (i in maxOf(0, idx) until ms.size) {
+            val m = ms[i] as? MutableMap<*, *> ?: continue
+            @Suppress("UNCHECKED_CAST")
+            val mm = m as MutableMap<String, Any?>
+            if (mm.containsKey("affect") || mm.containsKey("affectInj")) n++
+            mm.remove("affect")
+            mm.remove("affectInj")
+            (mm["versions"] as? List<*>)?.forEach { v ->
+                val vm = v as? MutableMap<*, *> ?: return@forEach
+                vm.remove("affect")
+                vm.remove("affectInj")
+            }
+        }
+        return n
+    }
 }

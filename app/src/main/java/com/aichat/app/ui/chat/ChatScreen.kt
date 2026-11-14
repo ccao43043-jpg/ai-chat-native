@@ -93,6 +93,7 @@ fun ChatScreen(
     var rpPanel by remember { mutableStateOf(false) }
     var rpMemoryPanel by remember { mutableStateOf(false) }
     var rpInspect by remember { mutableStateOf(false) }
+    var affectPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -176,6 +177,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpInspect = true
+            })
+            DropdownMenuItem(text = { Text("好感度") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                affectPanel = true
             })
             DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
                                 extraMenu.forEach { (label, act) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; act() }) }
@@ -369,6 +375,9 @@ fun ChatScreen(
                 rpInspect = false
             },
         )
+    }
+    if (affectPanel && conv != null) {
+        AffectPanelDialog(conv, onDismiss = { affectPanel = false })
     }
 
     if (picker) ModelPicker(settings.providers, target?.first?.id, target?.second,
