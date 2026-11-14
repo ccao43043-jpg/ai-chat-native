@@ -94,6 +94,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             dest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
             dest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
         dest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
+        dest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(dest.title, back) {
                 Text("「${dest.title}」将在后续里程碑实现（负责：${dest.owner}）", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -182,8 +183,8 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
                     tag = "row-backup") { open(SettingsDestination.DataBackup) }
                 SettingsTileRow(Icons.Filled.DateRange, "用量统计", "按区间、模型、单日看 token 与费用",
                     tag = "row-usage") { open(SettingsDestination.Usage) }
-                SettingsTileRow(Icons.Filled.ShoppingCart, "余额", "服务商账户余额",
-                    value = "待实现", tag = "row-balance") { open(SettingsDestination.Balance) }
+                SettingsTileRow(Icons.Filled.ShoppingCart, "余额", "DeepSeek / 硅基流动 / Moonshot / OpenRouter",
+                    tag = "row-balance") { open(SettingsDestination.Balance) }
             }
 
             Spacer(Modifier.height(Space.group))

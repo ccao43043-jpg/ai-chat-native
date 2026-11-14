@@ -31,6 +31,10 @@ data class UiDeps(
     val image: com.aichat.app.domain.ImageClient? = null,
     /** 记忆文件（rp-memory.json）；为 null 时记忆面板只读空态 */
     val rpMemory: com.aichat.app.data.repo.JsonDocStore? = null,
+    /** 余额查询客户端（deepseek / siliconflow / moonshot / openrouter）；为 null 时余额页显示未就绪 */
+    val balance: com.aichat.app.domain.cost.DefaultBalanceClient? = null,
+    /** 余额缓存（balance-cache.json） */
+    val balanceCache: com.aichat.app.data.repo.JsonDocStore? = null,
 )
 
 val LocalUiDeps = staticCompositionLocalOf<UiDeps> { error("UiDeps 未提供") }
