@@ -1,7 +1,11 @@
 package com.aichat.app.ui.image
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,6 +76,24 @@ fun ImageScreen() {
     var results by remember { mutableStateOf<List<Shot>>(emptyList()) }
     var providerMenu by remember { mutableStateOf(false) }
     var sizeMenu by remember { mutableStateOf(false) }
+    var refs by remember { mutableStateOf<List<String>>(emptyList()) }
+    val context = LocalContext.current
+
+    // 相册选图 → 就地转 data URL（不落盘、不上传）。协议层早在 ImageGen.buildImageRequest 里
+    // 支持参考图，缺的只是这个入口。
+    val pickRefs = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(ImageGen.MAX_REF_IMAGES),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val added = uris.mapNotNull { RefImageLoader.toDataUrl(context, it) }
+        if (added.isEmpty()) {
+            error = "这几张图读不出来（格式不支持或超过 4MB）"
+        } else {
+            error = null
+            refs = (refs + added).take(ImageGen.MAX_REF_IMAGES)
+        }
+    }
+
 
     val provider: ProviderConfig? = providers.firstOrNull { it.id == providerId } ?: providers.firstOrNull()
     LaunchedEffect(provider?.id) {
@@ -119,7 +143,15 @@ fun ImageScreen() {
         error = null
         busy = true
         scope.launch {
-            val r = client.generate(ImageRequest(provider = p, model = model, prompt = prompt, size = size))
+            val r = client.generate(
+                ImageRequest(
+                    provider = p,
+                    model = model,
+                    prompt = prompt,
+                    size = size,
+                    refImages = refs,
+                ),
+            )
             busy = false
             r.fold(
                 onSuccess = { urls ->
@@ -197,6 +229,50 @@ fun ImageScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { pickRefs.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                modifier = Modifier.testTag("image-add-ref")) {
+                Text(if (refs.isEmpty()) "加参考图" else "参考图 ${refs.size}")
+            }
+            if (refs.isNotEmpty()) {
+                Spacer(Modifier.size(8.dp))
+                TextButton(onClick = { refs = emptyList() }, modifier = Modifier.testTag("image-clear-ref")) {
+                    Text("清空")
+                }
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    "最多 ${ImageGen.MAX_REF_IMAGES} 张，会自动缩到长边 ${RefImageLoader.MAX_EDGE}px",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (refs.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row {
+                refs.forEachIndexed { i, url ->
+                    Box {
+                        val bmp = rememberImageBitmap(url)
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "参考图 ${i + 1}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.padding(end = 8.dp).size(64.dp).clip(RoundedCornerShape(8.dp)),
+                            )
+                        }
+                        // 点一下删掉这一张
+                        Box(
+                            Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
+                                .testTag("image-ref-$i")
+                                .clickable { refs = refs.filterIndexed { j, _ -> j != i } },
+                        )
+                    }
+                }
             }
         }
 
