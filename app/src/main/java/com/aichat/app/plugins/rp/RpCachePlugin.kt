@@ -27,7 +27,11 @@ import kotlinx.serialization.json.doubleOrNull
  * **可见性三件套**（消息缓存徽章 / 章节徽章、顶栏命中率、覆盖消息变灰）。
  * 还没做：章节摘要生成与合并、预算裁剪、世界书触发、面板。见 `docs/ROADMAP.md`。
  */
-class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: PluginHost) : ChatPlugin {
+class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
+    private val host: PluginHost,
+    /** 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。 */
+    private val ask: (suspend (Conversation, String) -> String?)? = null,
+) : ChatPlugin {
 
     override val id: String get() = "rpcache"
     override val name: String get() = "RP 缓存优化器"
@@ -55,27 +59,97 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: 
         val idx = ctx.messages.indexOfLast { it.role == Role.USER }
         if (idx < 0) return ctx
 
-        val last = ctx.messages[idx]
-        val msgs = ArrayList(ctx.messages)
-        msgs[idx] = last.copy(content = RpCacheCore.finalUserContent(st, last.content))
-        val system = RpCacheCore.buildSystem(st, base)
+        // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
+        val items = ctx.messages.mapIndexed { i, m ->
+            jobj(
+                "id" to (m.srcId ?: "i$i"), "role" to m.role.wire,
+                "content" to m.content, "images" to m.images,
+            )
+        }
+        val p0 = RpCacheCore.plan(st, base, items)
 
-        pending[ctx.conv.id] = st
+        // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
+        // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
+        var stBase = st
+        var summaryFail: String? = null
+        if (p0.needSummary && ask != null) {
+            val r = summarize(ctx.conv, st, p0)
+            if (r != null) stBase = r else summaryFail = "summary_failed"
+        }
+        val pRaw = if (stBase !== st) RpCacheCore.plan(stBase, base, items) else p0
+
+        val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now()) else stBase to pRaw
+
+        // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
+        val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
+        val inputId = p.input?.let { Js.str(it["id"]) }
+        val msgs = ctx.messages.mapIndexedNotNull { i, m ->
+            val mid = m.srcId ?: "i$i"
+            when {
+                mid == inputId -> m.copy(content = RpCacheCore.finalUserContent(st2, m.content))
+                keepIds.contains(mid) -> m
+                else -> null
+            }
+        }
+
+        pending[ctx.conv.id] = st2
 
         val cap = RpCacheCore.capability(ctx.provider.presetId, ctx.provider.baseUrl, ctx.provider.type.wire, ctx.model)
         val trace = jobj(
             "vendor" to cap.vendor,
             "kind" to cap.kind,
-            "system" to RpCacheCore.estimateTokens(system),
-            "history" to RpCacheCore.estimateItems(msgs.map { m ->
-                jobj("role" to m.role.wire, "content" to m.content, "images" to m.images)
+            "system" to RpCacheCore.estimateTokens(p.system),
+            "history" to RpCacheCore.estimateItems(p.hist.map { m ->
+                jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
             }),
-            "trimmed" to false,
+            "total" to intOf(p.tokens["total"]),
+            "limit" to p.limit,
+            "dropped" to p.dropped,
+            "trimmed" to p.trimmed,
+            "tempTrim" to p.tempTrim,
+            "needSummary" to p.needSummary,
+            "summaryReason" to p.summaryReason,
+            "summaryFail" to summaryFail,
+            "chapters" to RpCacheCore.chaptersOf(st2).size,
         )
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
-        return ctx.copy(systemPrompt = system, messages = msgs, meta = JsonObject(meta))
+        return ctx.copy(systemPrompt = p.system, messages = msgs, meta = JsonObject(meta))
     }
+
+    /**
+     * 生成一章摘要并提交。返回新状态；失败返回 null（调用方按超预算裁剪兜底）。
+     *
+     * 与旧版一致的三条硬约束：摘要必须八分区齐全、质量 >= 0.60、失败**不推进窗口**。
+     */
+    private suspend fun summarize(conv: Conversation, st: JObj, p: RpCacheCore.Plan): JObj? {
+        val a = ask ?: return null
+        val batch = p.batch
+        if (batch.isEmpty()) return null
+        val prompt = RpChapterCore.buildSummaryPrompt(
+            RpCacheCore.chaptersOf(st),
+            batch,
+            RpCacheCore.memoryText(st).ifEmpty { null },
+        )
+        val text = runCatching { a(conv, prompt) }.getOrNull() ?: return null
+        return commit(st, p, text)
+    }
+
+    private fun commit(st: JObj, p: RpCacheCore.Plan, text: String): JObj? {
+        val covered = p.batch.map { Js.str(it["id"]) }
+        val r = RpChapterCore.commitChapter(
+            st = st,
+            content = text,
+            batch = p.batch,
+            coveredIds = covered,
+            at = host.now(),
+            rounds = RpCacheCore.roundsOf(p.batch),
+            atRound = RpCacheCore.roundsOf(p.unsummarized) + RpCacheCore.roundsOf(listOfNotNull(p.input)),
+        )
+        return if (r.ok) r.state else null
+    }
+
+    private fun intOf(v: Any?): Int = (v as? Number)?.toInt() ?: 0
 
     override fun onAfterResponse(result: TurnResult, ctx: RequestContext): Conversation? {
         val st = pending.remove(ctx.conv.id)

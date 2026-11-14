@@ -1,0 +1,94 @@
+{
+  "sections": [
+    "FACTS",
+    "CHARACTER_KNOWLEDGE",
+    "PLAYER_KNOWLEDGE",
+    "SECRET",
+    "UNRESOLVED",
+    "RELATIONSHIPS",
+    "OBJECTS",
+    "LOCATION"
+  ],
+  "good": {
+    "ok": true,
+    "text": "FACTS:\n- 林月是北港的船长，船名「白鹭」。\n- 风暴发生在三天前的夜里。\n\nCHARACTER_KNOWLEDGE:\n- 林月：知道铁箱里有一封未寄出的信。\n- 老周：只知道船队受损，不知道信的存在。\n\nPLAYER_KNOWLEDGE:\n- 玩家见过信上的火漆印。\n\nSECRET:\n- 信是写给已故的港务长的，对老周保密。\n\nUNRESOLVED:\n- 谁在风暴夜打开了舱门，尚未查清。\n\nRELATIONSHIPS:\n- 林月与老周：由合作转为互相猜忌。\n\nOBJECTS:\n- 铁箱：林月保管，钥匙在老周手里。\n\nLOCATION:\n- 北港：栈桥受损，灯塔正常。",
+    "missing": [],
+    "critMissing": [],
+    "critEmpty": [],
+    "quality": 1,
+    "minQuality": 0.6
+  },
+  "fenced": {
+    "ok": true,
+    "text": "FACTS:\n- 林月是北港的船长，船名「白鹭」。\n- 风暴发生在三天前的夜里。\n\nCHARACTER_KNOWLEDGE:\n- 林月：知道铁箱里有一封未寄出的信。\n- 老周：只知道船队受损，不知道信的存在。\n\nPLAYER_KNOWLEDGE:\n- 玩家见过信上的火漆印。\n\nSECRET:\n- 信是写给已故的港务长的，对老周保密。\n\nUNRESOLVED:\n- 谁在风暴夜打开了舱门，尚未查清。\n\nRELATIONSHIPS:\n- 林月与老周：由合作转为互相猜忌。\n\nOBJECTS:\n- 铁箱：林月保管，钥匙在老周手里。\n\nLOCATION:\n- 北港：栈桥受损，灯塔正常。",
+    "missing": [],
+    "critMissing": [],
+    "critEmpty": [],
+    "quality": 1,
+    "minQuality": 0.6
+  },
+  "invalid": {
+    "ok": false,
+    "text": "FACTS:\n- 只有一条事实。",
+    "missing": [
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED",
+      "RELATIONSHIPS",
+      "OBJECTS",
+      "LOCATION"
+    ],
+    "critMissing": [
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED"
+    ],
+    "critEmpty": [
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED"
+    ],
+    "quality": 0.16,
+    "minQuality": 0.6
+  },
+  "empty": {
+    "ok": false,
+    "text": "",
+    "missing": [
+      "FACTS",
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED",
+      "RELATIONSHIPS",
+      "OBJECTS",
+      "LOCATION"
+    ],
+    "critMissing": [
+      "FACTS",
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED"
+    ],
+    "critEmpty": [
+      "FACTS",
+      "CHARACTER_KNOWLEDGE",
+      "PLAYER_KNOWLEDGE",
+      "SECRET",
+      "UNRESOLVED"
+    ],
+    "quality": 0,
+    "minQuality": 0.6
+  },
+  "qualityGood": 1,
+  "qualityInvalid": 0.16,
+  "prompt": "你是长篇角色扮演（RP）的「章节摘要记录员」。请把「本批旧对话」写成新的一章摘要。之前的章节会原样保留并继续提供给模型，新章节将接在它们之后。\n\n硬性要求：\n1. 只记录本批对话里真实发生、已经确认的内容，不要编造、不要推测剧情走向、不要改写人设。\n2. 必须区分「知识边界」：每个角色只知道自己亲眼所见或被告知的事；玩家知道的不等于 NPC 知道的。\n3. 之前章节已经写过的内容不要重复；只有被新剧情改变时才写出新的状态（例如「关系：A 与 B 由敌对转为合作」）。\n4. 不要写“他们聊了很多”这类空泛总结，写具体的人、事、物、地点、数字。\n5. 严格按以下格式输出，标题保持英文原样，每项用「- 」开头；某项没有内容写「- 无」：\n\nFACTS:\n- 已确认的事实\n\nCHARACTER_KNOWLEDGE:\n- 角色名：该角色知道什么（每个重要角色一行）\n\nPLAYER_KNOWLEDGE:\n- 玩家知道什么\n\nSECRET:\n- 尚未公开的秘密（注明对谁保密）\n\nUNRESOLVED:\n- 未解决事件\n\nRELATIONSHIPS:\n- 人物关系\n\nOBJECTS:\n- 关键物品及归属\n\nLOCATION:\n- 地点状态\n\n只输出摘要正文，不要任何解释。\n\n===== 长期记忆（只读参考，不要复述） =====\n- [事实] 林月是船长。\n\n===== 之前的章节（只读参考，不要复述） =====\n[#001]\nFACTS:\n- 船队从北港出发。\n\n[#002]\nFACTS:\n- 遇上风暴。\n\n===== 本批旧对话（按原顺序） =====\n【玩家】船还好吗？\n\n【角色】桅杆断了，帆还能补。\n\n【玩家】铁箱呢？\n\n【角色】锁着，钥匙在老周那儿。",
+  "promptNoChapters": "你是长篇角色扮演（RP）的「章节摘要记录员」。请把「本批旧对话」写成新的一章摘要。之前的章节会原样保留并继续提供给模型，新章节将接在它们之后。\n\n硬性要求：\n1. 只记录本批对话里真实发生、已经确认的内容，不要编造、不要推测剧情走向、不要改写人设。\n2. 必须区分「知识边界」：每个角色只知道自己亲眼所见或被告知的事；玩家知道的不等于 NPC 知道的。\n3. 之前章节已经写过的内容不要重复；只有被新剧情改变时才写出新的状态（例如「关系：A 与 B 由敌对转为合作」）。\n4. 不要写“他们聊了很多”这类空泛总结，写具体的人、事、物、地点、数字。\n5. 严格按以下格式输出，标题保持英文原样，每项用「- 」开头；某项没有内容写「- 无」：\n\nFACTS:\n- 已确认的事实\n\nCHARACTER_KNOWLEDGE:\n- 角色名：该角色知道什么（每个重要角色一行）\n\nPLAYER_KNOWLEDGE:\n- 玩家知道什么\n\nSECRET:\n- 尚未公开的秘密（注明对谁保密）\n\nUNRESOLVED:\n- 未解决事件\n\nRELATIONSHIPS:\n- 人物关系\n\nOBJECTS:\n- 关键物品及归属\n\nLOCATION:\n- 地点状态\n\n只输出摘要正文，不要任何解释。\n\n===== 之前的章节（只读参考，不要复述） =====\n（无）\n\n===== 本批旧对话（按原顺序） =====\n【玩家】船还好吗？\n\n【角色】桅杆断了，帆还能补。\n\n【玩家】铁箱呢？\n\n【角色】锁着，钥匙在老周那儿。",
+  "consolidate": "你是长篇角色扮演（RP）的「章节摘要记录员」。之前的章节摘要太长了，请把它们和「本批旧对话」合并压缩成一份完整的章节摘要（它将替代全部旧章节）。\n\n硬性要求：\n1. 完整保留仍然有效的事实、知识边界、秘密、未解决线索和关键物品；删除已被后续剧情推翻或已经无关紧要的细节。\n2. 区分「知识边界」：每个角色只知道自己亲眼所见或被告知的事。\n3. 不要编造，不要推测。\n4. 严格按以下格式输出，标题保持英文原样，每项用「- 」开头；某项没有内容写「- 无」：\n\nFACTS:\n- 已确认的事实\n\nCHARACTER_KNOWLEDGE:\n- 角色名：该角色知道什么（每个重要角色一行）\n\nPLAYER_KNOWLEDGE:\n- 玩家知道什么\n\nSECRET:\n- 尚未公开的秘密（注明对谁保密）\n\nUNRESOLVED:\n- 未解决事件\n\nRELATIONSHIPS:\n- 人物关系\n\nOBJECTS:\n- 关键物品及归属\n\nLOCATION:\n- 地点状态\n\n只输出摘要正文，不要任何解释。\n\n===== 需要合并的章节（按顺序） =====\n[#001]\nFACTS:\n- 船队从北港出发。\n\n[#002]\nFACTS:\n- 遇上风暴。\n\n===== 本批旧对话（按原顺序） =====\n【玩家】船还好吗？\n\n【角色】桅杆断了，帆还能补。\n\n【玩家】铁箱呢？\n\n【角色】锁着，钥匙在老周那儿。",
+  "transcript": "【玩家】船还好吗？\n\n【角色】桅杆断了，帆还能补。\n\n【玩家】铁箱呢？\n\n【角色】锁着，钥匙在老周那儿。",
+  "sourceFp": true
+}

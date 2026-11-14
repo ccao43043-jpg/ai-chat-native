@@ -194,4 +194,120 @@ class RpCachePluginTest {
         val m3 = c.messages.first { it.id == "m3" }
         assertNull(plugin.messageState(m3, c))
     }
+
+    /** 超预算必须裁历史：否则长对话会被服务商直接 400。裁掉的部分不发。 */
+    @Test fun overBudgetTrimsHistoryAndRecordsOverflow() = runTest {
+        val st = RpState.normalizeState(EmptyJson)
+        val list = st["blocks"] as? List<*> ?: emptyList<Any?>()
+        list.forEach { b ->
+            if (b is MutableMap<*, *> && b["id"] == "world") {
+                @Suppress("UNCHECKED_CAST")
+                (b as MutableMap<String, Any?>)["content"] = "北境，终年积雪。"
+            }
+        }
+        val set = LinkedHashMap<String, Any?>()
+        (st["settings"] as? Map<*, *>)?.forEach { (k, v) -> set[k.toString()] = v }
+        set["max_context"] = 3000
+        set["output_reserve"] = 0
+        set["safety_margin"] = 0
+        st["settings"] = set
+
+        val long = "这是一段很长的正文。".repeat(120)
+        val msgs = ArrayList<Message>()
+        for (i in 0 until 6) {
+            msgs += Message(id = "u$i", role = Role.USER, content = long, createdAt = i.toLong())
+            msgs += Message(id = "a$i", role = Role.ASSISTANT, content = long, createdAt = i.toLong())
+        }
+        val c = conv(Js.toJson(st) as JsonObject).copy(messages = msgs)
+        val plugin = RpCachePlugin(host)
+        val before = ctx(c)
+        val after = plugin.onBeforeRequest(before) {}
+
+        assertTrue("应该裁掉一部分历史（实际 ${after.messages.size}/${before.messages.size}）", after.messages.size < before.messages.size)
+        val trace = after.meta["rpcache"] as JsonObject
+        assertTrue("trimmed 应为 true", Js.truthy(trace["trimmed"]))
+        assertTrue("dropped 应 > 0", trace["dropped"].toString().toInt() > 0)
+        assertTrue("最后一条仍是本轮输入", after.messages.last().content.startsWith("这是一段很长的正文。"))
+    }
+    /** 摘要真能落章：八分区齐全 + 质量 1.0 时，超预算对话应被压成一章，被覆盖的消息不再发送。 */
+    @Test fun overBudgetGeneratesChapterAndStopsSendingCoveredHistory() = runTest {
+        val st = RpState.normalizeState(EmptyJson)
+        val list = st["blocks"] as? List<*> ?: emptyList<Any?>()
+        list.forEach { b ->
+            if (b is MutableMap<*, *> && b["id"] == "world") {
+                @Suppress("UNCHECKED_CAST")
+                (b as MutableMap<String, Any?>)["content"] = "北境，终年积雪。"
+            }
+        }
+        val set = LinkedHashMap<String, Any?>()
+        (st["settings"] as? Map<*, *>)?.forEach { (k, v) -> set[k.toString()] = v }
+        set["max_context"] = 3000
+        set["output_reserve"] = 0
+        set["safety_margin"] = 0
+        // 默认 keep_recent_turns=20，8 轮对话永远「不够一批」→ 先把保留轮数调小，才走摘要路径
+        set["summary"] = jobj(
+            "enabled" to true, "trigger_tokens" to 500, "min_new_turns" to 1,
+            "keep_recent_turns" to 2, "min_interval_turns" to 0, "chapter_cap_tokens" to 12000,
+        )
+        st["settings"] = set
+
+        val long = "这是一段很长的正文。".repeat(120)
+        val msgs = ArrayList<Message>()
+        for (i in 0 until 8) {
+            msgs += Message(id = "u$i", role = Role.USER, content = long, createdAt = i.toLong())
+            msgs += Message(id = "a$i", role = Role.ASSISTANT, content = long, createdAt = i.toLong())
+        }
+        val c = conv(Js.toJson(st) as JsonObject).copy(messages = msgs)
+        var asked = 0
+        val plugin = RpCachePlugin(host) { _, prompt ->
+            asked++
+            assertTrue("摘要提示词里应带本批旧对话", prompt.contains("本批旧对话"))
+            GOLDEN_SUMMARY
+        }
+        val before = ctx(c)
+        val after = plugin.onBeforeRequest(before) {}
+
+        assertEquals("摘要只问一次", 1, asked)
+        assertTrue("system 里应出现章节", after.systemPrompt.contains("[CHAPTER_SUMMARY"))
+        val trace = after.meta["rpcache"] as JsonObject
+        assertEquals("应落一章（trace.chapters）", 1, trace["chapters"].toString().toInt())
+        assertTrue("被章节覆盖的消息不该再发", after.messages.size < before.messages.size)
+
+        // 章节要真的落到会话里（onAfterResponse 写回 rpState）
+        val done = plugin.onAfterResponse(
+            TurnResult(ok = true, httpStatus = 200, usage = null, assistant = msgs.last()),
+            after,
+        )
+        val rpState = done?.rpState?.toString() ?: ""
+        assertTrue("章节应写回 rpState：$rpState", rpState.contains("CHAPTER_SUMMARY") || rpState.contains("coveredIds"))
+    }
+
+    private companion object {
+        /** 一份八分区齐全的摘要（质量分 1.0），照旧版 golden 的 `good` 抄。 */
+        val GOLDEN_SUMMARY = """
+FACTS:
+- 林月是北港的船长，船名「白鹭」。
+
+CHARACTER_KNOWLEDGE:
+- 林月：知道铁箱里有一封未寄出的信。
+
+PLAYER_KNOWLEDGE:
+- 玩家见过信上的火漆印。
+
+SECRET:
+- 信是写给已故的港务长的，对老周保密。
+
+UNRESOLVED:
+- 谁在风暴夜打开了舱门，尚未查清。
+
+RELATIONSHIPS:
+- 林月与老周：由合作转为互相猜忌。
+
+OBJECTS:
+- 铁箱：林月保管，钥匙在老周手里。
+
+LOCATION:
+- 北港：栈桥受损，灯塔正常。
+""".trim()
+    }
 }

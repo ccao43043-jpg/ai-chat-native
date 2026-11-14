@@ -91,6 +91,9 @@ class AppGraph(app: Application) {
             }
         },
         // 结构化记忆：默认关（旧版 defaultEnabled:false）；开关在设置 → 插件里，打开后每 N 轮抽一次
+        rpcache = { host ->
+            com.aichat.app.plugins.rp.RpCachePlugin(host) { conv, prompt -> askModel(conv, prompt) }
+        },
         memory = { host ->
             com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt -> askModel(conv, prompt) }
         },

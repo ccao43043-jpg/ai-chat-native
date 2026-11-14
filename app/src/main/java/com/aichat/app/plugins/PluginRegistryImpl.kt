@@ -153,12 +153,14 @@ class PluginRegistryImpl(
             clock: () -> Long = { System.currentTimeMillis() },
             knowledge: ((PluginHost) -> ChatPlugin)? = null,
             memory: ((PluginHost) -> ChatPlugin)? = null,
+            rpcache: ((PluginHost) -> ChatPlugin)? = null,
         ): PluginRegistryImpl {
             val reg = PluginRegistryImpl(clock)
             val impls: MutableMap<String, (PluginHost) -> ChatPlugin> = LinkedHashMap()
             if (knowledge != null) impls["knowledge"] = knowledge
             // rpcache：只有对话真的填过 RP 块时才自动生效（autoActive），普通对话请求逐字节不变
-            impls["rpcache"] = { h -> com.aichat.app.plugins.rp.RpCachePlugin(h) }
+            // 传了 rpcache 就用带 ask 的版本（能生成章节摘要）；否则只做裁剪
+            impls["rpcache"] = rpcache ?: { h -> com.aichat.app.plugins.rp.RpCachePlugin(h) }
             // rpmemory：要 store + 调模型，由 AppGraph 注入；传 null = 缺席（默认关，与旧版 defaultEnabled:false 一致）
             if (memory != null) impls["rpmemory"] = memory
             impls["usage"] = { _ -> com.aichat.app.plugins.usage.UsagePlugin() }
