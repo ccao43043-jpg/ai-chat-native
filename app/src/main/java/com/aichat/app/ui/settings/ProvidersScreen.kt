@@ -100,7 +100,7 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                     FilterChip(type == t, { type = t }, label = { Text(when (t) { ProviderType.OPENAI -> "OpenAI 兼容"; ProviderType.ANTHROPIC -> "Anthropic"; ProviderType.GEMINI -> "Gemini" }) })
                 }
             }
-            OutlinedTextField(base, { base = it }, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("pe-base"),
+            OutlinedTextField(base, { base = collapseScheme(base, it) }, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("pe-base"),
                 supportingText = { Text(when (type) {
                     ProviderType.OPENAI -> "填写到版本路径这一级（通常以 /v1 结尾），程序会自动拼接 /chat/completions。"
                     ProviderType.ANTHROPIC -> "一般为 https://api.anthropic.com（程序拼接 /v1/messages）。"
@@ -127,4 +127,20 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
     if (confirmDiscard) AlertDialog(onDismissRequest = { confirmDiscard = false }, title = { Text("放弃修改？") },
         confirmButton = { TextButton(onClick = { confirmDiscard = false; onDone() }) { Text("放弃") } },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("继续编辑") } })
+}
+
+/**
+ * Base URL 输入框预填的是真文本 `https://`（自定义预设的默认值，与旧版一致），
+ * 用户直接往里粘贴完整 URL 就会得到 `https://http://host/v1` —— 保存时会因为
+ * "不是合法 URL" 或"地址与登记源不一致"莫名失败。
+ *
+ * 这里把**紧挨着的重复 scheme 前缀**压掉（保留最后一个）：
+ *   `https://http://a/v1` → `http://a/v1`
+ *   `https://https://a/v1` → `https://a/v1`
+ * 而 `https://httpsproxy.example.com` 这种正常域名不会被误伤（后面不是 `https://`）。
+ */
+internal fun collapseScheme(old: String, next: String): String {
+    if (next == old) return next
+    val dup = Regex("^(?:https?://)+(?=https?://)").find(next) ?: return next
+    return next.removeRange(0, dup.value.length)
 }
