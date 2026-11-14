@@ -1,5 +1,9 @@
 name: seed
 # 一次性：把 ai-chat-app 的 native/i2 树搬进这个新仓库，剪掉 WebView/JS 遗留，提交后自删。
+#
+# 注意：GITHUB_TOKEN 没有 workflows 权限，推含 .github/workflows/ 的提交会被拒
+#（! [remote rejected] refusing to allow a GitHub App to create or update workflow ...）。
+# 所以这里把 .github 整个排除，android.yml 由有 Workflows 权限的 PAT 单独提交。
 on:
   push:
   workflow_dispatch:
@@ -21,9 +25,10 @@ jobs:
           echo "downloaded $(stat -c%s "$TMP/src.tgz") bytes"
           tar -xzf "$TMP/src.tgz" -C "$TMP"
           SRC="$TMP/ai-chat-app-$SHA"
-          # 旧产品的骨头：WebView 前端、旧 JS 测试、桌面壳、旧发布日志
+          # 旧产品的骨头：WebView 前端、旧 JS 测试、桌面壳、旧发布日志、node 验证脚本、CI
           rm -rf "$SRC/app/src/main/assets" "$SRC/tests" "$SRC/design" "$SRC/desktop" \
-                 "$SRC/CHANGELOG.md" "$SRC/package.json" "$SRC/.github/workflows/test.yml"
+                 "$SRC/scripts" "$SRC/.github" \
+                 "$SRC/CHANGELOG.md" "$SRC/package.json"
           rm -f "$SRC"/docs/*.png
           rsync -a --exclude='.git/' "$SRC"/ .
           rm -f .github/workflows/seed.yml   # 本工作流自删
@@ -33,5 +38,4 @@ jobs:
           git config user.email "ccao43043@gmail.com"
           git add -A
           git commit -m "初始提交：原生 v1 起点（源自 ai-chat-app native/i2 ${SHA:0:7}）"
-          # 注意：GITHUB_TOKEN 不会自动导出成环境变量，必须用表达式插值
           git push "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:main
