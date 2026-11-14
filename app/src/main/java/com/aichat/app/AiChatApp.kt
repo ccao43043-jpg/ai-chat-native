@@ -135,6 +135,22 @@ class AppGraph(app: Application) {
             } catch (e: Throwable) {
                 _migrationReport.value = MigrationReport(0, 0, 0, emptyList(), null, listOf("迁移异常：${e.message}"))
             }
+            // 迁移可能刚刚写入 search:<id> 的 Key，但不会写 hasKeys —— 这里统一校正
+            syncSearchKeys()
         }
+    }
+
+    /**
+     * 修 BUG「搜索就绪双源」：把 `settings.search.hasKeys` 与 KeyVault 的真实状态对齐。
+     *
+     * 引擎读缓存（`SearchCore.cfgOf`），设置页读 KeyVault（`SearchConfig.ready`）；
+     * 不一致时表现为「设置页显示已就绪、发送时却静默不走搜索」，且 `SearchCore.keyId(cfg)`
+     * 也为 null（请求不带 Authorization）。这里做一次性对账，engine / client / UI 三处自动一致。
+     * 无差异时不写盘（[com.aichat.app.net.SearchKeySync.merged] 返回 null）。
+     */
+    suspend fun syncSearchKeys() {
+        val s = data.settings.settings.value
+        val merged = com.aichat.app.net.SearchKeySync.merged(s.search) { id -> keys.has("search:$id") } ?: return
+        data.settings.update { it.copy(search = merged) }
     }
 }
