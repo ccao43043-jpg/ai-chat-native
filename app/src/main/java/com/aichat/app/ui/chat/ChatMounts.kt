@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,8 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aichat.app.domain.cost.UsageReport
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
+import com.aichat.app.ui.common.LocalUiDeps
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 聊天页挂载点（给 B / C）：
@@ -47,18 +52,66 @@ fun DefaultUsageChip(conv: Conversation?, settings: AppSettings) {
     val us = conv.messages.mapNotNull { it.usage }
     if (us.isEmpty()) return
     val inT = us.sumOf { it.prompt ?: 0 }; val outT = us.sumOf { it.completion ?: 0 }; val hit = us.sumOf { it.hit ?: 0 }
+
+    // 价目在 usage-stats-meta.json 里；拿不到就只显示 token（不要瞎猜价格）
+    val deps = LocalUiDeps.current
+    val repo = deps.usage
+    var prices by remember(repo) { mutableStateOf<JsonObject?>(null) }
+    var priceMode by remember(repo) { mutableStateOf("auto") }
+    var calib by remember(repo) { mutableStateOf<JsonObject?>(null) }
+    LaunchedEffect(repo) {
+        if (repo == null) return@LaunchedEffect
+        val meta = runCatching { repo.meta() }.getOrNull() ?: return@LaunchedEffect
+        prices = UsageReport.pricesOf(meta)
+        priceMode = UsageReport.priceModeOf(meta)
+        calib = UsageReport.calibOf(meta)
+    }
+
+    val totals = remember(conv.messages, prices, priceMode, calib) {
+        conv.messages.fold(UsageReport.Totals()) { acc, m ->
+            val u = m.usage ?: return@fold acc
+            // 每条消息用的模型可能在 extras.model（换过模型的长对话），否则跟随对话当前模型
+            val model = (m.extras["model"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: conv.model
+            acc + UsageReport.ofMessage(u, model, m.createdAt, prices, priceMode, calib)
+        }
+    }
+    val hasCost = totals.pricedRequests > 0 && prices != null
+
     var open by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { open = true }, modifier = Modifier.testTag("usage-chip")) { Text(compact(inT + outT), fontSize = 12.sp) }
+        TextButton(onClick = { open = true }, modifier = Modifier.testTag("usage-chip")) {
+            Text(if (hasCost) money(totals.cost) else compact(inT + outT), fontSize = 12.sp)
+        }
         DropdownMenu(open, { open = false }) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("本对话用量", style = MaterialTheme.typography.labelLarge)
                 Text("输入 $inT · 输出 $outT", style = MaterialTheme.typography.bodySmall)
                 if (hit > 0) Text("缓存命中 $hit（${hit * 100 / maxOf(1, inT)}%）", style = MaterialTheme.typography.bodySmall)
-                Text("费用与详细统计待用量模块接入", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (hasCost) {
+                    Text(money(totals.cost), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "按价目表实时计算" + if (priceMode == "auto") "（auto：非高峰时段走折扣价）" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "没有价目表，只显示 token；可在用量统计页查看历史",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
+}
+
+/** 金额：小于 1 分钱用 4 位小数，否则 2 位（与用量页同一口径） */
+internal fun money(v: Double): String = when {
+    v <= 0.0 -> "$0"
+    v < 0.01 -> String.format("$%.4f", v)
+    v < 1 -> String.format("$%.3f", v)
+    else -> String.format("$%.2f", v)
 }
 
 private fun compact(n: Long) = when { n >= 1_000_000 -> String.format("%.1fM", n / 1e6); n >= 1000 -> String.format("%.1fk", n / 1e3); else -> "$n" }
