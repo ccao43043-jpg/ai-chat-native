@@ -234,6 +234,36 @@ class ChatController(
     }
 
     /**
+     * 保存 RP 预算参数（max_context / output_reserve / safety_margin / 章节上限 / 触发阈值 / 保留轮数）。
+     *
+     * 只写数值、只认非负整数；值为空或非法就跳过，避免把手滑清空的输入框写成 0 把上下文锁死。
+     */
+    fun setRpSettings(id: String, values: Map<String, String>) {
+        if (values.isEmpty()) return
+        scope.launch {
+            val c = deps.chats.load(id) ?: return@launch
+            val raw = Js.fromJson(c.rpState) as? JObj ?: JObj()
+            val st = RpState.normalizeState(raw)
+            val s = (st["settings"] as? JObj) ?: JObj()
+            values.forEach { (key, text) ->
+                val v = text.trim().toIntOrNull() ?: return@forEach
+                if (v < 0) return@forEach
+                when (key) {
+                    // 摘要三项在 settings.summary 里，其余在 settings 顶层
+                    "chapter_cap_tokens", "trigger_tokens", "keep_recent_turns" -> {
+                        val sum = (s["summary"] as? JObj) ?: JObj()
+                        sum[key] = v
+                        s["summary"] = sum
+                    }
+                    else -> s[key] = v
+                }
+            }
+            st["settings"] = s
+            save(c.copy(rpState = Js.toJson(st) as? JsonObject ?: c.rpState), touch = false)
+        }
+    }
+
+    /**
      * RP 面板在「新对话」上也要能用：没有对话就先建一个（与 [send] 里的懒创建同一套）。
      * 这样用户可以先写世界观/角色卡，再发第一句。
      */

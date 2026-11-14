@@ -92,6 +92,7 @@ fun ChatScreen(
     var convPlugins by remember { mutableStateOf(false) }
     var rpPanel by remember { mutableStateOf(false) }
     var rpMemoryPanel by remember { mutableStateOf(false) }
+    var rpInspect by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -170,6 +171,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpMemoryPanel = true
+            })
+            DropdownMenuItem(text = { Text("RP 检视") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                rpInspect = true
             })
             DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
                                 extraMenu.forEach { (label, act) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; act() }) }
@@ -351,6 +357,17 @@ fun ChatScreen(
             onSave = { blocks -> controller.setRpBlocks(conv.id, blocks) },
             // 选世界时顺手补开场白（旧版 applyWorld 的行为）；块仍由上面的「保存」统一写
             onPickWorld = { w -> controller.applyWorld(conv.id, w) },
+        )
+    }
+    if (rpInspect && conv != null) {
+        RpInspectDialog(
+            conv = conv,
+            settings = settings,
+            onDismiss = { rpInspect = false },
+            onSaveSettings = { values ->
+                controller.setRpSettings(conv.id, values)
+                rpInspect = false
+            },
         )
     }
 
