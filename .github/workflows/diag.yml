@@ -1,6 +1,6 @@
 name: diag
 
-# 一次性诊断：把 Kotlin 编译日志推到 ci-logs 分支，供本地读取（token 读不到 Actions 日志）
+# 一次性诊断：把单测日志推到 ci-logs 分支，供本地读取（token 读不到 Actions 日志）
 on:
   push:
     branches: ['w2/**']
@@ -19,17 +19,23 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: compile
+      - name: test
         run: |
           mkdir -p .ci
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:compileDebugKotlin > /tmp/build.log 2>&1 || true
-          tail -c 200000 /tmp/build.log > .ci/build.log
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest --continue > /tmp/build.log 2>&1 || true
+          {
+            echo '===== gradle tail ====='
+            tail -c 120000 /tmp/build.log
+            echo '===== failed test xml ====='
+            grep -rl '<failure' app/build/test-results/testDebugUnitTest || true
+            grep -rh -A 12 '<failure' app/build/test-results/testDebugUnitTest 2>/dev/null | head -c 60000 || true
+          } > .ci/build.log 2>&1
       - name: push log
         run: |
           git config user.name "ci"
           git config user.email "ci@example.com"
           git checkout -B ci-logs
           git add -f .ci/build.log
-          git commit -m "diag: kotlin compile log" || true
+          git commit -m "diag: unit test log" || true
           git push -f origin ci-logs
