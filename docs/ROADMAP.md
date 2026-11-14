@@ -17,11 +17,19 @@
 - `rpmemory`（结构化记忆：BM25 + MMR 召回，`[MEMORY_RECALL]` 拼进末条 user；按 `interval` 自动抽取，面板可「立即提取」）
 - `affect`（好感度 / 心情：system 挂 `[AFFECT_RULE]` 协议、末条 user 前置短 tag、回复里的 `<state>` 解析后按 KF 推进并落盘、顶栏「心情 · 关系」徽章）
 
-仍缺席（代码已在 `plugins/`，缺 panel / 深化逻辑）：
+已完成（RP 深化这一轮）：
 
-- `affect` 面板：走势图、漏标率、护栏统计、估计器切换；`invalidateFrom`（切版本/编辑后清除受影响的 affect）
-- `rpcache` 的深化：章节**合并**（`consolidate`）、`calibrate`、冻结徽章、「检视 › 缓存」面板
-- `rpmemory` 的账本部分（`upsertFact` / `renderLedger` / `checkSummaryAgainstLedger`）
+- `rpcache`：预算裁剪 + 章节摘要（八分区、质量门 0.60、事务式提交）+ 章节合并（`consolidate`，旧章节进 `archive`）+ 真实 `prompt_tokens` 校准（按 `provider|model` 分开记）+ 顶栏与每条回复的缓存徽章 + 「RP 检视」（分层 token、缓存分段与稳定前缀、六个预算输入）。
+- `affect`：好感度面板（当前心情/关系/档位/好感、30 轮 sparkline、漏标率、护栏计数）+ 漏标补偿（没输出 `<state>` 时记 `stateMissing`，达阈值后用存盘好感值给最多 3 条历史助手消息补示 `<state>`，只进请求不入历史）。
+- `rpmemory`：记忆面板（列表/置顶/停用/删除/立即提取）。
+- 世界模板：设置 →「世界模板」新建/改名/改块/长按删除；「RP 状态 › 从世界模板填入」把块填进对话，并补开场白。
+- 其它：生图参考图（相册多选 → 缩到长边 1024px → `image` / `input_references`）、用量页导出 CSV、余额页、知识库编辑页。
+
+仍缺席：
+
+- `rpmemory` 的账本部分（`upsertFact` / `renderLedger` / `checkSummaryAgainstLedger`）——只影响「摘要与账本冲突时降权并提示」，不影响注入。
+- 生图历史落盘 / 保存到相册 / 聊天里「据此生图」。
+- 用量页自定义起止日期区间、按服务商分组。
 
 已完成（本仓库此前的两轮）：
 
