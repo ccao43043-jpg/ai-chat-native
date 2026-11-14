@@ -194,4 +194,39 @@ class RpCachePluginTest {
         val m3 = c.messages.first { it.id == "m3" }
         assertNull(plugin.messageState(m3, c))
     }
+
+    /** 超预算必须裁历史：否则长对话会被服务商直接 400。裁掉的部分不发。 */
+    @Test fun overBudgetTrimsHistoryAndRecordsOverflow() = runTest {
+        val st = RpState.normalizeState(EmptyJson)
+        val list = st["blocks"] as? List<*> ?: emptyList<Any?>()
+        list.forEach { b ->
+            if (b is MutableMap<*, *> && b["id"] == "world") {
+                @Suppress("UNCHECKED_CAST")
+                (b as MutableMap<String, Any?>)["content"] = "北境，终年积雪。"
+            }
+        }
+        val set = LinkedHashMap<String, Any?>()
+        (st["settings"] as? Map<*, *>)?.forEach { (k, v) -> set[k.toString()] = v }
+        set["max_context"] = 3000
+        set["output_reserve"] = 0
+        set["safety_margin"] = 0
+        st["settings"] = set
+
+        val long = "这是一段很长的正文。".repeat(120)
+        val msgs = ArrayList<Message>()
+        for (i in 0 until 6) {
+            msgs += Message(id = "u$i", role = Role.USER, content = long, createdAt = i.toLong())
+            msgs += Message(id = "a$i", role = Role.ASSISTANT, content = long, createdAt = i.toLong())
+        }
+        val c = conv(Js.toJson(st) as JsonObject).copy(messages = msgs)
+        val plugin = RpCachePlugin(host)
+        val before = ctx(c)
+        val after = plugin.onBeforeRequest(before) {}
+
+        assertTrue("应该裁掉一部分历史（实际 ${after.messages.size}/${before.messages.size}）", after.messages.size < before.messages.size)
+        val trace = after.meta["rpcache"] as JsonObject
+        assertTrue("trimmed 应为 true", Js.truthy(trace["trimmed"]))
+        assertTrue("dropped 应 > 0", trace["dropped"].toString().toInt() > 0)
+        assertTrue("最后一条仍是本轮输入", after.messages.last().content.startsWith("这是一段很长的正文。"))
+    }
 }

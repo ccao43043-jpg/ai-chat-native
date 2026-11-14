@@ -55,27 +55,52 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: 
         val idx = ctx.messages.indexOfLast { it.role == Role.USER }
         if (idx < 0) return ctx
 
-        val last = ctx.messages[idx]
-        val msgs = ArrayList(ctx.messages)
-        msgs[idx] = last.copy(content = RpCacheCore.finalUserContent(st, last.content))
-        val system = RpCacheCore.buildSystem(st, base)
+        // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
+        val items = ctx.messages.mapIndexed { i, m ->
+            jobj(
+                "id" to (m.srcId ?: "i$i"), "role" to m.role.wire,
+                "content" to m.content, "images" to m.images,
+            )
+        }
+        val p0 = RpCacheCore.plan(st, base, items)
+        val (st2, p) = if (p0.overBudget) RpCacheCore.applyTempTrim(st, p0, host.now()) else st to p0
 
-        pending[ctx.conv.id] = st
+        // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
+        val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
+        val inputId = p.input?.let { Js.str(it["id"]) }
+        val msgs = ctx.messages.mapIndexedNotNull { i, m ->
+            val mid = m.srcId ?: "i$i"
+            when {
+                mid == inputId -> m.copy(content = RpCacheCore.finalUserContent(st2, m.content))
+                keepIds.contains(mid) -> m
+                else -> null
+            }
+        }
+
+        pending[ctx.conv.id] = st2
 
         val cap = RpCacheCore.capability(ctx.provider.presetId, ctx.provider.baseUrl, ctx.provider.type.wire, ctx.model)
         val trace = jobj(
             "vendor" to cap.vendor,
             "kind" to cap.kind,
-            "system" to RpCacheCore.estimateTokens(system),
-            "history" to RpCacheCore.estimateItems(msgs.map { m ->
-                jobj("role" to m.role.wire, "content" to m.content, "images" to m.images)
+            "system" to RpCacheCore.estimateTokens(p.system),
+            "history" to RpCacheCore.estimateItems(p.hist.map { m ->
+                jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
             }),
-            "trimmed" to false,
+            "total" to intOf(p.tokens["total"]),
+            "limit" to p.limit,
+            "dropped" to p.dropped,
+            "trimmed" to p.trimmed,
+            "tempTrim" to p.tempTrim,
+            "needSummary" to p.needSummary,
+            "summaryReason" to p.summaryReason,
         )
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
-        return ctx.copy(systemPrompt = system, messages = msgs, meta = JsonObject(meta))
+        return ctx.copy(systemPrompt = p.system, messages = msgs, meta = JsonObject(meta))
     }
+
+    private fun intOf(v: Any?): Int = (v as? Number)?.toInt() ?: 0
 
     override fun onAfterResponse(result: TurnResult, ctx: RequestContext): Conversation? {
         val st = pending.remove(ctx.conv.id)

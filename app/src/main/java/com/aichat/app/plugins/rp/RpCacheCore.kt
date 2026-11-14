@@ -347,4 +347,177 @@ object RpCacheCore {
         if (userIdx.size <= k) return emptyList()
         return hist.take(userIdx[userIdx.size - k])
     }
+
+    // ============================================================ 预算规划与裁剪
+    // 对应 rpcache.js 的 plan / computeTrimWindow / temporaryTrimPlan。
+    // 有意没搬：applyLagrangeBudget（分层预算）与 adaptiveSummary（自适应摘要时机）——
+    // 它们只在「宿主传了 env / lagrange_layers 自定义」时才改变行为，默认路径下 plan 的
+    // 结果就是本文件的 token 汇总 + limit 判断；等面板能做到配置分层预算时再补。
+
+    /** JS 的 `(v | 0) || def` 口径：非数字/0/空 → 默认值。 */
+    private fun numOf(v: Any?, def: Int): Int {
+        val n = (v as? Number)?.toDouble() ?: return def
+        if (n == 0.0 || n.isNaN()) return def
+        return n.toInt()
+    }
+
+    fun coveredIds(st: JObj?): Set<String> = chaptersOf(st)
+        .flatMap { c -> ((c["coveredIds"] as? List<*>) ?: emptyList<Any?>()).map { Js.str(it) } }
+        .toSet()
+
+    fun roundsOf(items: List<JObj>): Int = items.count { Js.str(it["role"]) == "user" }
+
+    /** 单条消息的 token 估算（JS itemTokens：内容 + 4 结构开销 + 每张图 1000）。 */
+    fun itemTokens(m: JObj): Int {
+        val imgs = (m["images"] as? List<*>)?.size ?: 0
+        return estimateTokens(m["content"]) + 4 + imgs * 1000
+    }
+
+    data class TrimWindow(val startId: String, val startOrdinal: Int, val startIdx: Int)
+
+    data class Plan(
+        val st: JObj,
+        val system: String,
+        val hist: List<JObj>,
+        val input: JObj?,
+        val unsummarized: List<JObj>,
+        val tokens: JObj,
+        val limit: Int,
+        val overBudget: Boolean,
+        val trimmed: Boolean,
+        val tempTrim: Boolean,
+        val dropped: Int,
+        val needSummary: Boolean,
+        val summaryReason: String?,
+        val batch: List<JObj>,
+        val calib: Double,
+    )
+
+    /**
+     * 规划本轮请求：算各层 token、判断是否超预算、要不要生成章节。
+     * items 是「可发送的消息」（按原顺序，最后一条是本轮用户输入）。
+     */
+    fun plan(st0: JObj, baseSystem: String, items: List<JObj>, calibOverride: Double? = null): Plan {
+        val st = RpState.normalizeState(st0)
+        val s = (st["settings"] as? JObj) ?: JObj()
+        val sum = (s["summary"] as? JObj) ?: JObj()
+        val k = calibOverride ?: ((st["calib"] as? Number)?.toDouble() ?: 1.0)
+        fun cal(n: Int): Int = (n * k).roundToInt()
+
+        val covered = coveredIds(st)
+        val elig = items.filter { !covered.contains(Js.str(it["id"])) }
+        val last = elig.lastOrNull()
+        val input = if (last != null && Js.str(last["role"]) == "user") last else null
+        val unsummarized = if (input != null) elig.dropLast(1) else elig
+
+        // 分块截断（仅在超预算且无法摘要时设置过）：起点固定不动
+        val win = (st["window"] as? JObj) ?: JObj()
+        val startId = Js.str(win["startId"])
+        var start = 0
+        if (startId.isNotEmpty()) {
+            val i = unsummarized.indexOfFirst { Js.str(it["id"]) == startId }
+            start = if (i >= 0) i else minOf(numOf(win["startOrdinal"], 0), maxOf(0, unsummarized.size - 1))
+        }
+        val hist = unsummarized.drop(start)
+        val system = buildSystem(st, baseSystem)
+
+        val raw = linkedMapOf(
+            "static" to estimateTokens(staticText(st, baseSystem)),
+            "memory" to estimateTokens(memoryText(st)),
+            "summary" to estimateTokens(summaryText(st)),
+            "history" to estimateItems(hist),
+            "delta" to estimateTokens(deltaText(st)),
+            "state" to estimateTokens(stateText(st)),
+            "input" to (if (input != null) estimateItems(listOf(input)) + 6 else 0),
+        )
+        val tok = LinkedHashMap<String, Any?>()
+        var total = 0
+        raw.forEach { (key, v) -> val c = cal(v); tok[key] = c; total += c }
+        tok["total"] = total
+        tok["raw_total"] = raw.values.sum()
+
+        val limit = maxOf(
+            1000,
+            numOf(s["max_context"], 100000) - numOf(s["output_reserve"], 12000) - numOf(s["safety_margin"], 2000),
+        )
+        val overBudget = total > limit
+
+        val batch = oldestBatch(unsummarized, numOf(sum["keep_recent_turns"], 2))
+        val batchRounds = roundsOf(batch)
+        val rounds = roundsOf(items)
+        val chapters = chaptersOf(st)
+        val sinceLast = if (chapters.isNotEmpty()) rounds - numOf(st["lastSummaryRound"], 0) else Int.MAX_VALUE
+        val minGap = maxOf(0, numOf(sum["min_interval_turns"], 0))
+
+        var reason: String? = null
+        val summaryOn = sum["enabled"] != false
+        if (summaryOn && batch.isNotEmpty()) {
+            if (overBudget) {
+                reason = "budget"
+            } else if (cal(estimateItems(unsummarized)) >= numOf(sum["trigger_tokens"], 30000) &&
+                batchRounds >= maxOf(1, numOf(sum["min_new_turns"], 1)) &&
+                sinceLast >= minGap
+            ) {
+                reason = "trigger"
+            }
+        }
+
+        return Plan(
+            st = st, system = system, hist = hist, input = input, unsummarized = unsummarized,
+            tokens = JObj(tok), limit = limit, overBudget = overBudget,
+            trimmed = start > 0, tempTrim = false, dropped = start,
+            needSummary = reason != null, summaryReason = reason, batch = batch, calib = k,
+        )
+    }
+
+    /** 临时裁剪窗口：从哪条消息开始发送，才能塞进 limit（JS 的 computeTrimWindow）。 */
+    fun computeTrimWindow(st: JObj, p: Plan): TrimWindow? {
+        val s = (st["settings"] as? JObj) ?: JObj()
+        val sum = (s["summary"] as? JObj) ?: JObj()
+        val keep = maxOf(1, numOf(sum["keep_recent_turns"], 2))
+        val un = p.unsummarized
+        val users = un.indices.filter { Js.str(un[it]["role"]) == "user" }
+        val fixed = numOf(p.tokens["total"], 0) - numOf(p.tokens["history"], 0)
+        val prefix = IntArray(un.size + 1)
+        for (i in un.indices) prefix[i + 1] = prefix[i] + itemTokens(un[i])
+        fun fits(j: Int): Boolean =
+            fixed + ((prefix[un.size] - prefix[users[j]]) * p.calib).roundToInt() <= p.limit
+
+        var j = maxOf(0, users.size - keep)
+        if (users.isNotEmpty() && !fits(j)) {
+            var lo = j
+            var hi = users.size - 1
+            while (lo < hi) {
+                val mid = (lo + hi) / 2
+                if (fits(mid)) hi = mid else lo = mid + 1
+            }
+            j = lo
+        }
+        val startIdx = if (users.isNotEmpty()) users[j] else 0
+        if (startIdx >= un.size) return null
+        return TrimWindow(Js.str(un[startIdx]["id"]), startIdx, startIdx)
+    }
+
+    /**
+     * 临时裁剪：只改本轮 plan.hist，不永久推进 st.window（摘要失败后的超预算走这里，
+     * 避免剧情被静默永久丢掉）。返回新的 state 与 plan。
+     */
+    fun applyTempTrim(st: JObj, p: Plan, now: Long): Pair<JObj, Plan> {
+        val win = computeTrimWindow(st, p) ?: return st to p
+        val hist = p.unsummarized.drop(win.startIdx)
+        val histTok = (estimateItems(hist) * p.calib).roundToInt()
+        val total = numOf(p.tokens["total"], 0) - numOf(p.tokens["history"], 0) + histTok
+        val tokens = p.tokens.toMutableMap().also { it["history"] = histTok; it["total"] = total }
+        val np = p.copy(
+            hist = hist, tokens = JObj(tokens), trimmed = true, tempTrim = true,
+            dropped = win.startIdx, overBudget = total > p.limit,
+        )
+        val nst = st.toMutableMap().also {
+            it["overflow"] = jobj(
+                "tempStartId" to win.startId, "tempStartOrdinal" to win.startOrdinal,
+                "permanent" to false, "reason" to "over_budget_temp", "last_error" to null, "at" to now,
+            )
+        }
+        return JObj(nst) to np
+    }
 }
