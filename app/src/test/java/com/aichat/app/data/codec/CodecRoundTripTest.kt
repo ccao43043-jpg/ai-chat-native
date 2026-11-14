@@ -61,7 +61,7 @@ class CodecRoundTripTest {
             {"id":"a2","role":"assistant","content":[{"type":"text","text":"array content"}],"createdAt":"3"}]}""")
         val c = ConversationCodec.decode(o)
         assertSem(o, ConversationCodec.encode(c))
-        assertEquals(setOf("affect", "ledger", "worldRef", "worldLog", "kb"), c.rpState.keys)
+        assertEquals(setOf("chapters", "affect", "ledger", "worldRef", "worldLog", "kb"), c.rpState.keys)
         val u = c.messages[1].usage!!
         assertEquals(8L, u.hit); assertEquals(0.000123, u.costUsd!!, 0.0); assertNull(u.raw); assertTrue("未建模键进 extras", u.extras.containsKey("raw"))
         // 改正文：只有 content 变
@@ -141,6 +141,34 @@ class CodecRoundTripTest {
             assertFalse("$k 不该进 extras", conv.extras.containsKey(k))
         }
         val back = ConversationCodec.encode(conv)
-        roots.forEach { k -> assertTrue("$k 编码后应仍在顶层", back.containsKey(k)) }
+        roots.forEach { k ->
+            val nested = (back["plugins"] as? kotlinx.serialization.json.JsonObject)?.get("rpcache")
+                ?.let { it as? kotlinx.serialization.json.JsonObject }?.get("state") as? kotlinx.serialization.json.JsonObject
+            val topLevel = k in setOf("affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb")
+            assertTrue("$k 编码后应回到原位（顶层或 plugins.rpcache.state）", if (topLevel) back.containsKey(k) else nested?.containsKey(k) == true)
+        }
+    }
+
+    /** ConvLog 把章节放在 plugins.rpcache.state.chapters；读到 rpState 时必须抬到根键，否则章节"落盘了但看不见"。 */
+    @Test
+    fun rpcacheStateChaptersAreLiftedIntoRpState() {
+        val raw = obj(
+            """{"id":"c1","title":"t","providerId":"p","model":"m","createdAt":1,"updatedAt":2,"messages":[],
+               "plugins":{"rpcache":{"state":{"chapters":[{"no":1,"content":"FACTS:","coveredIds":["a","b"]}],"window":{"startId":null,"startOrdinal":0}}}}}
+            """.trimIndent()
+        )
+        val conv = ConversationCodec.decode(raw)
+        val chapters = conv.rpState["chapters"] as? kotlinx.serialization.json.JsonArray
+        assertNotNull("章节应从 plugins.rpcache.state 抬到 rpState", chapters)
+        assertEquals(1, chapters!!.size)
+        assertEquals("FACTS:", (chapters[0] as kotlinx.serialization.json.JsonObject)["content"]?.jsonPrimitive?.content)
+        // 顶层优先：顶层已有 chapters 时不被嵌套覆盖
+        val raw2 = obj(
+            """{"id":"c1","title":"t","providerId":"p","model":"m","createdAt":1,"updatedAt":2,"messages":[],
+               "chapters":[{"no":9}],"plugins":{"rpcache":{"state":{"chapters":[{"no":1}]}}}}
+            """.trimIndent()
+        )
+        val c2 = ConversationCodec.decode(raw2)
+        assertEquals(9, ((c2.rpState["chapters"] as kotlinx.serialization.json.JsonArray)[0] as kotlinx.serialization.json.JsonObject)["no"]?.jsonPrimitive?.int)
     }
 }

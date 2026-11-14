@@ -167,7 +167,54 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         return commit(st, p, text)
     }
 
-    private fun commit(st: JObj, p: RpCacheCore.Plan, text: String): JObj? {
+    /** 面板手动操作的结果：新状态 + 章号 + 是否合并 */
+    data class ManualChapter(val state: JObj, val no: Int, val merged: Boolean)
+
+    /**
+     * 面板上的手动操作：生成下一章 / 合并所有章节。
+     *
+     * 自动路径只在「超预算或触发阈值」时才跑，用户想提前压缩长篇必须能手动触发；
+     * 合并则用来把越积越多的章节压成一章（否则 system 只会越来越长）。
+     * 失败时抛带人话的异常交给面板 toast。
+     */
+    suspend fun summarizeNow(conv: Conversation, settings: AppSettings, merge: Boolean): Result<ManualChapter> =
+        runCatching {
+            val a = ask ?: throw IllegalStateException("没有可用的服务商或模型")
+            val st = RpState.normalizeState(Js.fromJson(conv.rpState) as? JObj ?: JObj())
+            val items = conv.messages
+                .filter { it.error == null && it.extras["imageGen"] == null && it.extras["pending"] == null }
+                .map { m -> jobj("id" to m.id, "role" to m.role.wire, "content" to m.content, "images" to m.images) }
+            val base = conv.systemPrompt ?: settings.systemPrompt
+            if (merge) {
+                val chapters = RpCacheCore.chaptersOf(st)
+                if (chapters.size < 2) throw IllegalStateException("只有 ${chapters.size} 章，不需要合并")
+                val prompt = RpChapterCore.buildConsolidatePrompt(chapters, emptyList(), RpCacheCore.memoryText(st).ifEmpty { null })
+                val text = a(conv, prompt) ?: throw IllegalStateException("模型没有返回内容")
+                val r = RpChapterCore.consolidate(
+                    st = st,
+                    content = text,
+                    batch = emptyList(),
+                    coveredIds = chapters.flatMap { ch -> (ch["coveredIds"] as? List<*>)?.map { Js.str(it) } ?: emptyList() },
+                    at = host.now(),
+                    rounds = RpCacheCore.roundsOf(items),
+                    atRound = RpCacheCore.roundsOf(items),
+                    source = "merge",
+                )
+                if (!r.ok) throw IllegalStateException("合并被拒绝：${r.reason ?: "invalid"}")
+                ManualChapter(r.state, Js.str(r.chapter?.get("no")).toIntOrNull() ?: 0, true)
+            } else {
+                val p = RpCacheCore.plan(st, base, items)
+                if (p.batch.isEmpty()) throw IllegalStateException("没有可总结的旧对话（保留轮数内的不总结，可在 RP 检视里调小「保留轮数」）")
+                val prompt = RpChapterCore.buildSummaryPrompt(
+                    RpCacheCore.chaptersOf(st), p.batch, RpCacheCore.memoryText(st).ifEmpty { null },
+                )
+                val text = a(conv, prompt) ?: throw IllegalStateException("模型没有返回内容")
+                val next = commit(st, p, text, source = "manual") ?: throw IllegalStateException("摘要未通过质量检查（八分区不全或内容太短），已丢弃")
+                ManualChapter(next, Js.str((RpCacheCore.chaptersOf(next).lastOrNull())?.get("no")).toIntOrNull() ?: 0, false)
+            }
+        }
+
+    private fun commit(st: JObj, p: RpCacheCore.Plan, text: String, source: String = "auto"): JObj? {
         val covered = p.batch.map { Js.str(it["id"]) }
         val r = RpChapterCore.commitChapter(
             st = st,

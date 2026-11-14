@@ -217,6 +217,14 @@ class ChatController(
             save(next, touch = next.messages.isNotEmpty())
         }
     }
+    /** 把插件算好的 rpState 整体写回（章节摘要/合并后由面板调用） */
+    fun setRpStateJson(id: String, state: JsonObject) {
+        scope.launch {
+            val c = deps.chats.load(id) ?: return@launch
+            save(c.copy(rpState = state), touch = false)
+        }
+    }
+
     fun setRpBlocks(id: String, blocks: Map<String, String>) {
         if (blocks.isEmpty()) return
         scope.launch {

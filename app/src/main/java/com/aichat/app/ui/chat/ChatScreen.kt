@@ -158,6 +158,7 @@ fun ChatScreen(
     var rpPanel by remember { mutableStateOf(false) }
     var rpMemoryPanel by remember { mutableStateOf(false) }
     var rpInspect by remember { mutableStateOf(false) }
+    var rpChapter by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
@@ -242,6 +243,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpInspect = true
+            })
+            DropdownMenuItem(text = { Text("RP 章节") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                rpChapter = true
             })
             if (conv != null) DropdownMenuItem(text = { Text("据此生图") }, onClick = {
                 menu = false
@@ -432,6 +438,16 @@ fun ChatScreen(
             onSave = { blocks -> controller.setRpBlocks(conv.id, blocks) },
             // 选世界时顺手补开场白（旧版 applyWorld 的行为）；块仍由上面的「保存」统一写
             onPickWorld = { w -> controller.applyWorld(conv.id, w) },
+        )
+    }
+    if (rpChapter && conv != null) {
+        RpChapterDialog(
+            conv = conv,
+            settings = settings,
+            plugin = deps.plugins.plugins.firstOrNull { it.id == "rpcache" } as? com.aichat.app.plugins.rp.RpCachePlugin,
+            onSaveState = { controller.setRpStateJson(conv.id, it) },
+            onDismiss = { rpChapter = false },
+            onToast = controller::toast,
         )
     }
     if (rpInspect && conv != null) {
