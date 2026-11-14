@@ -57,12 +57,28 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
             else -> sys + "\n" + proto
         }
 
+        // 漏标补偿：最近若干轮模型没输出 <state> 时，用存盘的好感值给历史 assistant 补回 <state> 示范。
+        // 只在请求里补，不写回对话（与 affect.js 的 MISS_THRESHOLD / DEMO_K 口径一致）。
+        val demo = Affect.shouldDemoState(convJs, Affect.MISS_WINDOW)
+        var demoLeft = if (demo) Affect.DEMO_K else 0
+
         val out = ArrayList(ctx.messages)
         for (i in out.indices) {
             val m = out[i]
             when {
                 // 历史 assistant：默认剥掉 <state>（模型不该看到自己上一轮的标签格式）
-                m.role == Role.ASSISTANT -> out[i] = m.copy(content = stripState(m.content))
+                m.role == Role.ASSISTANT -> {
+                    var text = stripState(m.content)
+                    if (demoLeft > 0 && !text.contains("<state>")) {
+                        val aff = affectOf(ctx.conv, m.srcId)
+                        val rebuilt = if (aff != null) Affect.rebuildStateTag(aff) else ""
+                        if (rebuilt.isNotEmpty()) {
+                            text = text.trimEnd() + "\n" + rebuilt
+                            demoLeft--
+                        }
+                    }
+                    out[i] = m.copy(content = text)
+                }
                 m.role == Role.USER && i == lastIdx -> out[i] = m.copy(content = tag + "\n" + m.content)
                 m.role == Role.USER -> {
                     // 历史 user：只回放当轮冻结的短 tag（P0-3）
@@ -108,7 +124,15 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
                 "settings" to JObj(), "conv" to convJs,
             ),
         )
-        return replaceMessage(conv, bot.id) { it.withExtra("affect", Js.toJson(st)) }
+        // 模型这轮没输出 <state>：记一笔漏标（JS 的 p='missing_state'），面板才能算漏标率并触发补偿示范
+        val tagged = if (parsed == null) {
+            val mark = LinkedHashMap<String, Any?>(st)
+            mark["a"] = 0
+            mark["stateMissing"] = true
+            mark["p"] = "missing_state"
+            mark
+        } else st
+        return replaceMessage(conv, bot.id) { it.withExtra("affect", Js.toJson(tagged)) }
     }
 
     override fun headerBadges(conv: Conversation): List<Badge> {
@@ -161,6 +185,13 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
     private fun injOf(conv: Conversation, srcId: String?): String? {
         if (srcId == null) return null
         return conv.messages.firstOrNull { it.id == srcId }?.extras?.get("affectInj") as? String
+    }
+
+    /** 取某条消息存盘的好感状态（JsObject 形状，给漏标补偿重建 `<state>` 用）。 */
+    private fun affectOf(conv: Conversation, srcId: String?): Any? {
+        if (srcId == null) return null
+        val el = conv.messages.firstOrNull { it.id == srcId }?.extras?.get("affect") ?: return null
+        return Js.fromJson(el)
     }
 
     private fun replaceMessage(conv: Conversation, id: String, f: (Message) -> Message): Conversation {
