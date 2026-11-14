@@ -67,7 +67,10 @@ class MigrationTest {
 
     @Test fun neverThrowsAndUndecryptableKeyReported() = runBlocking {
         val keys = FakeKeyVault(); keys.register("p2", "https://openrouter.ai/api/v1", com.aichat.app.domain.model.AuthType.BEARER); keys.set("p2", "x"); keys.undecryptable += "p2"
-        val g = DataGraph(com.aichat.app.data.store.MemFileStore(OLD_STORE), keys, File("/proc/nonexistent-dir-for-test"), now = { 1L })
+        // 用「父级是一个普通文件」来制造不可写的备份目录：POSIX 与 Windows 上都能稳定失败
+        // （原写法 File("/proc/nonexistent-dir-for-test") 在 Windows 上会被解析成 D:\proc\... 并成功建目录）
+        val blocker = File(createTempDir(), "blocked").apply { writeText("x") }
+        val g = DataGraph(com.aichat.app.data.store.MemFileStore(OLD_STORE), keys, File(blocker, "backup"), now = { 1L })
         val r = g.migration.run()   // 备份目录不可写：记警告，不抛
         assertNull(r.backupPath)
         assertTrue(r.warnings.any { it.startsWith("整库备份 失败") })

@@ -178,7 +178,9 @@ fun ChatScreen(
                 if (deps.isFake) Text("演示模式：数据层 / 网络层尚未接入，回复由 fake 引擎生成，不会保存",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
-                Box(Modifier.weight(1f)) {
+                // fillMaxWidth 不能省：Column 默认 Start 对齐，Box 只按内容宽度测量，
+                // 空对话时里面的「有什么可以帮你？」会被挤到左边贴边，而不是居中。
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
                         Text("有什么可以帮你？", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.Center))
