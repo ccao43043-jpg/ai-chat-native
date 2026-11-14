@@ -69,6 +69,12 @@ fun ImageScreen() {
     var model by remember { mutableStateOf("") }
     var size by remember { mutableStateOf(ImageGen.DEFAULT_SIZE) }
     var prompt by remember { mutableStateOf("") }
+    // 从聊天「据此生图」跳过来时带一条提示词。生图页每次切 Tab 都会重新进组合，
+    // 所以用一次性信箱（`ImageDraft`），取完即清。
+    LaunchedEffect(Unit) {
+        val p = ImageDraft.take()
+        if (!p.isNullOrBlank()) prompt = p
+    }
     var busy by remember { mutableStateOf(false) }
     var elapsed by remember { mutableStateOf(0L) }
     var stage by remember { mutableStateOf("") }

@@ -72,6 +72,8 @@ fun ChatScreen(
     onOpenSettings: (SettingsDestination) -> Unit,
     /** 顶栏「更多」菜单的挂载点：B/C 可以在这里追加项（用量、RP 面板等） */
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
+    /** 「据此生图」：把对话提炼出的提示词带去生图 Tab */
+    onOpenImage: (String) -> Unit = {},
 ) {
     val deps = LocalUiDeps.current
     val st by controller.state.collectAsStateWithLifecycle()
@@ -177,6 +179,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpInspect = true
+            })
+            if (conv != null) DropdownMenuItem(text = { Text("据此生图") }, onClick = {
+                menu = false
+                val p = com.aichat.app.net.ImageGen.buildPromptFromMessages(conv.messages)
+                if (p.isBlank()) controller.toast("这段对话还没内容可提炼") else onOpenImage(p)
             })
             DropdownMenuItem(text = { Text("好感度") }, onClick = {
                 menu = false

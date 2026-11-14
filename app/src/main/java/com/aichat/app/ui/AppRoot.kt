@@ -49,6 +49,7 @@ fun AppRoot(deps: UiDeps) {
         val chatVm: ChatViewModel = viewModel(factory = ChatViewModel.Factory(deps))
         var tab by rememberSaveable { mutableStateOf(MainTab.Chat) }
         var settings by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
+
         val holder = rememberSaveableStateHolder()
 
         BackHandler(enabled = settings == null && tab != MainTab.Chat) { tab = MainTab.Chat }
@@ -76,7 +77,12 @@ fun AppRoot(deps: UiDeps) {
             Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)) {
                 holder.SaveableStateProvider(tab.name) {
                     when (tab) {
-                        MainTab.Chat -> ChatScreen(chatVm.controller, onOpenSettings = { settings = it })
+                        MainTab.Chat -> ChatScreen(
+                            chatVm.controller,
+                            onOpenSettings = { settings = it },
+                            // 提示词走 ImageDraft 信箱：生图页切 Tab 会重建，靠参数传会丢
+                            onOpenImage = { p -> com.aichat.app.ui.image.ImageDraft.pending = p; tab = MainTab.Image },
+                        )
                         MainTab.Image -> ImageScreen()
                     }
                 }
