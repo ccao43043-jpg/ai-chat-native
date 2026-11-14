@@ -136,8 +136,16 @@ class ChatControllerTest {
         assertEquals("重生成后应有 2 个版本（实际 ${Versions.count(m)}）", 2, Versions.count(m))
         assertEquals("应切到第 2 个版本", 1, Versions.index(m))
         assertTrue(m.content.isNotEmpty())
-        c.selectVersion(aid, 0); until { c.state.value.conv!!.messages[1].content == first }
-        m = repo.load(conv0.id)!!.messages[1]
+        // 切版本同样是异步写盘：state 会先变，仓库稍后跟上；直接读仓库会读到 vi 还是 1
+        // （CI 实测 expected:<0> but was:<1>）。所以这里也轮询仓库，给足 30s。
+        c.selectVersion(aid, 0)
+        val deadline = System.currentTimeMillis() + 30_000
+        while (true) {
+            m = repo.load(conv0.id)!!.messages[1]
+            if (m.vi == 0) break
+            if (System.currentTimeMillis() > deadline) throw AssertionError("切回版本 0 没落盘：vi=${m.vi}")
+            delay(10)
+        }
         assertEquals(first, m.content)
         assertEquals(0, m.vi)
     }
