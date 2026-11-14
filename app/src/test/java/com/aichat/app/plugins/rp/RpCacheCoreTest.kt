@@ -200,4 +200,44 @@ class RpCacheCoreTest {
         assertEquals(hist[1]["content"], row[1].jsonPrimitive.content)
         assertEquals(0, (row[2] as JsonArray).size)
     }
+
+    @Test
+    fun calibDefaultsToOneAndIsPerModel() {
+        val st = jobj()
+        val meta = jobj("provider" to "deepseek", "model" to "m1")
+        assertEquals(1.0, RpCacheCore.calibOf(st, meta), 0.0)
+
+        val once = RpCacheCore.calibrate(st, 1000, 1500L, meta)
+        assertEquals("首轮 0.7*1 + 0.3*1.5", 1.15, (once["calib"] as Number).toDouble(), 0.0001)
+        assertEquals(1.15, RpCacheCore.calibOf(once, meta), 0.0001)
+        // 另一个模型不继承这个系数（跨模型污染是旧版明确要避免的）
+        assertEquals(1.0, RpCacheCore.calibOf(once, jobj("provider" to "deepseek", "model" to "m2")), 0.0)
+    }
+
+    @Test
+    fun calibrateUsesExponentialAverageAndClampsRatio() {
+        val meta = jobj("provider" to "p", "model" to "m")
+        val once = RpCacheCore.calibrate(jobj(), 1000, 2000L, meta)
+        assertEquals("首轮 ratio 夹在 2.0", 1.3, (once["calib"] as Number).toDouble(), 0.0001)
+
+        val twice = RpCacheCore.calibrate(once, 1000, 2000L, meta)
+        assertEquals("第二轮 0.7*1.3 + 0.3*2.0", 1.51, (twice["calib"] as Number).toDouble(), 0.0001)
+        assertEquals("计数要累加", 2, (twice["calibN"] as Number).toInt())
+        val nBy = twice["calibNBy"] as Map<*, *>
+        assertEquals(2, (nBy["p|m|text"] as Number).toInt())
+
+        // 离谱的比例被夹到 2.5，不会把系数带飞
+        val crazy = RpCacheCore.calibrate(jobj(), 1000, 100000L, meta)
+        assertEquals(1.45, (crazy["calib"] as Number).toDouble(), 0.0001)
+    }
+
+    @Test
+    fun calibrateSkipsTinyEstimates() {
+        val meta = jobj("provider" to "p", "model" to "m")
+        val st = jobj("calib" to 1.0)
+        val same = RpCacheCore.calibrate(st, 120, 900L, meta)
+        assertTrue("估算 ≤200 不校准（固定开销占比过高会带偏系数）", same === st)
+        val noPrompt = RpCacheCore.calibrate(st, 5000, 0L, meta)
+        assertTrue("没有真实 token 也不校准", noPrompt === st)
+    }
 }
