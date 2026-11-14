@@ -10,11 +10,12 @@
 - `knowledge`（本地资料库注入，三道闸：总闸 / 对话闸 / 世界）
 - `usage`（Token 徽章）
 - `gcache` / `mmcache`（缓存，命中率不再是 0）
+- `rpcache`（RP 上下文：分层 system + 末轮 `[CURRENT_STATE]` 注入；只有对话真的填过 RP 块才自动生效）
 
 仍缺席（代码已在 `plugins/`，缺 plugin 适配层）：
 
-- `rpcache`：RP 状态机核心已有，但「经 transformRequest 的请求组装」未接
 - `affect`：Kalman + CUSUM 已有，但响应钩子未接
+- `rpcache` 的深化：章节摘要生成与合并、世界书触发与冻结（`constantLoreText` 未移植）、预算裁剪与 `plan` 的 trim 分支、命中率徽章与「检视 › 缓存」面板
 
 注册顺序固定：`knowledge → rpcache → usage → gcache → mmcache → affect`。
 
