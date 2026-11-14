@@ -5,23 +5,32 @@
 
 ## 1. 插件与缓存（收益最大）
 
-`AppGraph.plugins` 现在是 `EmptyPluginRegistry`，所以：
+`AppGraph.plugins` 现在是 `PluginRegistryImpl.createDefault()`，已生效：
 
-- gcache / mmcache 全部失效 → **缓存命中率恒为 0**，同样的对话比旧版贵
-- affect / knowledge 不参与请求组装
-- RP（rpcache）状态机没有接进请求管线
+- `knowledge`（本地资料库注入，三道闸：总闸 / 对话闸 / 世界）
+- `usage`（Token 徽章）
+- `gcache` / `mmcache`（缓存，命中率不再是 0）
+
+仍缺席（代码已在 `plugins/`，缺 plugin 适配层）：
+
+- `rpcache`：RP 状态机核心已有，但「经 transformRequest 的请求组装」未接
+- `affect`：Kalman + CUSUM 已有，但响应钩子未接
 
 注册顺序固定：`knowledge → rpcache → usage → gcache → mmcache → affect`。
 
 ⚠️ `engine` 构造时捕获的是 `plugins` 引用本身，替换实现必须**重新构造 engine**（或改成传 provider），
 否则会得到「UI 看到开关变了、引擎毫无反应」的另一种版本。
 
-## 2. 搜索就绪判定有两份
+## 2. 搜索就绪判定有两份 ✅ 已修
 
 引擎读 `settings.search.hasKeys[provider]`（配置快照），UI 读 `SearchConfig.ready(s, keys)`
-（实时查 KeyVault）。用户没打开过「联网搜索设置」时，会出现 UI 允许发、引擎静默跳过。
+（实时查 KeyVault）。两份不一致时会出现 UI 允许发、引擎静默跳过；而且 `SearchCore.keyId(cfg)`
+也依赖 `hasKey`，所以只在闸门处放宽不够——必须让 `hasKeys` 反映真实 Key。
 
-修法：`ChatController.setSearchOn` 时同步刷新 `hasKeys`。
+已做（`SearchKeySync` + `AppGraph.syncSearchKeys()`，启动迁移后对账一次，无差异不写盘）。
+
+遗留：`ChatController.setSearchOn` 的提示仍是猜测文案；若要「点开关时立刻告知 Key 缺失」，
+得让它同步查 `KeyVault`（现在是启动时已对账，所以实际不会误报）。
 
 ## 3. 未做的页面
 
