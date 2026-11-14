@@ -3,7 +3,11 @@ package com.aichat.app.ui.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -91,10 +95,19 @@ fun MessageItem(
                 Images(m.images, onImage)
                 FileChips(m.files)
                 if (m.content.isNotEmpty()) Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).combinedClickable(onClick = {}, onLongClick = copy).testTag("msg-user"),
+                    // 旧版 .msg.user .bubble：16/16/4/16 的「尖角朝下」，实心紫 + 一层紫色投影
+                    color = com.aichat.app.ui.theme.Palette.UserBubble,
+                    shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
+                        .combinedClickable(onClick = {}, onLongClick = copy).testTag("msg-user"),
                 ) {
-                    Text(m.content, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                    Text(
+                        m.content, style = MaterialTheme.typography.bodyLarge,
+                        color = androidx.compose.ui.graphics.Color.White,
+                        lineHeight = 24.sp,
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
+                    )
                 }
             }
             ActionRow(m, view, copy, actions)
@@ -104,29 +117,51 @@ fun MessageItem(
     Column(Modifier.fillMaxWidth().testTag(if (streaming) "msg-streaming" else if (view.dim) "msg-dim" else "msg-assistant"),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         view.label?.let { StateLabel(it) }
-        Column(Modifier.alpha(alpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (view.headName != null || badges.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                view.headName?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                badges.forEach { b -> BadgeChip(b, onClick = { actions.onBadge?.invoke(b) ?: b.detail?.let(onToast) }) }
+        Row(Modifier.alpha(alpha)) {
+            // 旧版 .bot-avatar：28dp 渐变圆 + 2px 半透明紫描边，贴着消息左上角
+            androidx.compose.foundation.layout.Box(
+                Modifier.padding(top = 2.dp).size(28.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(com.aichat.app.ui.theme.Palette.Grad)
+                    .border(2.dp, com.aichat.app.ui.theme.Palette.AccentSoft, androidx.compose.foundation.shape.CircleShape),
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (view.headName != null || badges.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    view.headName?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    badges.forEach { b -> BadgeChip(b, onClick = { actions.onBadge?.invoke(b) ?: b.detail?.let(onToast) }) }
+                }
+                if (!m.reasoning.isNullOrEmpty()) Reasoning(m.reasoning, streaming && m.content.isEmpty())
+                Images(m.images, onImage)
+                if (m.content.isNotEmpty()) Surface(
+                    // 旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
+                    color = com.aichat.app.ui.theme.Palette.AssistantBubble,
+                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)).testTag("msg-assistant-body"),
+                ) {
+                    SelectionContainer {
+                        androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            MarkdownText(m.content, onCopy = onToast)
+                        }
+                    }
+                }
+                else if (streaming && m.error == null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("  正在生成…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                m.error?.let { Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
-            if (!m.reasoning.isNullOrEmpty()) Reasoning(m.reasoning, streaming && m.content.isEmpty())
-            Images(m.images, onImage)
-            if (m.content.isNotEmpty()) SelectionContainer { MarkdownText(m.content, onCopy = onToast) }
-            else if (streaming && m.error == null) Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text("  正在生成…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            m.error?.let { Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
         if (!streaming) {
-            ActionRow(m, view, copy, actions)
+            androidx.compose.foundation.layout.Box(Modifier.padding(start = 36.dp)) { ActionRow(m, view, copy, actions) }
             val info = listOfNotNull(if (m.truncated) "已中断" else null, m.usage?.let { u ->
                 listOfNotNull(u.prompt?.let { "入 $it" }, u.completion?.let { "出 $it" }, u.hit?.takeIf { it > 0 }?.let { "命中 $it" })
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
             })
             if (info.isNotEmpty()) Text(info.joinToString("  "), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 40.dp))
         }
     }
 }
