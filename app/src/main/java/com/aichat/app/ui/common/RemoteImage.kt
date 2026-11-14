@@ -49,15 +49,21 @@ object ImageCache {
 
     suspend fun load(src: String): ImageBitmap? = withContext(Dispatchers.IO) {
         runCatching {
-            val bytes: ByteArray = if (src.startsWith("data:")) {
-                val i = src.indexOf("base64,")
-                if (i < 0) return@runCatching null
-                Base64.decode(src.substring(i + 7), Base64.DEFAULT)
-            } else {
-                val req = Request.Builder().url(src).build()
-                HttpClients.base.newCall(req).execute().use { it.body?.bytes() ?: return@runCatching null }
-            }
+            val bytes = bytes(src) ?: return@runCatching null
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
         }.getOrNull()?.also { put(src, it) }
+    }
+
+    /** 原始字节（保存到相册时复用，避免为了存盘再下载一遍）。 */
+    suspend fun bytes(src: String): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching {
+            if (src.startsWith("data:")) {
+                val i = src.indexOf("base64,")
+                if (i < 0) null else Base64.decode(src.substring(i + 7), Base64.DEFAULT)
+            } else {
+                val req = Request.Builder().url(src).build()
+                HttpClients.base.newCall(req).execute().use { it.body?.bytes() }
+            }
+        }.getOrNull()
     }
 }
