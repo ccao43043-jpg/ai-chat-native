@@ -39,7 +39,10 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     override val perConversation: Boolean get() = true
 
     /** 上一轮算好的状态，等 onAfterResponse 落盘。 */
-    private val pending = HashMap<String, JObj>()
+    /** 本轮请求的快照：状态 + 规划时用的原始估算 + provider/model（收尾时拿去校准） */
+    private class Pending(val st: JObj, val rawTotal: Int, val provider: String, val model: String)
+
+    private val pending = HashMap<String, Pending>()
 
     /** RP 类对话自动启用：只有真的填过块才生效，普通对话不受影响。 */
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
@@ -75,7 +78,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val itemsLore = RpLoreCore.applyFrozenLore(stFired, items)
 
         // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore)
+        val calKey = jobj("provider" to ctx.provider.presetId.ifEmpty { ctx.provider.id }, "model" to ctx.model)
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
@@ -85,7 +89,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             val r = summarize(ctx.conv, stFired, p0)
             if (r != null) stBase = r else summaryFail = "summary_failed"
         }
-        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore) else p0
+        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore, meta = calKey) else p0
 
         val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now()) else stBase to pRaw
 
@@ -101,7 +105,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             }
         }
 
-        pending[ctx.conv.id] = st2
+        pending[ctx.conv.id] = Pending(st2, (p.tokens["raw_total"] as? Number)?.toInt() ?: 0, ctx.provider.presetId.ifEmpty { ctx.provider.id }, ctx.model)
 
         val cap = RpCacheCore.capability(ctx.provider.presetId, ctx.provider.baseUrl, ctx.provider.type.wire, ctx.model)
         val trace = jobj(
@@ -180,8 +184,22 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     private fun intOf(v: Any?): Int = (v as? Number)?.toInt() ?: 0
 
     override fun onAfterResponse(result: TurnResult, ctx: RequestContext): Conversation? {
-        val st = pending.remove(ctx.conv.id)
+        val snap = pending.remove(ctx.conv.id)
         val u = result.usage
+        // 用服务商返回的真实 prompt_tokens 校准估算（按 provider/model 隔离），下一轮 plan 就用新系数
+        val st = snap?.let { s ->
+            val prompt = u?.prompt ?: 0L
+            if (prompt > 0L) {
+                RpCacheCore.calibrate(
+                    s.st,
+                    s.rawTotal,
+                    prompt,
+                    jobj("provider" to s.provider, "model" to s.model),
+                )
+            } else {
+                s.st
+            }
+        }
         val prevRates = convRates(ctx.conv)
         val rate = hitRate(u?.hit, u?.prompt)
         val supported = u != null && u.cacheSupported != false && u.hit != null && (u.prompt ?: 0L) > 0

@@ -185,6 +185,60 @@ object RpCacheCore {
         estimateTokens(o["content"]) + 4 + imgN * 1000
     }
 
+    // ---------------- 估算校准（用服务商返回的真实 prompt_tokens 修正估算） ----------------
+
+    /** 校准键：provider / model / modality 隔离，避免跨模型互相污染（JS calibKey）。 */
+    fun calibKey(meta: JObj?): String = listOf(
+        s(meta?.get("provider")),
+        s(meta?.get("model")),
+        s(meta?.get("modality")).ifEmpty { "text" },
+    ).joinToString("|")
+
+    /** JS 的 `x || ''` 口径：null / Undefined / 非字符串一律当空串（**别用 Js.str**，它把 null 变成 "undefined"）。 */
+    private fun s(v: Any?): String = when {
+        v == null || v is com.aichat.app.plugins.js.Undefined -> ""
+        v is String -> v
+        v is Number || v is Boolean -> v.toString()
+        else -> ""
+    }
+
+    /** 该模型的校准系数；新模型从 1.0 起，**不**继承全局 calib（跨模型污染）。 */
+    fun calibOf(st: JObj?, meta: JObj?): Double {
+        val key = calibKey(meta)
+        val by = st?.get("calibBy") as? Map<*, *>
+        val v = by?.get(key) as? Number
+        return v?.toDouble()?.takeIf { it in 0.5..2.5 } ?: 1.0
+    }
+
+    /**
+     * 用真实输入 token 校准估算：指数平均（旧值 0.7 + 本轮 0.3），系数夹在 0.5–2.5。
+     *
+     * 只在「估算 > 200 且真实 > 0」时才校准 —— 太小的请求里，4/条 的固定开销占比过高，
+     * 拿去校准会把系数带偏。
+     */
+    fun calibrate(st: JObj, rawEstimate: Int, actualPrompt: Long, meta: JObj?): JObj {
+        if (rawEstimate <= 200 || actualPrompt <= 0L) return st
+        val key = calibKey(meta)
+        val by = LinkedHashMap<String, Any?>()
+        (st["calibBy"] as? Map<*, *>)?.forEach { (k, v) -> by[Js.str(k)] = v }
+        val prev = (by[key] as? Number)?.toDouble() ?: 1.0
+        val ratio = (actualPrompt.toDouble() / rawEstimate).coerceIn(0.5, 2.5)
+        val calib = kotlin.math.round((prev * 0.7 + ratio * 0.3) * 1000) / 1000
+        by[key] = calib
+
+        val nBy = LinkedHashMap<String, Any?>()
+        (st["calibNBy"] as? Map<*, *>)?.forEach { (k, v) -> nBy[Js.str(k)] = v }
+        nBy[key] = ((nBy[key] as? Number)?.toInt() ?: 0) + 1
+
+        val next = LinkedHashMap<String, Any?>(st)
+        next["calib"] = calib
+        next["calibBy"] = by
+        next["calibN"] = ((st["calibN"] as? Number)?.toInt() ?: 0) + 1
+        next["calibNBy"] = nBy
+        next["calibKey"] = key
+        return JObj(next)
+    }
+
     // ---------------- 服务商缓存能力 / 上下文窗口 / 自动预算 ----------------
 
     data class Cap(val vendor: String, val kind: String, val auto: Boolean, val ttl: Int, val label: String)
@@ -408,11 +462,11 @@ object RpCacheCore {
      * 规划本轮请求：算各层 token、判断是否超预算、要不要生成章节。
      * items 是「可发送的消息」（按原顺序，最后一条是本轮用户输入）。
      */
-    fun plan(st0: JObj, baseSystem: String, items: List<JObj>, calibOverride: Double? = null): Plan {
+    fun plan(st0: JObj, baseSystem: String, items: List<JObj>, calibOverride: Double? = null, meta: JObj? = null): Plan {
         val st = RpState.normalizeState(st0)
         val s = (st["settings"] as? JObj) ?: JObj()
         val sum = (s["summary"] as? JObj) ?: JObj()
-        val k = calibOverride ?: ((st["calib"] as? Number)?.toDouble() ?: 1.0)
+        val k = calibOverride ?: calibOf(st, meta)
         fun cal(n: Int): Int = (n * k).roundToInt()
 
         val covered = coveredIds(st)
