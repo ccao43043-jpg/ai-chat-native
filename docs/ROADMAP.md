@@ -11,16 +11,23 @@
 - `usage`（Token 徽章）
 - `gcache` / `mmcache`（缓存，命中率不再是 0）
 - `rpcache`（RP 上下文：分层 system + 末轮 `[CURRENT_STATE]` 注入；只有对话真的填过 RP 块才自动生效）
+  - 预算裁剪：超预算时二分出要丢的最旧前缀，记进 `overflow.tempStartId`（**不永久推进 window**，摘要失败也不能静默丢剧情）
+  - 章节摘要：八分区模板 + 质量门 0.60 + 事务式 `commitChapter`（失败不动 state）
+  - 世界书：常驻条目进静态层 `[LOREBOOK]`，命中的条目冻结在锚点消息后 `[LORE_TRIGGERED]`（sticky/cooldown/delay/prob/分组/预算，RNG 与 JS 逐位一致）
+- `rpmemory`（结构化记忆：BM25 + MMR 召回，`[MEMORY_RECALL]` 拼进末条 user；按 `interval` 自动抽取，面板可「立即提取」）
 - `affect`（好感度 / 心情：system 挂 `[AFFECT_RULE]` 协议、末条 user 前置短 tag、回复里的 `<state>` 解析后按 KF 推进并落盘、顶栏「心情 · 关系」徽章）
 
 仍缺席（代码已在 `plugins/`，缺 panel / 深化逻辑）：
 
 - `affect` 面板：走势图、漏标率、护栏统计、估计器切换；`invalidateFrom`（切版本/编辑后清除受影响的 affect）
-- `rpcache` 的深化：章节摘要生成与合并、世界书触发与冻结（`constantLoreText` 未移植）、预算裁剪与 `plan` 的 trim 分支、「检视 › 缓存」面板
-- 存量欠账：`rpmemory.js`（约 46 KB）尚未移植
+- `rpcache` 的深化：章节**合并**（`consolidate`）、`calibrate`、冻结徽章、「检视 › 缓存」面板
+- `rpmemory` 的账本部分（`upsertFact` / `renderLedger` / `checkSummaryAgainstLedger`）
 
 已完成（本仓库此前的两轮）：
 
+- 世界模板：设置 →「世界模板」可新建 / 改名 / 改块 / 长按删除；对话里「RP 状态 › 从世界模板填入」把模板块填进当前对话。
+  保存改成一次写多块（setRpBlocks），修掉「填了 world+character 只有 world 落盘」的覆盖问题。
+- 记忆面板：对话溢出菜单 →「记忆」，列表 / 置顶 / 停用 / 删除 / 立即提取（写 `rp-memory.json`）。
 - RP 面板：对话溢出菜单 →「RP 状态」，可编辑 7 个 L1 块（世界 / 角色 / 规则 / 输出格式 / 示例 / 禁止 / 风格）。
   修根因时发现 `ConversationCodec.RP_KEYS` 少了 `blocks` 和 `settings` 两个根键，导致 `rpState` 永远为空、
   `rpcache` 在设备上**从未生效且完全静默**——现已补上并加注释。
@@ -28,7 +35,7 @@
   顶栏「命中 67%」（点开有上下文用量）、被章节覆盖/超出预算的消息变灰并给出说明。
   判定口径照 `rp-plugin.js`：`pct` 一位小数、`tone` 0.7/0.3 分档、异常用前 5 次均值（≥50% 且低于均值 30 个点且不足其 60%）。
 
-注册顺序固定：`knowledge → rpcache → usage → gcache → mmcache → affect`。
+注册顺序固定：`knowledge → rpcache → rpmemory → usage → gcache → mmcache → affect`。
 
 ⚠️ `engine` 构造时捕获的是 `plugins` 引用本身，替换实现必须**重新构造 engine**（或改成传 provider），
 否则会得到「UI 看到开关变了、引擎毫无反应」的另一种版本。
