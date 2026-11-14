@@ -95,6 +95,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             dest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
         dest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
         dest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
+        dest == SettingsDestination.Knowledge -> KnowledgeScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(dest.title, back) {
                 Text("「${dest.title}」将在后续里程碑实现（负责：${dest.owner}）", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -174,8 +175,8 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
                     value = "${worlds.size} 个", tag = "row-worlds") {
                     open(SettingsDestination.Worlds)
                 }
-                SettingsTileRow(Icons.Filled.Info, "知识库", "每个世界的资料库条目",
-                    value = "待实现", tag = "row-knowledge") { open(SettingsDestination.Knowledge) }
+                SettingsTileRow(Icons.Filled.Info, "知识库", "按世界保存，聊天时按需检索注入",
+                    tag = "row-knowledge") { open(SettingsDestination.Knowledge) }
             }
 
             SettingsGroup("数据") {

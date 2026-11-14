@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,6 +80,7 @@ class KnowledgePluginTest {
     @Test
     fun globalGateOffLeavesRequestUntouched() = runBlocking {
         val host = FakeHost()
+        host.configs[KnowledgePlugin.ID] = jobj("injectEnabled" to false)
         val plugin = KnowledgePlugin(host, storeWithBvilla())
         val input = ctx("别墅在哪？[CURRENT_STATE]\n位置：客厅")
         val out = plugin.onBeforeRequest(input, {})
@@ -87,14 +89,25 @@ class KnowledgePluginTest {
     }
 
     @Test
-    fun conversationGateUnsetSkipsAndPinsFalse() = runBlocking {
+    fun conversationGateDefaultsOn() = runBlocking {
         val host = FakeHost()
         host.configs[KnowledgePlugin.ID] = jobj("injectEnabled" to true)
         val plugin = KnowledgePlugin(host, storeWithBvilla())
         val input = ctx("别墅在哪？")
         val out = plugin.onBeforeRequest(input, {})
-        assertEquals(input.messages, out.messages)
-        assertEquals(false, host.conv("c1", KnowledgePlugin.ID)["injectEnabled"])
+        // 偏离 D6：对话闸没设置时默认注入（JS 会当成关闭），否则原生没有面板可勾，功能永远不生效
+        assertTrue(out.messages.last().content.contains("[LOCAL_KNOWLEDGE]"))
+        assertNull(host.conv("c1", KnowledgePlugin.ID)["injectEnabled"])
+    }
+
+    @Test
+    fun explicitFalseStillSkips() = runBlocking {
+        val host = FakeHost()
+        host.configs[KnowledgePlugin.ID] = jobj("injectEnabled" to true)
+        host.conv("c1", KnowledgePlugin.ID)["injectEnabled"] = false
+        val plugin = KnowledgePlugin(host, storeWithBvilla())
+        val input = ctx("别墅在哪？")
+        assertEquals(input.messages, plugin.onBeforeRequest(input, {}).messages)
     }
 
     @Test

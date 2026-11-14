@@ -33,6 +33,8 @@ data class UiDeps(
     val rpMemory: com.aichat.app.data.repo.JsonDocStore? = null,
     /** 余额查询客户端（deepseek / siliconflow / moonshot / openrouter）；为 null 时余额页显示未就绪 */
     val balance: com.aichat.app.domain.cost.DefaultBalanceClient? = null,
+    /** 知识库后端（knowledge_world_<worldId>.json）；为 null 时知识库页显示未就绪 */
+    val knowledge: com.aichat.app.plugins.knowledge.Knowledge.Store? = null,
     /** 余额缓存（balance-cache.json） */
     val balanceCache: com.aichat.app.data.repo.JsonDocStore? = null,
 )

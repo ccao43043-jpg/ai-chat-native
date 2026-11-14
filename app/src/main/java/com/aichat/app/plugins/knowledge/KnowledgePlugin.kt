@@ -15,10 +15,11 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * www/knowledge-plugin.js 的 onBeforeRequest 移植（本地资料库检索 + [LOCAL_KNOWLEDGE] 注入）。
  *
- * 与 JS 逐条对齐的三道闸：
- *  1. 总闸 settings.plugins.knowledge.injectEnabled（默认关闭）；
- *  2. 对话闸 conv.extras.plugins.knowledge.injectEnabled —— JS 的 convCfg 在值不是布尔时**会把它写成 false**，
- *     所以「没勾过本对话」等价于关闭。这是 JS 的既有行为，不是移植引入的差异；
+ * 三道闸（默认值有意放宽，见 SPEC §3.5 偏离 D6）：
+ *  1. 总闸：「设置 → 插件」里打开；`settings.plugins.knowledge.injectEnabled = false` 可单独关注入。
+ *  2. 对话闸 conv.extras.plugins.knowledge.injectEnabled —— **只有显式 false 才关**。
+ *     JS 的 convCfg 在值不是布尔时写成 false（"没勾过就不注入"），但原生没有对应的会话级面板，
+ *     照抄会让装完永不生效，所以改成默认开。
  *  3. worldId：先 conv.extras.worldId，再 [fallbackWorldId]（JS 里是面板维护的 selectedWorldId）。
  *
  * 面板 / 导入导出 / 世界切换 / traceHtml 不在本插件范围。
@@ -40,7 +41,7 @@ class KnowledgePlugin(
 
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         val g = host.config(ctx.settings, ID)
-        if (g["injectEnabled"] != true) return ctx
+        if (g["injectEnabled"] == false) return ctx
         if (!convInjectOn(ctx.conv)) return ctx
         val worldId = worldIdOf(ctx.conv) ?: return ctx
 
@@ -80,15 +81,11 @@ class KnowledgePlugin(
         return out.copy(messages = next)
     }
 
-    /** 对话闸；非布尔值一律钉成 false 并视为关闭（复刻 JS convCfg 的副作用） */
+    /** 对话闸；只有显式 false 才关（偏离 D6：JS 把"未设置"当关闭，原生默认开） */
     private fun convInjectOn(conv: Conversation): Boolean {
         val cc = host.convData(conv, ID)
         val v = cc["injectEnabled"]
-        if (v !is Boolean) {
-            cc["injectEnabled"] = false
-            return false
-        }
-        return v
+        return v !is Boolean || v
     }
 
     private fun worldIdOf(conv: Conversation): String? {
