@@ -117,6 +117,25 @@ fun TemplatesScreen(onBack: () -> Unit, toast: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<PromptTemplate?>(null) }
     var deleting by remember { mutableStateOf<PromptTemplate?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pickTemplateFile = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        }.getOrNull()
+        if (text.isNullOrBlank()) { toast("读不到文件内容"); return@rememberLauncherForActivityResult }
+        runCatching { TemplateIo.importJson(text, list) }
+            .onSuccess { r ->
+                scope.launch {
+                    deps.library.saveTemplates(r.list)
+                    val tail = if (r.skipped > 0) "，跳过 ${r.skipped}" else ""
+                    toast("导入完成：新增 ${r.added}$tail")
+                }
+            }
+            .onFailure { toast("导入失败：" + (it.message ?: "")) }
+    }
     editing?.let { t ->
         var name by rememberSaveable(t.id) { mutableStateOf(t.name) }
         var emoji by rememberSaveable(t.id) { mutableStateOf(t.emoji) }
@@ -149,6 +168,21 @@ fun TemplatesScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         return
     }
     SettingsPageScaffold("提示词模板", onBack, actions = {
+        TextButton(
+            onClick = { pickTemplateFile.launch(arrayOf("application/json", "text/plain")) },
+            modifier = Modifier.testTag("template-import"),
+        ) { Text("导入") }
+        TextButton(
+            onClick = {
+                if (list.isEmpty()) { toast("还没有模板可导出"); return@TextButton }
+                val name = "templates-${com.aichat.app.domain.cost.UsageStatsCore.dayKey(System.currentTimeMillis())}.json"
+                val path = com.aichat.app.ui.settings.CsvExport.save(
+                    context, name, TemplateIo.exportJson(list),
+                )
+                toast(if (path != null) "已导出到 $path" else "导出失败")
+            },
+            modifier = Modifier.testTag("template-export"),
+        ) { Text("导出") }
         TextButton(onClick = { editing = PromptTemplate(newId("t-"), "", "", "", emptyList(), false, false, false) }, Modifier.testTag("template-add")) { Text("新建") }
     }) {
         Text("模板 = 替换「本对话」的系统提示词；⚡ 提示词库 = 把文字插入输入框。", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
