@@ -11,9 +11,11 @@ import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.domain.model.Role
+import com.aichat.app.domain.model.Usage
 import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.js.jobj
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -121,5 +123,75 @@ class RpCachePluginTest {
         assertNotNull("应把同步后的状态写回对话", next)
         assertTrue(next!!.rpState.toString().contains("北境"))
         assertNull("pending 只用一次", plugin.onAfterResponse(result, out))
+    }
+
+    /** 带一章摘要的状态：第 1、2 条已被章节覆盖。 */
+    private fun stateWithChapter(): JsonObject {
+        val st = Js.fromJson(stateWithWorld()) as JObj
+        st["chapters"] = arrayListOf<Any?>(
+            jobj("no" to 1, "content" to "两人在雪原上相遇。", "coveredIds" to arrayListOf("m1", "m2")),
+        )
+        return Js.toJson(st) as? JsonObject ?: EmptyJson
+    }
+
+    @Test
+    fun afterResponseStoresCacheStatsAndBadgesReadThem() = runTest {
+        val plugin = RpCachePlugin(host)
+        val c = conv(stateWithWorld())
+        val out = plugin.onBeforeRequest(ctx(c)) {}
+        val result = TurnResult(
+            ok = true, httpStatus = 200,
+            usage = Usage(prompt = 1000, hit = 800, miss = 200, cacheSupported = true),
+            assistant = Message(id = "m4", role = Role.ASSISTANT, content = "回答二"),
+        )
+        val next = plugin.onAfterResponse(result, out)!!
+
+        val bot = next.messages.first { it.id == "m4" }
+        val badges = plugin.messageBadges(bot, next)
+        assertEquals(1, badges.size)
+        assertEquals("缓存 80.0%", badges[0].text)
+        assertEquals("ok", badges[0].tone)
+
+        val header = plugin.headerBadges(next)
+        assertEquals(1, header.size)
+        assertEquals("命中 80.0%", header[0].text)
+
+        // 用户消息不出徽章
+        assertTrue(plugin.messageBadges(next.messages.first { it.id == "m1" }, next).isEmpty())
+    }
+
+    @Test
+    fun unsupportedCacheShowsPlainBadgeAndNoHeader() = runTest {
+        val plugin = RpCachePlugin(host)
+        val c = conv(stateWithWorld())
+        val out = plugin.onBeforeRequest(ctx(c)) {}
+        val result = TurnResult(
+            ok = true, httpStatus = 200,
+            usage = Usage(prompt = 1000, hit = null, cacheSupported = false),
+            assistant = Message(id = "m4", role = Role.ASSISTANT, content = "回答二"),
+        )
+        val next = plugin.onAfterResponse(result, out)!!
+        val bot = next.messages.first { it.id == "m4" }
+
+        val badges = plugin.messageBadges(bot, next)
+        assertEquals("缓存 不支持统计", badges[0].text)
+        assertEquals("info", badges[0].tone)
+        assertTrue("不支持统计时顶栏不显示", plugin.headerBadges(next).isEmpty())
+    }
+
+    @Test
+    fun coveredMessagesAreDimmedWithChapterLabel() {
+        val plugin = RpCachePlugin(host)
+        val c = conv(stateWithChapter())
+
+        val m1 = c.messages.first { it.id == "m1" }
+        val s1 = plugin.messageState(m1, c)
+        assertNotNull(s1)
+        assertTrue(s1!!.dim)
+        assertTrue("标签应点出章节号", s1.label!!.contains("#001"))
+
+        // 没被覆盖的消息不变灰
+        val m3 = c.messages.first { it.id == "m3" }
+        assertNull(plugin.messageState(m3, c))
     }
 }
