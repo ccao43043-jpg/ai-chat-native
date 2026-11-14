@@ -25,6 +25,9 @@ object RpChapterCore {
     /** 统一质量门槛（与旧版 SUMMARY_MIN_QUALITY 一致）。 */
     const val MIN_QUALITY = 0.60
 
+    /** 归档章节上限（JS ARCHIVE_LIMIT）；被合并/撤销的章节保留在这里，可回滚 */
+    const val ARCHIVE_LIMIT = 50
+
     val FORMAT_RULES = buildString {
         append("严格按以下格式输出，标题保持英文原样，每项用「- 」开头；某项没有内容写「- 无」：\n\n")
         append("FACTS:\n- 已确认的事实\n\n")
@@ -202,6 +205,65 @@ object RpChapterCore {
         return clearLoreStateForCovered(next, (chapter["coveredIds"] as? List<*>)?.map { Js.str(it) } ?: emptyList())
     }
 
+    /**
+     * 把所有章节（+ 可选的新一批历史）压成一章 —— 只在章节总量超过 `chapter_cap_tokens` 时用（JS 的 consolidate）。
+     *
+     * 与 [commitChapter] 同样过质量门：合并出来的章若缺关键分区或质量不达标，**拒绝提交、不动 state**，
+     * 否则长对话会悄悄丢掉「谁知道什么」这类边界信息。合并会让 L3 之后的缓存全部重建一次，所以宁可少做。
+     */
+    fun consolidate(
+        st: JObj,
+        content: String,
+        batch: List<JObj>?,
+        coveredIds: List<String>,
+        at: Long,
+        rounds: Int,
+        atRound: Int,
+        force: Boolean = false,
+        source: String = "merge",
+        parsedIn: Parsed? = null,
+    ): Commit {
+        var parsed = parsedIn ?: parseSummary(content)
+        var body = content
+        if (!force) {
+            if (!parsed.ok) return Commit(false, st, "invalid_summary", parsed, null)
+            if (parsed.quality < MIN_QUALITY) return Commit(false, st, "low_quality", parsed, null)
+            body = parsed.text
+        }
+        val old = RpCacheCore.chaptersOf(st)
+        val ch = mkChapter(
+            st = st,
+            content = body,
+            coveredIds = coveredIds + old.flatMap { c -> (c["coveredIds"] as? List<*>)?.map { Js.str(it) } ?: emptyList() },
+            at = at,
+            source = source,
+            rounds = rounds,
+            atRound = atRound,
+            sourceFp = null,
+            quality = parsed.quality,
+        ).let { c0 -> LinkedHashMap<String, Any?>(c0).apply { this["mergedFrom"] = old.map { (it["no"] as? Number)?.toInt() ?: 0 } }.let { JObj(it) } }
+        val next = LinkedHashMap<String, Any?>(st)
+        next["chapters"] = arrayListOf<JObj>(ch)
+        next["chapterSeq"] = ch["no"]
+        next["lastSummaryRound"] = atRound
+        next["window"] = jobj("startId" to null, "startOrdinal" to 0)
+        next["overflow"] = null
+        next["archive"] = pushArchive(st, old, "merge", at)
+        val cleared = clearLoreStateForCovered(JObj(next), (ch["coveredIds"] as? List<*>)?.map { Js.str(it) } ?: emptyList())
+        return Commit(true, cleared, null, parsed, ch)
+    }
+
+    /** 归档（被合并/撤销的章节不再发送，但保留可回滚）；上限与 JS 的 ARCHIVE_LIMIT 一致。 */
+    fun pushArchive(st: JObj, list: List<JObj>, why: String, at: Long): List<JObj> {
+        val prev = (st["archive"] as? List<*>)?.filterIsInstance<JObj>() ?: emptyList()
+        val marked = list.map { c ->
+            JObj(LinkedHashMap<String, Any?>(c).apply {
+                this["archivedAt"] = at
+                this["archivedWhy"] = why
+            })
+        }
+        return (prev + marked).takeLast(ARCHIVE_LIMIT)
+    }
     /** 锚点被章节覆盖后，清掉对应条目的 lastAnchorId，允许世界书再次触发。 */
     fun clearLoreStateForCovered(st: JObj, covered: List<String>): JObj {
         if (covered.isEmpty()) return st
