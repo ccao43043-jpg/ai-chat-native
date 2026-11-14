@@ -1,0 +1,53 @@
+{
+  "version": 3,
+  "gitBase": "feat/r7-cost-core",
+  "memory": {
+    "pAt5": 1,
+    "mrr": 1,
+    "ndcgAt5": 1,
+    "n": 25
+  },
+  "summary": {
+    "factCoverage": 0.8917,
+    "hallucinationRate": 0.25,
+    "compressionRatio": 0.617,
+    "n": 12,
+    "note": "hallucinationRate = 摘要含 source/facts 均不支持的中文片段（2 字 bigram 启发式）的样例占比；评的是 golden 参考 summary 文本，非线上模型输出"
+  },
+  "cost": {
+    "totalPromptTokens": 67589,
+    "hitRate": 0.8069,
+    "summaryCount": 15,
+    "n": 5,
+    "note": "token 用 rpcache.estimateItems 估算；hit/miss 与摘要事件为按 seed 的确定性 stub，非真实 API"
+  },
+  "render": {
+    "skipped": true,
+    "note": "渲染性能本 PR 未跑"
+  },
+  "routing": {
+    "n": 20,
+    "passRate": 1,
+    "avgSwitches": 0,
+    "totalEffCost": 0.4736,
+    "note": "routing：chooseUpstream 单步 + replay 回放；有效成本为估算累加；v0.24 D3 后验改为每请求 1 份证据后重标定"
+  },
+  "knowledge": {
+    "pAt5": 1,
+    "mrr": 0.6,
+    "ndcgAt5": 0.7099,
+    "n": 30
+  },
+  "affect": {
+    "directionAgree": 1,
+    "oscillationRate": 0.5,
+    "n": 40,
+    "note": "合成成对基线，待人工 MAE；directionAgree=KF â 变化方向与标注一致率"
+  },
+  "gate": "记忆/知识 pAt5/mrr/ndcgAt5、summary.factCoverage、routing.passRate、affect.directionAgree 不得低于本值；summary.hallucinationRate、cost.totalPromptTokens、routing.avgSwitches/totalEffCost、affect.oscillationRate 不得高于本值；affect 为合成基线待人工 MAE；routing.totalEffCost 于 v0.24 D3 重标定；oplog.passRate 不得低于本值（v0.28 新增，不放松既有门禁）",
+  "oplog": {
+    "n": 6,
+    "passRate": 1,
+    "note": "5.4 op-log 迁移/replay/导出/合并不变量；passRate 必须为 1"
+  }
+}
