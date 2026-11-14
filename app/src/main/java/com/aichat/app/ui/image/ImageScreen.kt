@@ -79,6 +79,7 @@ fun ImageScreen() {
     var elapsed by remember { mutableStateOf(0L) }
     var stage by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
     var results by remember { mutableStateOf<List<Shot>>(emptyList()) }
     var providerMenu by remember { mutableStateOf(false) }
     var sizeMenu by remember { mutableStateOf(false) }
@@ -309,6 +310,10 @@ fun ImageScreen() {
             Spacer(Modifier.height(12.dp))
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
+        notice?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+        }
 
         if (results.isEmpty() && !busy) {
             Spacer(Modifier.height(24.dp))
@@ -327,7 +332,7 @@ fun ImageScreen() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            shot.urls.forEach { url ->
+            shot.urls.forEachIndexed { index, url ->
                 Spacer(Modifier.height(8.dp))
                 val bmp = rememberImageBitmap(url)
                 if (bmp != null) {
@@ -345,6 +350,24 @@ fun ImageScreen() {
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) { Text("加载图片…", style = MaterialTheme.typography.bodySmall) }
+                }
+                // 存相册：结果可能只有 URL 也可能整段 base64，走 ImageCache 已有字节
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = {
+                            notice = null
+                            scope.launch {
+                                val where = ImageSaver.save(context, url, "aichat-${shot.at}-$index.png")
+                                if (where == null) {
+                                    error = "保存失败（图片可能已过期，或没有存储权限）"
+                                } else {
+                                    error = null
+                                    notice = "已保存到「$where」"
+                                }
+                            }
+                        },
+                        modifier = Modifier.testTag("image-save-$index"),
+                    ) { Text("保存到相册") }
                 }
             }
         }
