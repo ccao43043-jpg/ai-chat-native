@@ -161,6 +161,8 @@ class PluginRegistryImpl(
             impls["usage"] = { _ -> com.aichat.app.plugins.usage.UsagePlugin() }
             impls["gcache"] = { h -> com.aichat.app.plugins.cache.GCachePluginImpl(h) }
             impls["mmcache"] = { h -> com.aichat.app.plugins.cache.MmCachePluginImpl(h) }
+            // affect：默认开启（与旧版一致）；只改 system 末尾协议与末条 user 的前缀，不动历史正文
+            impls["affect"] = { h -> com.aichat.app.plugins.affect.AffectPlugin(h) }
             ORDER.forEach { id -> impls[id]?.let { reg.register(it(reg)) } }
             return reg
         }
