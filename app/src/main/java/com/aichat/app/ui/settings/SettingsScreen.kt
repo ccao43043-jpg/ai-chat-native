@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +17,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +57,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.ui.common.LocalUiDeps
+import com.aichat.app.ui.theme.Space
 import kotlinx.coroutines.launch
 
 /**
@@ -107,27 +122,73 @@ fun SettingsRow(title: String, subtitle: String? = null, tag: String? = null, on
     }
 }
 
+/**
+ * 设置枢纽页：概览卡讲清"现在用的是谁"，下面按意图分四组。
+ *
+ * 分组的依据是用户想干什么，不是代码结构：换模型 → 加能力 → 管内容 → 保数据。
+ * 右侧的值让人不用点进去就知道现状；「待实现」写在副标题里，不另起一行。
+ */
 @Composable
 private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit) {
     val deps = LocalUiDeps.current
     val s by deps.settings.settings.collectAsStateWithLifecycle()
+    val primary = s.providers.firstOrNull { it.id == s.lastProviderId } ?: s.providers.firstOrNull()
+    val keys = s.providers.count { it.hasKey }
     SettingsPageScaffold("设置", onBack) {
-        SettingsRow("服务商", "${s.providers.size} 个 · 已填 Key ${s.providers.count { it.hasKey }} 个", "row-providers") { open(SettingsDestination.Providers) }
-        SettingsRow("对话默认参数", "系统提示词、温度、最大输出、流式", "row-general") { open(SettingsDestination.General) }
-        SettingsRow("数据与备份", "导出 / 导入整库 zip、导出全部对话 JSON", "row-backup") { open(SettingsDestination.DataBackup) }
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        SettingsRow("联网搜索", if (s.searchOn) "已开启" else "已关闭", "row-search") { open(SettingsDestination.Search) }
-        SettingsRow("插件", "RP 缓存、Gemini/MiniMax 缓存、资料库、好感度、用量", "row-plugins") { open(SettingsDestination.Plugins) }
-        SettingsRow("提示词库", "⚡ 常用文字，一键插入输入框", "row-prompts") { open(SettingsDestination.Prompts) }
-        SettingsRow("提示词模板", "切换本对话的系统提示词", "row-templates") { open(SettingsDestination.Templates) }
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        SettingsRow("助手库", "常用助手、角色卡 PNG / JSON 导入导出", "row-personas") { open(SettingsDestination.Personas) }
-        listOf(SettingsDestination.Worlds, SettingsDestination.Knowledge, SettingsDestination.Usage, SettingsDestination.Balance)
-            .forEach { d ->
-                // 有挂载点、或已在 SettingsScreen 的 when 里直接实现（目前的 Usage），就不再标「待实现」
-                val done = SettingsMounts.get(d) != null || d == SettingsDestination.Usage
-                SettingsRow(d.title, if (done) null else "待实现") { open(d) }
+        Column(Modifier.padding(horizontal = Space.page).padding(top = 4.dp)) {
+            HubOverviewCard(
+                title = primary?.name ?: "还没有服务商",
+                subtitle = if (primary == null) "添加一个服务商就能开始对话" else
+                    "已填 Key $keys 个 · 模型 ${primary.models.firstOrNull() ?: "未选"}",
+                status = "数据只在本机 · 不需要账号",
+                onClick = { open(SettingsDestination.Providers) },
+                icon = Icons.Filled.AccountCircle,
+            )
+
+            SettingsGroup("模型与服务") {
+                SettingsTileRow(Icons.Filled.AccountCircle, "服务商", "地址、Key、可用模型",
+                    value = "${s.providers.size} 个", tag = "row-providers") { open(SettingsDestination.Providers) }
+                SettingsTileRow(Icons.Filled.Settings, "对话默认参数", "系统提示词、温度、最大输出、流式",
+                    tag = "row-general") { open(SettingsDestination.General) }
+                SettingsTileRow(Icons.Filled.Search, "联网搜索", "答案里带上网页结果",
+                    value = if (s.searchOn) "已开启" else "已关闭", tag = "row-search") { open(SettingsDestination.Search) }
             }
+
+            SettingsGroup("能力") {
+                SettingsTileRow(Icons.Filled.Build, "插件", "缓存、资料库、好感度、用量",
+                    tag = "row-plugins") { open(SettingsDestination.Plugins) }
+                SettingsTileRow(Icons.Filled.Face, "助手库", "常用助手、角色卡导入导出",
+                    tag = "row-personas") { open(SettingsDestination.Personas) }
+            }
+
+            SettingsGroup("内容") {
+                SettingsTileRow(Icons.Filled.Create, "提示词库", "常用文字，一键插入输入框",
+                    tag = "row-prompts") { open(SettingsDestination.Prompts) }
+                SettingsTileRow(Icons.Filled.List, "提示词模板", "切换本对话的系统提示词",
+                    tag = "row-templates") { open(SettingsDestination.Templates) }
+                SettingsTileRow(Icons.Filled.Place, "世界模板", "世界书与地点设定",
+                    value = "待实现", tag = "row-worlds") { open(SettingsDestination.Worlds) }
+                SettingsTileRow(Icons.Filled.Info, "知识库", "每个世界的资料库条目",
+                    value = "待实现", tag = "row-knowledge") { open(SettingsDestination.Knowledge) }
+            }
+
+            SettingsGroup("数据") {
+                SettingsTileRow(Icons.Filled.Share, "数据与备份", "导出 / 导入整库 zip、导出全部对话 JSON",
+                    tag = "row-backup") { open(SettingsDestination.DataBackup) }
+                SettingsTileRow(Icons.Filled.DateRange, "用量统计", "按区间、模型、单日看 token 与费用",
+                    tag = "row-usage") { open(SettingsDestination.Usage) }
+                SettingsTileRow(Icons.Filled.ShoppingCart, "余额", "服务商账户余额",
+                    value = "待实现", tag = "row-balance") { open(SettingsDestination.Balance) }
+            }
+
+            Spacer(Modifier.height(Space.group))
+            Text(
+                "版本 1.0.0-alpha1 · 数据只存在这台设备上",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.tight, vertical = Space.titleGap),
+            )
+        }
     }
 }
 
