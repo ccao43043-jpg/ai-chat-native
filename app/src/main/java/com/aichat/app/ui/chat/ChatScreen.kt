@@ -349,6 +349,8 @@ fun ChatScreen(
             worlds = deps.library.worlds.collectAsState().value,
             onDismiss = { rpPanel = false },
             onSave = { blocks -> controller.setRpBlocks(conv.id, blocks) },
+            // 选世界时顺手补开场白（旧版 applyWorld 的行为）；块仍由上面的「保存」统一写
+            onPickWorld = { w -> controller.applyWorld(conv.id, w) },
         )
     }
 

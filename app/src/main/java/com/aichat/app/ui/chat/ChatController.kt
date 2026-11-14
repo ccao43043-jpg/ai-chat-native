@@ -192,6 +192,31 @@ class ChatController(
      * 一次写多块。**必须合并成一次 load/save**：面板一次保存会改好几个块，
      * 逐块调 [setRpBlock] 会各自 load 一份快照再写回，后写的把先写的覆盖掉（踩过）。
      */
+    /**
+     * 套用世界模板：写块 + （空对话时）把开场白作为第一条助手消息插进去。
+     *
+     * 旧版 `app.js` 的 applyWorld 就是这么做的 —— 只填系统提示词的话，用户第一眼看到的是空白对话，
+     * 会以为世界没生效。开场白只在对话没有任何消息时补，避免把已聊到一半的对话覆盖掉。
+     */
+    fun applyWorld(id: String, world: com.aichat.app.domain.model.World) {
+        scope.launch {
+            val c = deps.chats.load(id) ?: return@launch
+            var st = RpState.normalizeState(Js.fromJson(c.rpState) as? JObj ?: JObj())
+            val at = System.currentTimeMillis().toDouble()
+            world.blocks.forEach { (blockId, obj) ->
+                val text = (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+                if (text.isNotBlank()) {
+                    val res = RpState.setBlock(st, blockId, text, at, null)
+                    st = res["state"] as? JObj ?: st
+                }
+            }
+            var next = c.copy(rpState = Js.toJson(st) as? kotlinx.serialization.json.JsonObject ?: c.rpState)
+            if (world.greeting.isNotBlank() && next.messages.isEmpty()) {
+                next = next.copy(messages = next.messages + Message(newId(), Role.ASSISTANT, world.greeting, now()))
+            }
+            save(next, touch = next.messages.isNotEmpty())
+        }
+    }
     fun setRpBlocks(id: String, blocks: Map<String, String>) {
         if (blocks.isEmpty()) return
         scope.launch {
