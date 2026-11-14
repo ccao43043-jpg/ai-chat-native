@@ -1,7 +1,10 @@
 name: port-plugins
 # 一次性：把旧仓库 native/C（ba4ece7）的 plugins/ 目录搬过来，编译一遍，
 # 把 gradle 输出写成 .ci/build.log 推到 ci-logs 分支，好远端定位编译错误。
+# 任务完成后删掉本文件。
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -27,14 +30,16 @@ jobs:
           test -d "$SRC/plugins" || { echo "插件目录不存在"; exit 1; }
           mkdir -p app/src/main/java/com/aichat/app
           cp -r "$SRC/plugins" app/src/main/java/com/aichat/app/
+          echo "--- 拷入文件数 ---"
           find app/src/main/java/com/aichat/app/plugins -name '*.kt' | wc -l
           git config user.name  "ccao43043-jpg"
           git config user.email "ccao43043@gmail.com"
           chmod +x gradlew
-          git add -A && git commit -m "port: 从 native/C（${SHA}）搬入 plugins/（知识库/缓存/affect/角色卡/rp）"
-          git push origin HEAD:feat/plugins
+          git add -A
+          git commit -m "port: 从 native/C（${SHA}）搬入 plugins/（知识库/缓存/affect/角色卡/rp）" || echo "无变化"
+          git push -f origin HEAD:feat/plugins
 
-      - name: 编译与单测
+      - name: 编译
         id: build
         continue-on-error: true
         run: |
@@ -42,22 +47,20 @@ jobs:
           ./gradlew --no-daemon --console=plain --stacktrace :app:compileDebugKotlin > /tmp/build.log 2>&1
           CODE=$?
           echo "exit=$CODE" | tee -a /tmp/build.log
-          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: 把日志推到 ci-logs 分支
         if: always()
         run: |
           set -euo pipefail
-          git fetch origin
-          git checkout -B ci-logs
           mkdir -p .ci
-          tail -c 120000 /tmp/build.log > .ci/build.log || echo "no log"
+          tail -c 150000 /tmp/build.log > .ci/build.log || echo "no log"
           git add -f .ci/build.log
-          git commit -m "ci: 编译日志（exit=${{ steps.build.outputs.code || 'unknown' }}）" || echo "无变化"
-          git push -f origin ci-logs
+          git commit -m "ci: 编译日志" || echo "无变化"
+          git push -f origin HEAD:ci-logs
 
-      - name: 结果
+      - name: 摘要
         if: always()
         run: |
           echo "compile exit = ${{ steps.build.outputs.code }}"
