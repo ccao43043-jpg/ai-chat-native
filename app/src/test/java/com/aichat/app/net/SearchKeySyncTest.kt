@@ -4,7 +4,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -17,16 +16,15 @@ class SearchKeySyncTest {
     @Test
     fun fillsMissingHasKeys() {
         val search = JsonObject(mapOf("provider" to JsonPrimitive("tavily"), "count" to JsonPrimitive(5)))
-        val out = SearchKeySync.merged(search) { it == "tavily" }
-        assertNotNull(out)
-        val hk = hasKeys(out!!)
+        val o = requireNotNull(SearchKeySync.merged(search) { it == "tavily" })
+        val hk = hasKeys(o)
         assertEquals(true, hk["tavily"])
         assertEquals(false, hk["bocha"])
         assertEquals(false, hk["brave"])
         assertEquals(false, hk["searxng"])
         // 其它键原样保留
-        assertEquals("tavily", (out["provider"] as JsonPrimitive).content)
-        assertEquals("5", (out["count"] as JsonPrimitive).content)
+        assertEquals("tavily", (o["provider"] as JsonPrimitive).content)
+        assertEquals("5", (o["count"] as JsonPrimitive).content)
     }
 
     @Test
@@ -60,9 +58,8 @@ class SearchKeySyncTest {
                 ),
             ),
         )
-        val out = SearchKeySync.merged(search) { it == "bocha" }
-        assertNotNull(out)
-        val hk = hasKeys(out!!)
+        val o = requireNotNull(SearchKeySync.merged(search) { it == "bocha" })
+        val hk = hasKeys(o)
         assertEquals(false, hk["tavily"])
         assertEquals(true, hk["bocha"])
     }
@@ -79,9 +76,8 @@ class SearchKeySyncTest {
                 ),
             ),
         )
-        val out = SearchKeySync.merged(search) { it == "tavily" }
-        assertNotNull(out)
-        val hk = hasKeys(out!!)
+        val o = requireNotNull(SearchKeySync.merged(search) { it == "tavily" })
+        val hk = hasKeys(o)
         assertEquals(true, hk["x-custom"])
         assertEquals(true, hk["tavily"])
         assertEquals(false, hk["bocha"])
