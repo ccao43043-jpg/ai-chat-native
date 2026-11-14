@@ -1,6 +1,7 @@
 package com.aichat.app.ui.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -8,19 +9,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.Conversation
+import com.aichat.app.domain.model.World
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.rp.RpState
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * RP 状态块编辑（最小可用版）。
@@ -34,12 +42,14 @@ import com.aichat.app.plugins.rp.RpState
 @Composable
 fun RpPanelDialog(
     conv: Conversation,
+    worlds: List<World>,
     onDismiss: () -> Unit,
-    onSave: (blockId: String, content: String) -> Unit,
+    onSave: (Map<String, String>) -> Unit,
 ) {
     val defs = remember { RpState.BLOCK_DEFS.filter { it["layer"] == "L1" } }
     val original = remember(conv.id, conv.rpState) { blockContents(conv) }
     val edited = remember(conv.id) { mutableStateMapOf<String, String>() }
+    var picking by remember { mutableStateOf(false) }
 
     fun valueOf(id: String): String = edited[id] ?: original[id] ?: ""
 
@@ -58,6 +68,29 @@ fun RpPanelDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (worlds.isNotEmpty()) {
+                    // 世界模板就是一组预填块：点一下把四/七个块填进来，再按需要改。
+                    Box {
+                        TextButton(onClick = { picking = true }) {
+                            Text("从世界模板填入（${worlds.size}）")
+                        }
+                        DropdownMenu(picking, { picking = false }) {
+                            worlds.forEach { w ->
+                                DropdownMenuItem(
+                                    text = { Text("${w.emoji} ${w.name}".trim()) },
+                                    onClick = {
+                                        picking = false
+                                        World.BLOCK_IDS.forEach { id ->
+                                            val text = (w.blocks[id]?.get("content") as? JsonPrimitive)
+                                                ?.takeIf { it.isString }?.content
+                                            if (!text.isNullOrBlank()) edited[id] = text
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 defs.forEach { def ->
                     val id = def["id"] as? String ?: return@forEach
                     val title = def["title"] as? String ?: id
@@ -79,7 +112,8 @@ fun RpPanelDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                edited.forEach { (id, v) -> if (v != original[id].orEmpty()) onSave(id, v) }
+                val changed = edited.filter { (id, v) -> v != original[id].orEmpty() }
+                if (changed.isNotEmpty()) onSave(changed)
                 onDismiss()
             }) { Text("保存") }
         },
