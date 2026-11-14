@@ -1,0 +1,51 @@
+{
+  "cyrb53": [
+    2298524500,
+    451841411
+  ],
+  "roll": [
+    0.126838,
+    0.736304,
+    0.402343,
+    0.941384
+  ],
+  "matchKey": [
+    [
+      "灯塔"
+    ]
+  ],
+  "constantLoreText": "[LOREBOOK]\n# 港口\n海风很咸。",
+  "firePicked": [
+    {
+      "entryId": "57a01469ed7f",
+      "anchorId": "u2",
+      "name": "灯塔"
+    }
+  ],
+  "firedText": [
+    {
+      "id": "u1",
+      "content": "我想去看看灯塔。"
+    },
+    {
+      "id": "a1",
+      "content": "灯塔的光扫过海面。"
+    },
+    {
+      "id": "u2",
+      "content": "船工说渔网破了。\n\n[LORE_TRIGGERED 灯塔]\n红光每十五秒转一圈。"
+    }
+  ],
+  "loreState": {
+    "turn": 1,
+    "entries": [
+      {
+        "id": "57a01469ed7f",
+        "stickyUntil": 3,
+        "cooldownUntil": 4,
+        "lastAnchorId": "u2"
+      }
+    ]
+  },
+  "secondPick": []
+}

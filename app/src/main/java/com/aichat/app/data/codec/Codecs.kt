@@ -212,9 +212,16 @@ object MessageCodec : Codec<Message> {
  * personaId、worldRef 以外的扩展……）进 extras。章节在 extras.plugins.rpcache.state.chapters（与 JS 相同位置）。
  */
 object ConversationCodec : Codec<Conversation> {
-    // blocks / settings 是 RP 状态的根键（JS 的 conv.blocks / conv.settings 就在顶层），必须算进 rpState：
-    // 否则它们会掉进 extras，rpcache 插件读 conv.rpState 时看到的永远是空的（面板填了也不生效）。
-    val RP_KEYS = listOf("blocks", "settings", "chapters", "affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb")
+    // RP 状态的**根键**（JS 的 conv.blocks / conv.settings / conv.chapters… 就摆在会话顶层），必须算进 rpState：
+    // 否则它们会掉进 extras，插件读 conv.rpState 时看到的永远是空的（面板填了也不生效，lore/窗口状态也会丢）。
+    // 这一串对应 rpcache.js `normalizeState` 读写的那批键（含 lore 冻结、章节、预算窗口、校准）。
+    val RP_KEYS = listOf(
+        "blocks", "settings", "chapters", "summaries", "archive", "chapterSeq", "lastSummaryRound",
+        "calib", "window", "overflow", "seq", "staticVersion", "baseHash",
+        "lore", "loreText", "loreTextHash", "loreFired", "loreState", "loreTrace",
+        "loreNeedsRebuild", "loreEditedWhileFrozen",
+        "affect", "affectBy", "ledger", "worldRef", "worldLog", "worldPending", "kb",
+    )
     private val id = Fields.strReq("id"); private val title = Fields.str("title"); private val providerId = Fields.str("providerId"); private val model = Fields.str("model")
     private val createdAt = Fields.long("createdAt"); private val updatedAt = Fields.long("updatedAt")
     private val messages = F("messages", Fields.list("messages", MessageCodec).dec, { v: List<Message> -> JsonArray(v.map(MessageCodec::encode)) })
