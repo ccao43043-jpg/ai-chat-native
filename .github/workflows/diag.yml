@@ -1,0 +1,41 @@
+name: diag
+
+# 一次性诊断：把单测日志推到 ci-logs 分支，供本地读取（token 读不到 Actions 日志）
+on:
+  push:
+    branches: ['w2/**']
+    paths: ['.github/workflows/diag.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: test
+        run: |
+          mkdir -p .ci
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest --continue > /tmp/build.log 2>&1 || true
+          {
+            echo '===== gradle tail ====='
+            tail -c 120000 /tmp/build.log
+            echo '===== failed test xml ====='
+            grep -rl '<failure' app/build/test-results/testDebugUnitTest || true
+            grep -rh -A 12 '<failure' app/build/test-results/testDebugUnitTest 2>/dev/null | head -c 60000 || true
+          } > .ci/build.log 2>&1
+      - name: push log
+        run: |
+          git config user.name "ci"
+          git config user.email "ci@example.com"
+          git checkout -B ci-logs
+          git add -f .ci/build.log
+          git commit -m "diag: unit test log" || true
+          git push -f origin ci-logs

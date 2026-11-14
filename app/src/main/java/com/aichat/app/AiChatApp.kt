@@ -67,17 +67,30 @@ class AppGraph(app: Application) {
     val balanceCacheStore get() = data.balanceCache
     val rpMemoryStore get() = data.rpMemory
 
+    /** knowledge_world_<worldId>.json 的 [com.aichat.app.plugins.knowledge.Knowledge.Store] 适配（C 的 Knowledge 只认 get/set） */
+    val knowledge = com.aichat.app.plugins.knowledge.JsonKnowledgeStore(
+        read = { worldId -> data.knowledge.load(worldId) },
+        write = { worldId, doc -> data.knowledge.save(worldId, doc) },
+    )
+
     // ---- 引擎 / 插件 ----
     /**
      * OPT-3：插件注册表**只允许一个实例**。engine 与 uiDeps() 共用同一个对象，
      * 否则引擎看到的插件状态和 UI 看到的是两份，开关会「点了没反应」。
      *
      * W2：换掉 EmptyPluginRegistry。注册顺序由 [PluginRegistryImpl.ORDER] 固定为
-     * knowledge → rpcache → usage → gcache → mmcache → affect；目前只有 usage / gcache / mmcache
-     * 有实现，其余缺席（缺席即不生效，请求逐字节不变）。
+     * knowledge → rpcache → usage → gcache → mmcache → affect；目前有实现的是
+     * knowledge / usage / gcache / mmcache，rpcache 与 affect 仍缺席（缺席即不生效，请求逐字节不变）。
      * 注意：engine 构造时捕获的是引用本身，构造之后再给 [plugins] 赋新对象**不会**传进引擎。
      */
-    var plugins: PluginRegistry = PluginRegistryImpl.createDefault()
+    var plugins: PluginRegistry = PluginRegistryImpl.createDefault(
+        knowledge = { host ->
+            // JS 的面板用模块级 selectedWorldId；原生暂无面板 → 用「世界列表第一个」兜底（knowledge-plugin.js pickWorld）
+            com.aichat.app.plugins.knowledge.KnowledgePlugin(host, knowledge) {
+                data.library.worlds.value.firstOrNull()?.id
+            }
+        },
+    )
     val providerClient = com.aichat.app.net.DefaultProviderClient(secretVault)
     /** OpenRouter 缓存亲和路由（app.js routerState，持久化在 router-affinity.json） */
     val affinityRouter = com.aichat.app.net.AffinityRouter(initial = data.routerState.load(), save = { data.routerState.save(it) })
