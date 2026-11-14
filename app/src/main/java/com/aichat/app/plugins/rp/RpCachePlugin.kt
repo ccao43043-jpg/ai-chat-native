@@ -27,7 +27,11 @@ import kotlinx.serialization.json.doubleOrNull
  * **可见性三件套**（消息缓存徽章 / 章节徽章、顶栏命中率、覆盖消息变灰）。
  * 还没做：章节摘要生成与合并、预算裁剪、世界书触发、面板。见 `docs/ROADMAP.md`。
  */
-class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: PluginHost) : ChatPlugin {
+class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
+    private val host: PluginHost,
+    /** 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。 */
+    private val ask: (suspend (Conversation, String) -> String?)? = null,
+) : ChatPlugin {
 
     override val id: String get() = "rpcache"
     override val name: String get() = "RP 缓存优化器"
@@ -63,7 +67,18 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: 
             )
         }
         val p0 = RpCacheCore.plan(st, base, items)
-        val (st2, p) = if (p0.overBudget) RpCacheCore.applyTempTrim(st, p0, host.now()) else st to p0
+
+        // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
+        // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
+        var stBase = st
+        var summaryFail: String? = null
+        if (p0.needSummary && ask != null) {
+            val r = summarize(ctx.conv, st, p0)
+            if (r != null) stBase = r else summaryFail = "summary_failed"
+        }
+        val pRaw = if (stBase !== st) RpCacheCore.plan(stBase, base, items) else p0
+
+        val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now()) else stBase to pRaw
 
         // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
         val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
@@ -94,10 +109,44 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: 
             "tempTrim" to p.tempTrim,
             "needSummary" to p.needSummary,
             "summaryReason" to p.summaryReason,
+            "summaryFail" to summaryFail,
+            "chapters" to RpCacheCore.chaptersOf(st2).size,
         )
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
         return ctx.copy(systemPrompt = p.system, messages = msgs, meta = JsonObject(meta))
+    }
+
+    /**
+     * 生成一章摘要并提交。返回新状态；失败返回 null（调用方按超预算裁剪兜底）。
+     *
+     * 与旧版一致的三条硬约束：摘要必须八分区齐全、质量 >= 0.60、失败**不推进窗口**。
+     */
+    private suspend fun summarize(conv: Conversation, st: JObj, p: RpCacheCore.Plan): JObj? {
+        val a = ask ?: return null
+        val batch = p.batch
+        if (batch.isEmpty()) return null
+        val prompt = RpChapterCore.buildSummaryPrompt(
+            RpCacheCore.chaptersOf(st),
+            batch,
+            RpCacheCore.memoryText(st).ifEmpty { null },
+        )
+        val text = runCatching { a(conv, prompt) }.getOrNull() ?: return null
+        return commit(st, p, text)
+    }
+
+    private fun commit(st: JObj, p: RpCacheCore.Plan, text: String): JObj? {
+        val covered = p.batch.map { Js.str(it["id"]) }
+        val r = RpChapterCore.commitChapter(
+            st = st,
+            content = text,
+            batch = p.batch,
+            coveredIds = covered,
+            at = host.now(),
+            rounds = RpCacheCore.roundsOf(p.batch),
+            atRound = RpCacheCore.roundsOf(p.unsummarized) + RpCacheCore.roundsOf(listOfNotNull(p.input)),
+        )
+        return if (r.ok) r.state else null
     }
 
     private fun intOf(v: Any?): Int = (v as? Number)?.toInt() ?: 0
