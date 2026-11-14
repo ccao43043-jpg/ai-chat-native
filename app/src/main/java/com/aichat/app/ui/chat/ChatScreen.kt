@@ -1,6 +1,14 @@
 package com.aichat.app.ui.chat
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +73,61 @@ import kotlinx.coroutines.launch
  * 聊天页：顶栏（抽屉 / 标题 + 模型切换 / 更多）、消息列表（reverseLayout，流式时贴底）、输入区。
  * 返回键：看图 > 弹层/对话框（各自处理）> 抽屉 > 交给上层。
  */
+/**
+ * 空对话首屏。对齐旧版 .empty：64dp 渐变圆角块 + 24px 标题 + 副标题 + 一排建议 pill。
+ * 建议点一下只把文字塞进输入框，不直接发送 —— 用户通常还要再改两个字。
+ */
+@Composable
+private fun EmptyHero(onPick: (String) -> Unit) {
+    val suggestions = remember {
+        listOf("帮我写一封请假邮件", "解释这段报错的含义", "把下面这段话改得更正式")
+    }
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(top = 72.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        androidx.compose.foundation.layout.Box(
+            Modifier.size(64.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(androidx.compose.ui.graphics.Color(0x337C3AED), androidx.compose.ui.graphics.Color(0x33C026D3)),
+                    )
+                )
+                .border(1.dp, androidx.compose.ui.graphics.Color(0x4D8B5CF6), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                androidx.compose.ui.res.painterResource(com.aichat.app.R.mipmap.ic_launcher_foreground),
+                null,
+                Modifier.size(40.dp),
+            )
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.height(14.dp))
+        Text("你好，我是 AI Chat", style = MaterialTheme.typography.headlineSmall)
+        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
+        Text(
+            "专注高质量文字生成。支持插件扩展能力。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        androidx.compose.foundation.layout.Spacer(Modifier.height(20.dp))
+        suggestions.forEach { s ->
+            androidx.compose.material3.Surface(
+                onClick = { onPick(s) },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
+                color = com.aichat.app.ui.theme.Palette.Surface2,
+                border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
+                Text(s, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -215,8 +278,7 @@ fun ChatScreen(
                 // 空对话时里面的「有什么可以帮你？」会被挤到左边贴边，而不是居中。
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
-                        Text("有什么可以帮你？", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.Center))
+                        EmptyHero(onPick = { input = it })
                     } else {
                         // 性能：流式增量只改 live 这一条；stable 列表实例在整个流期间不变，已有条目不重组。
                         // 插件的 messageState / badges（RP 插件里是 O(n) 扫描）按消息 + 对话缓存，并且异常不外泄。
