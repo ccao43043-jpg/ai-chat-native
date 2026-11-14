@@ -185,15 +185,26 @@ class ChatController(
      * RP 状态块编辑：把内容写进 `conv.rpState` 的对应块。
      * `RpState.setBlock` 返回的是 `{state, changed}` 包裹，不是 state 本身。
      */
-    fun setRpBlock(id: String, blockId: String, content: String) {
+    fun setRpBlock(id: String, blockId: String, content: String) =
+        setRpBlocks(id, mapOf(blockId to content))
+
+    /**
+     * 一次写多块。**必须合并成一次 load/save**：面板一次保存会改好几个块，
+     * 逐块调 [setRpBlock] 会各自 load 一份快照再写回，后写的把先写的覆盖掉（踩过）。
+     */
+    fun setRpBlocks(id: String, blocks: Map<String, String>) {
+        if (blocks.isEmpty()) return
         scope.launch {
             val c = deps.chats.load(id) ?: return@launch
             val raw = Js.fromJson(c.rpState) as? JObj ?: JObj()
             // 必须过一遍 normalizeState：新对话的 rpState 是 {}，blocks 得先建出来，否则 setBlock 里 `as List<*>` 直接 NPE
-            val st = RpState.normalizeState(raw)
-            val res = RpState.setBlock(st, blockId, content, System.currentTimeMillis().toDouble(), null)
-            val next = res["state"] as? JObj ?: return@launch
-            save(c.copy(rpState = Js.toJson(next) as? JsonObject ?: c.rpState), touch = false)
+            var st = RpState.normalizeState(raw)
+            val now = System.currentTimeMillis().toDouble()
+            blocks.forEach { (blockId, content) ->
+                val res = RpState.setBlock(st, blockId, content, now, null)
+                st = res["state"] as? JObj ?: st
+            }
+            save(c.copy(rpState = Js.toJson(st) as? JsonObject ?: c.rpState), touch = false)
         }
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -345,8 +346,9 @@ fun ChatScreen(
     if (rpPanel && conv != null) {
         RpPanelDialog(
             conv = conv,
+            worlds = deps.library.worlds.collectAsState().value,
             onDismiss = { rpPanel = false },
-            onSave = { blockId, content -> controller.setRpBlock(conv.id, blockId, content) },
+            onSave = { blocks -> controller.setRpBlocks(conv.id, blocks) },
         )
     }
 
