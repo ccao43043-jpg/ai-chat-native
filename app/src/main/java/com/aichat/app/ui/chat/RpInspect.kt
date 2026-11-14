@@ -152,6 +152,31 @@ fun RpInspectDialog(
                     )
                 }
 
+                // 缓存分段：旧版「检视 › 缓存」的核心——把 system 摊成有序段，标出稳定前缀到哪。
+                // 前缀越靠前越不容易变，变了之后这一段后面全部失效（服务商按前缀命中）。
+                val baseSystem = conv.systemPrompt ?: settings.systemPrompt
+                val segments = remember(st, baseSystem) {
+                    runCatching { RpCacheCore.buildSystemSegments(st, baseSystem) }.getOrDefault(emptyList())
+                }
+                val stableLen = remember(st, baseSystem) {
+                    runCatching { RpCacheCore.systemStablePrefix(st, baseSystem).length }.getOrDefault(0)
+                }
+                if (segments.isNotEmpty()) {
+                    Text("缓存分段（稳定前缀 ${RpInspect.k(stableLen)} 字符）", style = MaterialTheme.typography.labelLarge)
+                    var acc = 0
+                    segments.forEach { seg ->
+                        val tok = RpCacheCore.estimateTokens(seg.text)
+                        val stable = acc < stableLen
+                        acc += seg.text.length + 2 // 段间 \n\n
+                        Text(
+                            "${if (stable) "稳定" else "变动"} · ${seg.layer}/${seg.kind} · ${seg.title} · ${seg.gl} · ${RpInspect.k(tok)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (stable) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+
                 Text("预算（保存后从下一轮生效）", style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NumField("上下文上限", maxContext, Modifier.weight(1f)) { maxContext = it }
