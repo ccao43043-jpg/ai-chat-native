@@ -7,11 +7,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +53,11 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
     var loading by remember { mutableStateOf(true) }
     var preset by rememberSaveable { mutableStateOf("today") }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    // 自定义区间的两端（取当天 00:00）。用 saveable 保住旋转/重进后的选择。
+    var fromMs by rememberSaveable { mutableStateOf(0L) }
+    var toMs by rememberSaveable { mutableStateOf(0L) }
+    var pickFrom by remember { mutableStateOf(false) }
+    var pickTo by remember { mutableStateOf(false) }
 
     suspend fun load() {
         loading = true
@@ -68,7 +77,10 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
     val prices = UsageReport.pricesOf(meta)
     val mode = UsageReport.priceModeOf(meta)
     val calib = UsageReport.calibOf(meta)
-    val ranged = remember(log, preset, now) { UsageStatsCore.filterLog(log, UsageStatsCore.rangeOf(preset, now)) }
+    val custom = if (fromMs > 0L && toMs > 0L) UsageStatsCore.Range(minOf(fromMs, toMs), maxOf(fromMs, toMs)) else null
+    val ranged = remember(log, preset, now, custom) {
+        UsageStatsCore.filterLog(log, UsageStatsCore.rangeOf(preset, now, custom))
+    }
     val totals = remember(ranged, prices, mode) { UsageReport.sum(ranged, prices, mode, calib) }
     val byModel = remember(ranged, prices, mode) { UsageReport.byModel(ranged, prices, mode, calib) }
     val byDay = remember(log, now, prices, mode) {
@@ -97,13 +109,42 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf("today" to "今天", "7d" to "7 天", "30d" to "30 天", "all" to "全部").forEach { (id, label) ->
+            listOf("today" to "今天", "7d" to "7 天", "30d" to "30 天", "all" to "全部", "custom" to "自定义").forEach { (id, label) ->
                 FilterChip(
                     selected = preset == id,
-                    onClick = { preset = id },
+                    onClick = {
+                        if (id == "custom" && fromMs == 0L) {
+                            // 第一次点「自定义」：默认展示最近 7 天，用户再改
+                            toMs = System.currentTimeMillis()
+                            fromMs = toMs - 6 * 86_400_000L
+                        }
+                        preset = id
+                    },
                     label = { Text(label) },
                     modifier = Modifier.testTag("usage-range-$id"),
                 )
+            }
+        }
+
+        if (preset == "custom") {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { pickFrom = true }, Modifier.testTag("usage-custom-from")) {
+                    Text("起 " + UsageStatsCore.dayKey(fromMs.coerceAtLeast(1L)))
+                }
+                Text("→", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { pickTo = true }, Modifier.testTag("usage-custom-to")) {
+                    Text("止 " + UsageStatsCore.dayKey(toMs.coerceAtLeast(1L)))
+                }
+            }
+            if (pickFrom) {
+                UsageDatePicker(initial = fromMs) { pickFrom = false; it?.let { v -> fromMs = v } }
+            }
+            if (pickTo) {
+                UsageDatePicker(initial = toMs) { pickTo = false; it?.let { v -> toMs = v } }
             }
         }
 
@@ -227,4 +268,19 @@ internal fun pct(v: Double): String = String.format(Locale.US, "%.0f%%", v * 100
 internal fun money(v: Double): String {
     val f = if (v != 0.0 && kotlin.math.abs(v) < 0.01) DecimalFormat("0.0000") else DecimalFormat("0.000")
     return "$" + f.format(v)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UsageDatePicker(initial: Long, onDone: (Long?) -> Unit) {
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = initial.takeIf { it > 0L } ?: System.currentTimeMillis(),
+    )
+    DatePickerDialog(
+        onDismissRequest = { onDone(null) },
+        confirmButton = {
+            TextButton(onClick = { onDone(state.selectedDateMillis) }, Modifier.testTag("usage-date-ok")) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("取消") } },
+    ) { DatePicker(state = state) }
 }
