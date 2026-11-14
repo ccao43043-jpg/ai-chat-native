@@ -45,6 +45,8 @@ fun RpPanelDialog(
     worlds: List<World>,
     onDismiss: () -> Unit,
     onSave: (Map<String, String>) -> Unit,
+    /** 选中某个世界模板时额外回调一次（用来补开场白；块本身仍由 onSave 统一写） */
+    onPickWorld: ((World) -> Unit)? = null,
 ) {
     val defs = remember { RpState.BLOCK_DEFS.filter { it["layer"] == "L1" } }
     val original = remember(conv.id, conv.rpState) { blockContents(conv) }
@@ -80,6 +82,7 @@ fun RpPanelDialog(
                                     text = { Text("${w.emoji} ${w.name}".trim()) },
                                     onClick = {
                                         picking = false
+                                        onPickWorld?.invoke(w)
                                         World.BLOCK_IDS.forEach { id ->
                                             val text = (w.blocks[id]?.get("content") as? JsonPrimitive)
                                                 ?.takeIf { it.isString }?.content
