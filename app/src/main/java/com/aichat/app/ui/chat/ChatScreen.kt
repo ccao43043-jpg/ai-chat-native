@@ -90,6 +90,7 @@ fun ChatScreen(
     var sheet by rememberSaveable { mutableStateOf(0) }          // 1 = 提示词库，2 = 模板
     var convPlugins by remember { mutableStateOf(false) }
     var rpPanel by remember { mutableStateOf(false) }
+    var rpMemoryPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -164,7 +165,12 @@ fun ChatScreen(
                 controller.ensureConversation()
                 rpPanel = true
             })
-                                DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
+                                DropdownMenuItem(text = { Text("记忆") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                rpMemoryPanel = true
+            })
+            DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
                                 extraMenu.forEach { (label, act) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; act() }) }
                             }
                         }
@@ -325,6 +331,16 @@ fun ChatScreen(
                 }
             } },
             confirmButton = { TextButton(onClick = { convPlugins = false }) { Text("完成") } })
+    }
+    if (rpMemoryPanel && conv != null) {
+        RpMemoryPanelDialog(
+            conv = conv,
+            settings = settings,
+            store = deps.rpMemory,
+            plugin = deps.plugins.plugins.firstOrNull { it.id == "rpmemory" } as? com.aichat.app.plugins.rp.RpMemoryPlugin,
+            onDismiss = { rpMemoryPanel = false },
+            onToast = { controller.toast(it) },
+        )
     }
     if (rpPanel && conv != null) {
         RpPanelDialog(
