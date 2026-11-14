@@ -33,6 +33,27 @@ app/src/main/java/com/aichat/app/
 app/src/test/          单元测试 + golden 对照（纯 JVM，不依赖模拟器）
 ```
 
+## 能用的
+
+- 多服务商：OpenAI 兼容（含 OpenRouter / DeepSeek / 硅基流动 / 百炼等预设）、Anthropic Claude、Google Gemini
+- 流式回复、停止（保留半截内容并标记「已中断」）、重新生成 / 继续生成 / 编辑重发 / 多版本切换
+- 对话列表与抽屉、助手库、提示词库与模板、模板系统提示词
+- 附件：PDF / DOCX / PPTX / XLSX 文本抽取（40MB 上限）
+- 联网搜索（Tavily / Bocha / Brave / SearXNG）
+- 本地资料库（BM25F + MMR 检索，注入到当前消息）
+- 用量统计：区间汇总、按模型、最近 14 天，费用按价目表实时计算
+- 生图：OpenAI 兼容 / OpenRouter / FLUX 档位模型，尺寸档位、结果预览
+- 缓存插件（gcache / mmcache）、Token 徽章
+- 旧版数据就地迁移、整库备份导出 / 导入
+
+## 还不能用的
+
+- RP（角色扮演）状态面板、章节摘要、世界书面板
+- 好感度（affect）插件未接入请求链路
+- 生图的参考图上传、历史落盘、保存到相册
+- 成本与余额页面（顶栏只显示 token）
+- 插件设置界面（各插件的开关目前走数据文件）
+
 ## 数据
 
 - 业务数据：`/data/data/com.aichat.app/files/store/`（settings.json、convs.json、conv_<id>.json、

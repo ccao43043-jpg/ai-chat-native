@@ -92,6 +92,8 @@ class AppGraph(app: Application) {
         },
     )
     val providerClient = com.aichat.app.net.DefaultProviderClient(secretVault)
+    /** 生图客户端（providers.js 的 buildImageRequest / parseImageResponse） */
+    val imageClient = com.aichat.app.net.DefaultImageClient(secretVault)
     /** OpenRouter 缓存亲和路由（app.js routerState，持久化在 router-affinity.json） */
     val affinityRouter = com.aichat.app.net.AffinityRouter(initial = data.routerState.load(), save = { data.routerState.save(it) })
     var engine: ChatEngine = com.aichat.app.engine.DefaultChatEngine(
@@ -119,7 +121,8 @@ class AppGraph(app: Application) {
 
     /** A 的 UI 依赖（真实实现） */
     fun uiDeps() = com.aichat.app.ui.common.UiDeps(chats = chats, settings = settings, library = library, keys = keys,
-        engine = engine, plugins = plugins, migration = migration, isFake = false, charCard = charCard, usage = usage)
+        engine = engine, plugins = plugins, migration = migration, isFake = false, charCard = charCard, usage = usage,
+        image = imageClient)
 
     // ---- 首次启动迁移：后台执行，不阻塞启动；报告给设置 →「数据与备份」 ----
     private val _migrationReport = MutableStateFlow<MigrationReport?>(null)
