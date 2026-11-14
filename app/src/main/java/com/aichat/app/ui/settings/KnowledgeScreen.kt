@@ -24,7 +24,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.aichat.app.domain.cost.UsageStatsCore
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
@@ -49,6 +51,32 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
     var catIdx by remember { mutableStateOf(0) }
     var editing by remember { mutableStateOf<Triple<String, String, String>?>(null) } // (entryId, title, content)
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingImport by remember { mutableStateOf<String?>(null) }
+    val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        }.getOrNull()
+        if (text.isNullOrBlank()) toast("读不到文件内容") else pendingImport = text
+    }
+
+    fun doImport(text: String, mode: String) {
+        val wid = worldId ?: run { toast("先选一个世界"); return }
+        if (store == null) { toast("知识库未就绪"); return }
+        runCatching {
+            val parsed = Knowledge.parseImport(text)
+            val res = Knowledge.mergeDoc(Knowledge.load(store, wid), parsed, jobj("mode" to mode, "worldId" to wid))
+            val next = res["doc"] as? JObj ?: Knowledge.load(store, wid)
+            Knowledge.save(store, next)
+            doc = Knowledge.load(store, wid)
+            val added = (res["added"] as? Number)?.toInt() ?: 0
+            val updated = (res["updated"] as? Number)?.toInt() ?: 0
+            "导入完成（${if (mode == "replace") "替换" else "合并"}）：新增 $added，更新 $updated"
+        }.onSuccess { toast(it) }.onFailure { toast("导入失败：" + (it.message ?: "")) }
+    }
 
     fun reload(wid: String?) {
         doc = if (store == null || wid == null) null else Knowledge.load(store, wid)
@@ -75,6 +103,20 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         title = "知识库",
         onBack = onBack,
         actions = {
+            TextButton(
+                onClick = { pickFile.launch(arrayOf("application/json", "text/plain", "text/markdown", "application/octet-stream")) },
+                modifier = Modifier.testTag("kn-import"),
+            ) { Text("导入") }
+            TextButton(
+                onClick = {
+                    val d = doc ?: run { toast("还没有内容可导出"); return@TextButton }
+                    val wid = worldId ?: "world"
+                    val name = "knowledge-$wid-${UsageStatsCore.dayKey(System.currentTimeMillis())}.json"
+                    val path = CsvExport.save(context, name, Knowledge.exportJSON(d), mime = "application/json", bom = false)
+                    toast(if (path != null) "已导出到 $path" else "导出失败")
+                },
+                modifier = Modifier.testTag("kn-export"),
+            ) { Text("导出") }
             if (cat != null) {
                 TextButton(onClick = { editing = Triple("", "", "") }) { Text("新建") }
             }
@@ -137,6 +179,22 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
     }
 
     val edit = editing
+    if (pendingImport != null) {
+        val text = pendingImport!!
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("导入到当前世界") },
+            text = { Text("合并 = 保留现有条目并按 id 更新；替换 = 先清空本世界已有条目再写入。") },
+            confirmButton = {
+                TextButton(onClick = { pendingImport = null; doImport(text, "merge") }) { Text("合并") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null; doImport(text, "replace") }) {
+                    Text("替换", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    }
     if (edit != null && doc != null && cat != null) {
         val (entryId, t0, c0) = edit
         KnowledgeEditorDialog(
