@@ -3,7 +3,6 @@ package com.aichat.app.net
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 
 /**
  * 「搜索就绪」双源修复。
@@ -18,31 +17,28 @@ import kotlinx.serialization.json.booleanOrNull
  * `settings.search.hasKeys` 反映真实的 Key 存在状态。
  *
  * 本对象只做「算」：给定当前 search 配置与「某 provider 是否真的有 Key」，返回修正后的 search；
- * **无差异时返回 null**，避免每次启动都写盘。
+ * **结果与现有 hasKeys 完全相等时返回 null**，避免每次启动都写盘。
  */
 object SearchKeySync {
     /**
      * @param search 当前的 `AppSettings.search`
      * @param hasKey 传入 provider id（tavily / bocha / brave / searxng），返回 KeyVault 里是否真有 `search:<id>`
-     * @return 修正后的 search（含完整 hasKeys）；无需修改时返回 null
+     * @return 修正后的 search（hasKeys 含全部已知 provider）；无需修改时返回 null
      */
     fun merged(search: JsonObject, hasKey: (String) -> Boolean): JsonObject? {
         val cur = search["hasKeys"] as? JsonObject
+        // 先继承已有条目（含用户手键的自定义键），再用真实 Key 状态覆盖已知 provider
         val next = LinkedHashMap<String, JsonElement>()
         cur?.forEach { (k, v) -> next[k] = v }
-        var changed = false
         for (p in SearchCore.SEARCH_PROVIDERS) {
-            val real = hasKey(p.id)
-            val cached = (cur?.get(p.id) as? JsonPrimitive)?.booleanOrNull ?: false
-            if (cached != real) {
-                next[p.id] = JsonPrimitive(real)
-                changed = true
-            }
+            next[p.id] = JsonPrimitive(hasKey(p.id))
         }
-        if (!changed) return null
+        val normalized = JsonObject(next)
+        // JsonObject 的 equals 不关心键序；相等说明没任何差异，不写盘
+        if (normalized == cur) return null
         val out = LinkedHashMap<String, JsonElement>()
         search.forEach { (k, v) -> out[k] = v }
-        out["hasKeys"] = JsonObject(next)
+        out["hasKeys"] = normalized
         return JsonObject(out)
     }
 }
