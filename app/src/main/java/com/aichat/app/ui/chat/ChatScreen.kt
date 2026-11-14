@@ -159,6 +159,7 @@ fun ChatScreen(
     var rpMemoryPanel by remember { mutableStateOf(false) }
     var rpInspect by remember { mutableStateOf(false) }
     var rpChapter by remember { mutableStateOf(false) }
+    var rpLore by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
@@ -248,6 +249,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpChapter = true
+            })
+            DropdownMenuItem(text = { Text("世界书") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                rpLore = true
             })
             if (conv != null) DropdownMenuItem(text = { Text("据此生图") }, onClick = {
                 menu = false
@@ -447,6 +453,14 @@ fun ChatScreen(
             plugin = deps.plugins.plugins.firstOrNull { it.id == "rpcache" } as? com.aichat.app.plugins.rp.RpCachePlugin,
             onSaveState = { controller.setRpStateJson(conv.id, it) },
             onDismiss = { rpChapter = false },
+            onToast = controller::toast,
+        )
+    }
+    if (rpLore && conv != null) {
+        RpLoreDialog(
+            conv = conv,
+            onSaveState = { controller.setRpStateJson(conv.id, it) },
+            onDismiss = { rpLore = false },
             onToast = controller::toast,
         )
     }
