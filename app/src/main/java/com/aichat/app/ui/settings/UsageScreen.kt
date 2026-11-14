@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -79,6 +80,16 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
         title = "用量统计",
         onBack = onBack,
         actions = {
+            val ctx = LocalContext.current
+            TextButton(
+                onClick = {
+                    val csv = UsageStatsCore.toCSV(ranged)
+                    val name = "usage-" + UsageStatsCore.dayKey(System.currentTimeMillis()) + ".csv"
+                    val where = CsvExport.save(ctx, name, csv)
+                    toast(if (where != null) "已导出：$where" else "导出失败（没有可写的目录）")
+                },
+                modifier = Modifier.testTag("usage-export"),
+            ) { Text("导出") }
             TextButton(onClick = { scope.launch { load() } }, Modifier.testTag("usage-refresh")) { Text("刷新") }
         },
     ) {
