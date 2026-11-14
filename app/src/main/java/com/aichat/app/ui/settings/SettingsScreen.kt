@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             dest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
             dest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
             dest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
+        dest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(dest.title, back) {
                 Text("「${dest.title}」将在后续里程碑实现（负责：${dest.owner}）", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -134,6 +136,7 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
     val s by deps.settings.settings.collectAsStateWithLifecycle()
     val primary = s.providers.firstOrNull { it.id == s.lastProviderId } ?: s.providers.firstOrNull()
     val keys = s.providers.count { it.hasKey }
+    val worlds by deps.library.worlds.collectAsState(initial = emptyList())
     SettingsPageScaffold("设置", onBack) {
         Column(Modifier.padding(horizontal = Space.page).padding(top = 4.dp)) {
             HubOverviewCard(
@@ -166,8 +169,10 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
                     tag = "row-prompts") { open(SettingsDestination.Prompts) }
                 SettingsTileRow(Icons.AutoMirrored.Filled.List, "提示词模板", "切换本对话的系统提示词",
                     tag = "row-templates") { open(SettingsDestination.Templates) }
-                SettingsTileRow(Icons.Filled.Place, "世界模板", "世界书与地点设定",
-                    value = "待实现", tag = "row-worlds") { open(SettingsDestination.Worlds) }
+                SettingsTileRow(Icons.Filled.Place, "世界模板", "可复用的世界观 / 角色卡 / 规则",
+                    value = "${worlds.size} 个", tag = "row-worlds") {
+                    open(SettingsDestination.Worlds)
+                }
                 SettingsTileRow(Icons.Filled.Info, "知识库", "每个世界的资料库条目",
                     value = "待实现", tag = "row-knowledge") { open(SettingsDestination.Knowledge) }
             }
