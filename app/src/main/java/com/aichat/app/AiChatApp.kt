@@ -90,7 +90,33 @@ class AppGraph(app: Application) {
                 data.library.worlds.value.firstOrNull()?.id
             }
         },
+        // 结构化记忆：默认关（旧版 defaultEnabled:false）；开关在设置 → 插件里，打开后每 N 轮抽一次
+        memory = { host ->
+            com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt -> askModel(conv, prompt) }
+        },
     )
+
+    /**
+     * 插件用的「顺手问一次模型」（旧版 host.callModel）：用当前对话的服务商与模型，
+     * 非流式、温度 0、maxTokens 2048 —— 与 rpmemory.js 的 `maxTokens: 2048` 对齐。
+     * 失败返回 null（调用方负责把 lastError 记下来并推进 lastTurn，避免每轮重试烧钱）。
+     */
+    private suspend fun askModel(conv: com.aichat.app.domain.model.Conversation, prompt: String): String? = runCatching {
+        val s = data.settings.settings.value
+        val p = s.providers.firstOrNull { it.id == conv.providerId } ?: return@runCatching null
+        val model = conv.model.ifEmpty { return@runCatching null }
+        val req = providerClient.buildChatRequest(
+            p, model,
+            listOf(com.aichat.app.domain.WireMessage(com.aichat.app.domain.model.Role.USER, prompt)),
+            "", com.aichat.app.domain.ChatOptions(stream = false, temperature = 0.0, maxTokens = 2048),
+        )
+        val (st, text) = providerClient.requestText(p, req, 60_000)
+        if (st >= 400 || st == 0) return@runCatching null
+        com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, text)
+            .filterIsInstance<com.aichat.app.net.StreamDelta.Text>()
+            .joinToString("") { it.text }
+            .takeIf { it.isNotBlank() }
+    }.getOrNull()
     val providerClient = com.aichat.app.net.DefaultProviderClient(secretVault)
     /** 生图客户端（providers.js 的 buildImageRequest / parseImageResponse） */
     val imageClient = com.aichat.app.net.DefaultImageClient(secretVault)
