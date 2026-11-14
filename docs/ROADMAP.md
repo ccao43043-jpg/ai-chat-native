@@ -11,11 +11,13 @@
 - `usage`（Token 徽章）
 - `gcache` / `mmcache`（缓存，命中率不再是 0）
 - `rpcache`（RP 上下文：分层 system + 末轮 `[CURRENT_STATE]` 注入；只有对话真的填过 RP 块才自动生效）
+- `affect`（好感度 / 心情：system 挂 `[AFFECT_RULE]` 协议、末条 user 前置短 tag、回复里的 `<state>` 解析后按 KF 推进并落盘、顶栏「心情 · 关系」徽章）
 
-仍缺席（代码已在 `plugins/`，缺 plugin 适配层）：
+仍缺席（代码已在 `plugins/`，缺 panel / 深化逻辑）：
 
-- `affect`：Kalman + CUSUM 已有，但响应钩子未接
+- `affect` 面板：走势图、漏标率、护栏统计、估计器切换；`invalidateFrom`（切版本/编辑后清除受影响的 affect）
 - `rpcache` 的深化：章节摘要生成与合并、世界书触发与冻结（`constantLoreText` 未移植）、预算裁剪与 `plan` 的 trim 分支、命中率徽章与「检视 › 缓存」面板
+- RP 面板本身：没有任何 UI 能填 `conv.rpState` 的块，所以上面两条目前只有单测覆盖，设备上跑不到
 
 注册顺序固定：`knowledge → rpcache → usage → gcache → mmcache → affect`。
 
