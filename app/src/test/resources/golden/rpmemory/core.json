@@ -1,0 +1,301 @@
+{
+  "autoKeywords": [
+    "拿着账本",
+    "着账本",
+    "账本",
+    "waits",
+    "北港的码",
+    "的码头等",
+    "港的码头",
+    "里拿着账",
+    "林月在北",
+    "码头等老",
+    "手里拿着",
+    "头等老周",
+    "月在北港",
+    "在北港的",
+    "北港的",
+    "的码头",
+    "等老周",
+    "港的码",
+    "里拿着",
+    "林月在",
+    "码头等",
+    "拿着账",
+    "手里拿",
+    "头等老",
+    "月在北",
+    "在北港",
+    "lin",
+    "yue",
+    "北港",
+    "的码",
+    "等老",
+    "港的",
+    "老周",
+    "里拿",
+    "林月",
+    "码头",
+    "拿着",
+    "手里",
+    "头等",
+    "月在",
+    "在北",
+    "着账"
+  ],
+  "mergeKeywords": [
+    "船长",
+    "林月",
+    "北港",
+    "风暴"
+  ],
+  "triples": [
+    {
+      "subject": "林月",
+      "object": "老周",
+      "predicate": "信任",
+      "family": "trust",
+      "polarity": 1,
+      "raw": "林月信任老周。"
+    },
+    {
+      "subject": "林月",
+      "object": "老周了",
+      "predicate": "不信任",
+      "family": "trust",
+      "polarity": -1,
+      "raw": "林月不信任老周了。"
+    },
+    {
+      "subject": "铁箱",
+      "object": "",
+      "predicate": "上锁",
+      "family": "lock",
+      "polarity": -1,
+      "raw": "铁箱上锁了。"
+    },
+    null
+  ],
+  "conflicts": [
+    {
+      "a": "林月信任老周。",
+      "b": "林月不信任老周。",
+      "hit": true
+    },
+    {
+      "a": "林月信任老周。",
+      "b": "林月信任小李。",
+      "hit": false
+    },
+    {
+      "a": "铁箱上锁了。",
+      "b": "铁箱解锁了。",
+      "hit": false
+    },
+    {
+      "a": "林月是船长。",
+      "b": "林月不是船长。",
+      "hit": true
+    }
+  ],
+  "mergeSimple": {
+    "added": 1,
+    "merged": 1,
+    "conflicts": 0,
+    "superseded": 0,
+    "list": [
+      {
+        "id": "a1",
+        "seq": 1,
+        "type": "fact",
+        "text": "林月是船长，住在北港的灯塔旁。",
+        "keywords": [
+          "林月",
+          "北港",
+          "船长",
+          "灯塔"
+        ],
+        "pinned": false,
+        "disabled": false,
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "a2",
+        "seq": 2,
+        "type": "event",
+        "text": "昨天船队遇上了风暴。",
+        "keywords": [
+          "船队",
+          "风暴"
+        ],
+        "pinned": false,
+        "disabled": false
+      },
+      {
+        "id": "a3",
+        "seq": 3,
+        "type": "relation",
+        "text": "林月信任老周。",
+        "keywords": [
+          "林月",
+          "老周",
+          "信任"
+        ],
+        "pinned": true,
+        "disabled": false
+      },
+      {
+        "id": "m4_0",
+        "seq": 4,
+        "type": "event",
+        "text": "船队修好了帆。",
+        "keywords": [
+          "船队",
+          "帆"
+        ],
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
+        "source": "auto",
+        "pinned": false,
+        "version": 1,
+        "validFromTurn": 7,
+        "validToTurn": null,
+        "confidence": 0.7
+      }
+    ]
+  },
+  "mergeConflict": {
+    "added": 1,
+    "conflicts": 1,
+    "superseded": 1,
+    "list": [
+      {
+        "id": "a3",
+        "seq": 3,
+        "type": "relation",
+        "text": "林月信任老周。",
+        "keywords": [
+          "林月",
+          "老周"
+        ],
+        "disabled": true,
+        "version": 1,
+        "supersededBy": "m4_5000",
+        "supersededAt": 1700000005000,
+        "validToTurn": 9
+      },
+      {
+        "id": "m4_5000",
+        "seq": 4,
+        "type": "relation",
+        "text": "林月不信任老周了。",
+        "keywords": [
+          "林月",
+          "老周"
+        ],
+        "createdAt": 1700000005000,
+        "updatedAt": 1700000005000,
+        "source": "auto",
+        "pinned": false,
+        "version": 2,
+        "supersedes": "a3",
+        "validFromTurn": 9,
+        "validToTurn": null,
+        "confidence": 0.7
+      }
+    ]
+  },
+  "selectBm25": [
+    "a1",
+    "a3"
+  ],
+  "selectLegacy": [
+    "a3",
+    "a4"
+  ],
+  "injection": "[MEMORY_RECALL]（相关记忆，只作参考，不要复述）\n- [事实] 林月是船长，住在北港。\n- [关系] 林月信任老周。",
+  "memoryText": "- [事实] 林月是船长，住在北港。\n- [事件] 昨天船队遇上了风暴。",
+  "parsed": [
+    {
+      "type": "fact",
+      "text": "林月是船长",
+      "keywords": [
+        "林月"
+      ]
+    },
+    {
+      "type": "event",
+      "text": "遇上了风暴",
+      "keywords": [
+        "上了风暴",
+        "遇上了风",
+        "了风暴",
+        "上了风",
+        "遇上了",
+        "风暴",
+        "了风",
+        "上了",
+        "遇上"
+      ]
+    }
+  ],
+  "parsedLines": [
+    {
+      "type": "relation",
+      "text": "林月信任老周",
+      "keywords": [
+        "林月信任",
+        "信任老周",
+        "月信任老",
+        "信任老",
+        "月信任",
+        "信任",
+        "林月信",
+        "任老周",
+        "老周",
+        "林月",
+        "任老",
+        "月信"
+      ]
+    },
+    {
+      "type": "detail",
+      "text": "铁箱上锁了",
+      "keywords": [
+        "铁箱上锁",
+        "箱上锁了",
+        "上锁了",
+        "铁箱上",
+        "箱上锁",
+        "上锁",
+        "锁了",
+        "铁箱",
+        "箱上"
+      ]
+    }
+  ],
+  "shouldExtract": [
+    true,
+    false,
+    true
+  ],
+  "settings": {
+    "interval": 5,
+    "window": 5,
+    "maxInject": 50,
+    "pinBudget": 8,
+    "minScore": 1,
+    "retrieval": "bm25",
+    "memTokens": 8000,
+    "tau": 20,
+    "mmrLambda": 0.7
+  },
+  "promptHead": [
+    "你是角色扮演对话的记忆整理器。从下面的最近对话中提取之后仍然重要的信息，输出 JSON 数组，不要输出其他内容。",
+    "每个元素：{\"type\":\"fact|event|relation|detail\",\"text\":\"一句话、第三人称、具体\",\"keywords\":[\"人名/地名/物品等 1-5 个\"]}",
+    "fact=稳定事实（身份、设定、喜好）；event=发生的事件；relation=人物关系变化；detail=以后可能用到的细节（约定、物品、伏笔）。",
+    "只记录新的或有变化的信息；已有记忆里已经有的不要重复；最多 12 条；没有就输出 []。",
+    "",
+    "===== 已有记忆 ====="
+  ]
+}
