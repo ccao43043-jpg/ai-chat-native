@@ -29,6 +29,8 @@ data class UiDeps(
     val usage: com.aichat.app.domain.UsageRepository? = null,
     /** 生图客户端；为 null 时生图页显示「未就绪」而不是崩 */
     val image: com.aichat.app.domain.ImageClient? = null,
+    /** 记忆文件（rp-memory.json）；为 null 时记忆面板只读空态 */
+    val rpMemory: com.aichat.app.data.repo.JsonDocStore? = null,
 )
 
 val LocalUiDeps = staticCompositionLocalOf<UiDeps> { error("UiDeps 未提供") }
