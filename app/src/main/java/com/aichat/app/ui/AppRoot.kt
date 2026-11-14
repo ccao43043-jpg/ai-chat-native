@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +32,7 @@ import com.aichat.app.ui.common.UiDeps
 import com.aichat.app.ui.image.ImageScreen
 import com.aichat.app.ui.settings.SettingsDestination
 import com.aichat.app.ui.settings.SettingsScreen
+import com.aichat.app.ui.theme.Palette
 
 /** 底部固定两个 Tab（需求 4）。顺序与文案不可改：聊天 / 生图。 */
 enum class MainTab(val label: String, val icon: ImageVector) {
@@ -61,13 +63,20 @@ fun AppRoot(deps: UiDeps) {
         }
         Scaffold(
             bottomBar = {
-                NavigationBar {
+                NavigationBar(containerColor = Palette.Surface) {
                     MainTab.entries.forEach { t ->
                         NavigationBarItem(
                             selected = tab == t,
                             onClick = { tab = t },
                             icon = { Icon(t.icon, contentDescription = t.label) },
                             label = { Text(t.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Palette.Accent,
+                                selectedTextColor = Palette.Accent,
+                                indicatorColor = Palette.AccentSoft,
+                                unselectedIconColor = Palette.Fg2,
+                                unselectedTextColor = Palette.Fg2,
+                            ),
                             modifier = Modifier.testTag("tab-${t.name}"),
                         )
                     }

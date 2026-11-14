@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -22,10 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -42,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -50,6 +58,7 @@ import com.aichat.app.data.files.FileText
 import com.aichat.app.ui.common.ImageLoader
 import com.aichat.app.ui.common.PdfPages
 import com.aichat.app.ui.common.RemoteImage
+import com.aichat.app.ui.theme.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -116,15 +125,49 @@ fun InputBar(
             }
         }
     }
-    Surface(tonalElevation = 2.dp, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
+        Surface(color = Palette.Surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (tools.onPrompts != null || tools.onTemplates != null || tools.onSearch != null)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    tools.onSearch?.let { f -> FilterChip(tools.searchOn, { f(!tools.searchOn) }, label = { Text("🌐 联网搜索", fontSize = 12.sp) },
-                        modifier = Modifier.testTag("search-toggle")) }
-                    tools.onPrompts?.let { FilterChip(false, it, label = { Text("⚡ 提示词", fontSize = 12.sp) }, modifier = Modifier.testTag("prompts-open")) }
-                    tools.onTemplates?.let { FilterChip(tools.templateLabel != null, it, label = { Text(tools.templateLabel ?: "📋 模板", fontSize = 12.sp) },
-                        modifier = Modifier.testTag("templates-open")) }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tools.onSearch?.let { f ->
+                        FilterChip(
+                            selected = tools.searchOn,
+                            onClick = { f(!tools.searchOn) },
+                            label = { Text("联网搜索", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(16.dp)) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Palette.AccentSoft,
+                                selectedLabelColor = Palette.Accent,
+                                selectedLeadingIconColor = Palette.Accent,
+                            ),
+                            modifier = Modifier.testTag("search-toggle"),
+                        )
+                    }
+                    tools.onPrompts?.let {
+                        FilterChip(
+                            selected = false,
+                            onClick = it,
+                            label = { Text("提示词", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Filled.Create, null, Modifier.size(16.dp)) },
+                            modifier = Modifier.testTag("prompts-open"),
+                        )
+                    }
+                    tools.onTemplates?.let {
+                        FilterChip(
+                            selected = tools.templateLabel != null,
+                            onClick = it,
+                            label = { Text(tools.templateLabel ?: "模板", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(16.dp)) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Palette.AccentSoft,
+                                selectedLabelColor = Palette.Accent,
+                                selectedLeadingIconColor = Palette.Accent,
+                            ),
+                            modifier = Modifier.testTag("templates-open"),
+                        )
+                    }
                 }
             if (images.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 images.forEachIndexed { i, src ->
@@ -151,17 +194,30 @@ fun InputBar(
                             attachMenu = false; docPicker.launch(arrayOf("*/*")) })
                     }
                 }
-                OutlinedTextField(text, onText, modifier = Modifier.weight(1f).testTag("input"), placeholder = { Text("给 AI 发消息…") },
-                    maxLines = 6, shape = RoundedCornerShape(20.dp))
+                OutlinedTextField(
+                    text, onText,
+                    modifier = Modifier.weight(1f).testTag("input"),
+                    placeholder = { Text("给 AI 发消息…") },
+                    maxLines = 6,
+                    shape = RoundedCornerShape(20.dp),
+                )
+                val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
                 if (streaming) FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 4.dp).testTag("stop"),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error)) {
                     Icon(Icons.Filled.Close, "停止")
-                } else FilledIconButton(onClick = onSend, enabled = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty()),
-                    modifier = Modifier.padding(start = 4.dp).testTag("send")) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "发送")
+                } else Box(
+                    Modifier.padding(start = 4.dp).size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (canSend) Palette.Grad else Brush.linearGradient(listOf(Palette.Surface3, Palette.Surface3)))
+                        .clickable(enabled = canSend, onClick = onSend)
+                        .testTag("send"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, "发送", tint = if (canSend) Color.White else Palette.Fg3)
                 }
             }
         }
+    }
     }
 }
 

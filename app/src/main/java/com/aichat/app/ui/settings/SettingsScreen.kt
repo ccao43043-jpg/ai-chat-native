@@ -97,7 +97,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
         dest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
         dest == SettingsDestination.Knowledge -> KnowledgeScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(dest.title, back) {
-                Text("「${dest.title}」将在后续里程碑实现（负责：${dest.owner}）", modifier = Modifier.padding(20.dp),
+                Text("「${dest.title}」还没做好", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

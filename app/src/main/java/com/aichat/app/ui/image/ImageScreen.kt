@@ -19,13 +19,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.domain.ImageRequest
@@ -49,14 +53,13 @@ import com.aichat.app.net.ImageGen
 import com.aichat.app.net.ModelCatalog
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.rememberImageBitmap
+import com.aichat.app.ui.theme.Palette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 生图页（`imagegen.js` + 旧版 `renderImageGen` 的可用子集）。
- *
- * 做了：服务商选择、模型（手填 / 从 models 里挑）、尺寸档位、提示词、生成、进度文案、结果预览、本次会话历史（最多 10 条）
- * 没做：参考图上传、历史落盘、保存到相册、聊天里「据此生图」
+ * 生图页。服务商、模型、尺寸、参考图、提示词、生成、预览、保存到相册。
+ * 本次会话内保留最近若干条结果；从聊天「据此生图」来的提示词走 ImageDraft。
  */
 @Composable
 fun ImageScreen() {
@@ -171,21 +174,26 @@ fun ImageScreen() {
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("生图", style = MaterialTheme.typography.headlineSmall)
+        Text("生图", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
         Text(
-            "只支持 OpenAI 兼容服务商；模型留空时用服务商配置里的生图模型。",
+            "使用已配置的 OpenAI 兼容服务商。模型留空时用该服务商的生图模型。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
 
         Box {
-            OutlinedButton(
+            OptionCard(
+                label = "服务商",
+                value = provider?.name ?: "请先添加服务商",
+                tag = "image-provider",
                 onClick = { providerMenu = true },
-                modifier = Modifier.fillMaxWidth().testTag("image-provider"),
-            ) { Text(provider?.let { "${it.name} · ${it.baseUrl}" } ?: "选择服务商") }
+            )
             DropdownMenu(providerMenu, onDismissRequest = { providerMenu = false }) {
+                if (providers.isEmpty()) {
+                    DropdownMenuItem(text = { Text("还没有服务商") }, onClick = { providerMenu = false })
+                }
                 providers.forEach { p ->
                     DropdownMenuItem(
                         text = { Text(p.name) },
@@ -198,65 +206,70 @@ fun ImageScreen() {
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = model,
             onValueChange = { model = it },
-            label = { Text("生图模型") },
+            label = { Text("模型") },
             placeholder = { Text(provider?.imageModel?.ifEmpty { "例如 gpt-image-1" } ?: "例如 gpt-image-1") },
             supportingText = if (imageModels.isNotEmpty()) {
                 { Text("可选：" + imageModels.joinToString("、"), style = MaterialTheme.typography.bodySmall) }
-            } else null,
+            } else {
+                { Text("留空则用服务商里的生图模型", style = MaterialTheme.typography.bodySmall) }
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("image-model"),
         )
 
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                OutlinedButton(onClick = { sizeMenu = true }, modifier = Modifier.testTag("image-size")) {
-                    Text(ImageGen.sizeOptionLabel(size, flux))
-                }
-                DropdownMenu(sizeMenu, onDismissRequest = { sizeMenu = false }) {
-                    ImageGen.SIZES.forEach { s ->
-                        DropdownMenuItem(
-                            text = { Text(ImageGen.sizeOptionLabel(s, flux)) },
-                            onClick = {
-                                size = s
-                                sizeMenu = false
-                            },
-                        )
-                    }
+        Spacer(Modifier.height(12.dp))
+        Box {
+            OptionCard(
+                label = "尺寸",
+                value = ImageGen.sizeOptionLabel(size, flux),
+                tag = "image-size",
+                onClick = { sizeMenu = true },
+            )
+            DropdownMenu(sizeMenu, onDismissRequest = { sizeMenu = false }) {
+                ImageGen.SIZES.forEach { s ->
+                    DropdownMenuItem(
+                        text = { Text(ImageGen.sizeOptionLabel(s, flux)) },
+                        onClick = {
+                            size = s
+                            sizeMenu = false
+                        },
+                    )
                 }
             }
-            if (flux) {
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    "档位模型：按 resolution + aspect_ratio 发送",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        }
+        if (flux) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "按分辨率和比例发送",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { pickRefs.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                modifier = Modifier.testTag("image-add-ref")) {
-                Text(if (refs.isEmpty()) "加参考图" else "参考图 ${refs.size}")
+            TextButton(
+                onClick = { pickRefs.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                modifier = Modifier.testTag("image-add-ref"),
+            ) {
+                Text(if (refs.isEmpty()) "添加参考图" else "参考图 ${refs.size}")
             }
             if (refs.isNotEmpty()) {
-                Spacer(Modifier.size(8.dp))
                 TextButton(onClick = { refs = emptyList() }, modifier = Modifier.testTag("image-clear-ref")) {
                     Text("清空")
                 }
-                Spacer(Modifier.size(4.dp))
-                Text(
-                    "最多 ${ImageGen.MAX_REF_IMAGES} 张，会自动缩到长边 ${RefImageLoader.MAX_EDGE}px",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
+        }
+        if (refs.isEmpty()) {
+            Text(
+                "最多 ${ImageGen.MAX_REF_IMAGES} 张，长边会缩到 ${RefImageLoader.MAX_EDGE}px",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         if (refs.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -272,7 +285,6 @@ fun ImageScreen() {
                                 modifier = Modifier.padding(end = 8.dp).size(64.dp).clip(RoundedCornerShape(8.dp)),
                             )
                         }
-                        // 点一下删掉这一张
                         Box(
                             Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
                                 .testTag("image-ref-$i")
@@ -288,18 +300,23 @@ fun ImageScreen() {
             value = prompt,
             onValueChange = { prompt = it },
             label = { Text("提示词") },
-            minLines = 3,
+            minLines = 4,
             maxLines = 8,
             modifier = Modifier.fillMaxWidth().testTag("image-prompt"),
         )
 
         Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { generate() }, enabled = !busy, modifier = Modifier.testTag("image-generate")) {
-                Text(if (busy) "生成中…" else "生成")
-            }
-            if (busy) {
-                Spacer(Modifier.size(12.dp))
+        Button(
+            onClick = { generate() },
+            enabled = !busy,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("image-generate"),
+        ) {
+            Text(if (busy) "生成中…" else "生成")
+        }
+        if (busy) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.size(8.dp))
                 Text("$stage ${ImageGen.formatElapsed(elapsed)}", style = MaterialTheme.typography.bodySmall)
@@ -376,3 +393,24 @@ fun ImageScreen() {
 }
 
 private data class Shot(val prompt: String, val model: String, val size: String, val urls: List<String>, val at: Long)
+
+@Composable
+private fun OptionCard(label: String, value: String, tag: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = Palette.Surface,
+        modifier = Modifier.fillMaxWidth().testTag(tag),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}

@@ -1,12 +1,9 @@
 package com.aichat.app.ui.chat
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
@@ -68,6 +65,18 @@ import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.conversation.ConversationDrawer
 import com.aichat.app.ui.settings.SettingsDestination
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.aichat.app.ui.theme.Palette
 
 /**
  * 聊天页：顶栏（抽屉 / 标题 + 模型切换 / 更多）、消息列表（reverseLayout，流式时贴底）、输入区。
@@ -80,49 +89,53 @@ import kotlinx.coroutines.launch
 @Composable
 private fun EmptyHero(onPick: (String) -> Unit) {
     val suggestions = remember {
-        listOf("帮我写一封请假邮件", "解释这段报错的含义", "把下面这段话改得更正式")
+        listOf("解释量子计算", "写一封感谢信", "推荐一个周末可以去的地方")
     }
-    androidx.compose.foundation.layout.Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp).padding(top = 72.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
     ) {
-        androidx.compose.foundation.layout.Box(
-            Modifier.size(64.dp)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                .background(
-                    androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(androidx.compose.ui.graphics.Color(0x337C3AED), androidx.compose.ui.graphics.Color(0x33C026D3)),
-                    )
-                )
-                .border(1.dp, androidx.compose.ui.graphics.Color(0x4D8B5CF6), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center,
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(
-                androidx.compose.ui.res.painterResource(com.aichat.app.R.mipmap.ic_launcher_foreground),
-                null,
-                Modifier.size(40.dp),
-            )
-        }
-        androidx.compose.foundation.layout.Spacer(Modifier.height(14.dp))
-        Text("你好，我是 AI Chat", style = MaterialTheme.typography.headlineSmall)
-        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
-        Text(
-            "专注高质量文字生成。支持插件扩展能力。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.height(20.dp))
-        suggestions.forEach { s ->
-            androidx.compose.material3.Surface(
-                onClick = { onPick(s) },
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
-                color = com.aichat.app.ui.theme.Palette.Surface2,
-                border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                modifier = Modifier.padding(vertical = 4.dp),
+            Box(
+                Modifier.size(88.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Palette.Grad),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(s, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp))
+                Icon(Icons.Filled.Star, null, Modifier.size(40.dp), tint = Color.White)
+            }
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "有什么可以帮你？",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "我可以回答问题、提供建议或帮你生成创意",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(28.dp))
+            suggestions.forEach { s ->
+                Surface(
+                    onClick = { onPick(s) },
+                    shape = RoundedCornerShape(999.dp),
+                    color = Palette.Surface2,
+                    border = BorderStroke(1.dp, Palette.Line),
+                    modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 320.dp).fillMaxWidth(),
+                ) {
+                    Text(
+                        s,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
             }
         }
     }
@@ -208,15 +221,30 @@ fun ChatScreen(
             snackbarHost = { SnackbarHost(snack) },
             topBar = {
                 CenterAlignedTopAppBar(
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
                     navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }, Modifier.testTag("open-drawer")) { Icon(Icons.Filled.Menu, "对话列表") } },
                     title = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(conv?.title ?: "新对话", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { picker = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.testTag("model-switch")) {
-                                Text(target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelMedium)
-                                Icon(Icons.Filled.ArrowDropDown, null)
+                            Surface(
+                                onClick = { picker = true },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Palette.Surface2,
+                                modifier = Modifier.widthIn(max = 168.dp).testTag("model-switch"),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型",
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                                }
                             }
                         }
                     },
@@ -340,7 +368,7 @@ fun ChatScreen(
                     onStop = controller::stop, onToast = controller::toast, modifier = Modifier.imePadding(),
                     files = st.draftFiles, onFiles = controller::setDraftFiles,
                     tools = InputTools(onPrompts = { sheet = 1 }, onTemplates = { sheet = 2 },
-                        templateLabel = tplName?.let { (tplEmoji.ifEmpty { "📋" }) + " " + it },
+                        templateLabel = tplName?.let { listOfNotNull(tplEmoji.takeIf { e -> e.isNotEmpty() }, it).joinToString(" ") },
                         searchOn = settings.searchOn, onSearch = controller::setSearchOn))
             }
         }
@@ -398,7 +426,7 @@ fun ChatScreen(
             androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
                 if (page != null) page { panel = null }
                 else com.aichat.app.ui.settings.SettingsPageScaffold(id, { panel = null }) {
-                    Text("面板「$id」尚未接入（工作流 C）", Modifier.padding(20.dp))
+                    Text("这个面板还不能打开", Modifier.padding(20.dp))
                 }
             }
         }

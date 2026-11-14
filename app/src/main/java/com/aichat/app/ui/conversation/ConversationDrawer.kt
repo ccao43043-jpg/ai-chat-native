@@ -3,6 +3,7 @@ package com.aichat.app.ui.conversation
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -42,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -98,12 +102,10 @@ fun ConversationDrawer(
             }
         }
         HorizontalDivider()
-        if (onOpenPersonas != null) TextButton(onClick = onOpenPersonas, modifier = Modifier.padding(horizontal = 8.dp).testTag("drawer-personas")) {
-            Text("🤖 助手库")
+        if (onOpenPersonas != null) {
+            DrawerEntry(Icons.Filled.Person, "助手库", "drawer-personas", onOpenPersonas)
         }
-        TextButton(onClick = onOpenSettings, modifier = Modifier.padding(8.dp).testTag("drawer-settings")) {
-            Icon(Icons.Filled.Settings, null); Text("  设置")
-        }
+        DrawerEntry(Icons.Filled.Settings, "设置", "drawer-settings", onOpenSettings)
     }
 
     renaming?.let { m ->
@@ -154,6 +156,18 @@ private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit,
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DrawerEntry(icon: ImageVector, label: String, tag: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(52.dp).clickable(onClick = onClick).padding(horizontal = 20.dp).testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.size(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
     }
 }
 
