@@ -123,4 +123,59 @@ class UsageReportTest {
         assertEquals("auto", UsageReport.priceModeOf(JsonObject(emptyMap())))
         assertEquals(null, UsageReport.pricesOf(JsonObject(emptyMap())))
     }
+
+    // ---- 顶栏「这个对话花了多少」：Message.usage 临时拼成条目再计价 ----
+
+    @Test
+    fun ofMessagePricesLikeTheUsagePage() {
+        // 与 entry() 同一条数据：800 命中 + 400 未命中 + 40 输出 = 0.0088
+        val u = com.aichat.app.domain.model.Usage(
+            prompt = 1200, completion = 40, hit = 800, miss = 400, cacheSupported = true,
+        )
+        val t = UsageReport.ofMessage(u, "test-model", 1_700_000_000_000L, prices, "auto")
+        assertEquals(1, t.requests)
+        assertEquals(1200.0, t.prompt, 1e-9)
+        assertEquals(40.0, t.completion, 1e-9)
+        assertEquals(0.0088, t.cost, 1e-9)
+        assertEquals(1, t.pricedRequests)
+    }
+
+    @Test
+    fun ofMessageInfersMissWhenProviderOmitsIt() {
+        // 有些服务商只给 prompt + hit，没给 miss：miss = prompt - hit，否则会按 0 未命中算，白送钱
+        val u = com.aichat.app.domain.model.Usage(prompt = 1000, completion = 0, hit = 400, cacheSupported = true)
+        val t = UsageReport.ofMessage(u, "test-model", 0L, prices, "auto")
+        assertEquals(600.0, t.miss, 1e-9)
+        assertEquals((400 * 1 + 600 * 10) / 1e6, t.cost, 1e-9)
+    }
+
+    @Test
+    fun ofMessageWithoutCacheCountsWholePromptAsMiss() {
+        // 服务商没报缓存能力：整段输入都按未命中价算（与 CostCoreJs.costOfEntry 的 cache=false 口径一致）
+        val u = com.aichat.app.domain.model.Usage(prompt = 1000, completion = 0, cacheSupported = null)
+        val t = UsageReport.ofMessage(u, "test-model", 0L, prices, "auto")
+        assertEquals(0, t.cachedRequests)
+        assertEquals(1000 * 10 / 1e6, t.cost, 1e-9)
+    }
+
+    @Test
+    fun ofMessagePrefersProviderReportedCost() {
+        // 服务商自己报了价（旧版 actualCost）就别再按价目表猜
+        val u = com.aichat.app.domain.model.Usage(prompt = 1200, completion = 40, hit = 800, costUsd = 0.5)
+        val t = UsageReport.ofMessage(u, "test-model", 0L, prices, "auto")
+        assertEquals(0.5, t.cost, 1e-9)
+        assertEquals(1, t.pricedRequests)
+    }
+
+    @Test
+    fun ofMessageWithoutMetaPricesFallsBackToBuiltin() {
+        // 没有 usage-stats-meta.json 的价目时，CostCoreJs 会回落到内置价目表的 default 行，
+        // 所以「pricedRequests 为 1 但价格是兜底价」是预期行为；UI 侧再决定要不要显示（chip 在 prices==null 时只显示 token）
+        val u = com.aichat.app.domain.model.Usage(prompt = 10, completion = 5)
+        val t = UsageReport.ofMessage(u, "unknown-model", 0L, null, "auto")
+        assertEquals(1, t.requests)
+        assertEquals(15.0, t.total, 1e-9)
+        assertEquals(1, t.pricedRequests)
+        assert(t.cost > 0.0) { "内置 default 价目应当给出非零费用，实际 ${t.cost}" }
+    }
 }
