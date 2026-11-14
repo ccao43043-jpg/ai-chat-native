@@ -254,12 +254,24 @@ class DefaultChatEngine(
             finishTurn(ctx, provider, bot, status, startedAt, routeSlug, stopped = false).let { conv = it }
         }
         running[conv.id] = job
-        try { job.join() } finally { running.remove(conv.id, job) }
-        if (job.isCancelled) withContext(NonCancellable) {                   // #b.4：取消 → truncated=true 存
+        // #b.4：取消 → truncated=true 存。两条取消路径都要存：
+        //   ① 引擎 job 被 stop() 取消 → join 正常返回，看 job.isCancelled；
+        //   ② 收集方（ChatController.stop 里的 jobs[id].cancel()）取消 → join 抛 CancellationException。
+        // 老写法只处理了 ①，于是按「停止」时半截回复整条丢失（对话里只剩用户消息、没有该条助手消息）。
+        var stoppedByCollector = false
+        try {
+            job.join()
+        } catch (e: CancellationException) {
+            stoppedByCollector = true
+        } finally {
+            running.remove(conv.id, job)
+        }
+        if (stoppedByCollector || job.isCancelled) withContext(NonCancellable) {
             val stoppedBot = bot.copy(truncated = bot.content.isNotEmpty() || bot.truncated,
                 extras = JsonObject(bot.extras + ("stopped" to JsonPrimitive(true))))
             finishTurn(ctx, provider, stoppedBot, 0, now(), bot.routeSlug, stopped = true)
         }
+        if (stoppedByCollector) throw CancellationException("stopped")
     }
 
     /** app.js rewriteQuery：非流式、temperature 0、maxTokens 256、20s；失败回退原问题（取消照常抛出） */

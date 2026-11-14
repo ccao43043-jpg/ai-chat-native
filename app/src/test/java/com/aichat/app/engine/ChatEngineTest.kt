@@ -10,6 +10,9 @@ import com.aichat.app.net.DefaultProviderClient
 import com.aichat.app.net.Js
 import com.aichat.app.net.ProviderMigration
 import com.aichat.app.net.TinySseServer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.toList
@@ -120,6 +123,35 @@ class ChatEngineTest {
         gate.countDown()
         val bot = g.chats.load(conv.id)!!.messages.last()
         assertEquals("半句", bot.content); assertTrue(bot.truncated)
+    }
+
+    /**
+     * ChatController.stop() 的真实做法是「取消收集协程」（jobs[id].cancel()），不是调 engine.stop()。
+     * 旧实现只处理了 job.isCancelled，收集方一取消 join 就抛 CancellationException，半截回复不会落盘 →
+     * 用户按停止后对话里只剩用户消息。这条回归测试锁死该路径。
+     */
+    @Test fun collectorCancelAlsoKeepsPartialText() = runBlocking {
+        val conv = setup()
+        val gate = java.util.concurrent.CountDownLatch(1)
+        server.handlers += TinySseServer.Handler { _, ex ->
+            ex.head(200); ex.text("data: {\"choices\":[{\"delta\":{\"content\":\"半句\"}}]}\n\n")
+            gate.await(5, TimeUnit.SECONDS)
+        }
+        val engine = DefaultChatEngine(g.chats, g.settings, client, Plugins())
+        val firstDelta = java.util.concurrent.CompletableFuture<Unit>()
+        val consumer = launch(Dispatchers.Default) {
+            engine.send(conv.id, "hi", emptyList()).collect {
+                if (it is StreamEvent.Delta) { firstDelta.complete(Unit); kotlinx.coroutines.delay(60_000) }
+            }
+        }
+        withTimeout(10_000) { firstDelta.get(10, TimeUnit.SECONDS) }
+        consumer.cancelAndJoin()
+        gate.countDown()
+        val bot = g.chats.load(conv.id)!!.messages.last()
+        assertEquals(Role.ASSISTANT, bot.role)
+        assertEquals("半句", bot.content)
+        assertTrue(bot.truncated)
+        assertEquals("true", (bot.extras["stopped"] as JsonPrimitive).content)
     }
 
     @Test fun openRouterAffinityPinsUpstreamAndObserves() = runBlocking {
