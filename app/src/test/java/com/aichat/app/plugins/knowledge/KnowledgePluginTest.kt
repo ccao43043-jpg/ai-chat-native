@@ -2,12 +2,12 @@ package com.aichat.app.plugins.knowledge
 
 import com.aichat.app.domain.ChatOptions
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.WireMessage
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.domain.model.Role
-import com.aichat.app.domain.model.WireMessage
 import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.jobj
