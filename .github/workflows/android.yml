@@ -10,6 +10,9 @@ concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,10 +30,14 @@ jobs:
         run: chmod +x gradlew
 
       - name: 单元测试
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee /tmp/test.log
 
       - name: 编译 debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee /tmp/apk.log
 
       - name: 上传测试报告
         if: failure()
@@ -47,3 +54,17 @@ jobs:
           name: apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
+
+      # 拿不到 Actions 日志时的退路：失败就把尾部推到 ci-logs 分支
+      - name: 失败时留日志
+        if: failure()
+        run: |
+          git config user.name "dsh-bot"
+          git config user.email "dsh-bot@users.noreply.github.com"
+          mkdir -p .ci
+          tail -c 150000 /tmp/test.log > .ci/test.log 2>/dev/null || true
+          tail -c 150000 /tmp/apk.log > .ci/build.log 2>/dev/null || true
+          git checkout -B ci-logs
+          git add -f .ci/test.log .ci/build.log 2>/dev/null || true
+          git commit -m "ci failure log $(date -u +%FT%TZ)" || true
+          git push -f origin ci-logs || true

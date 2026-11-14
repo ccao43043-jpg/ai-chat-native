@@ -23,8 +23,8 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -164,7 +164,7 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
             SettingsGroup("内容") {
                 SettingsTileRow(Icons.Filled.Create, "提示词库", "常用文字，一键插入输入框",
                     tag = "row-prompts") { open(SettingsDestination.Prompts) }
-                SettingsTileRow(Icons.Filled.List, "提示词模板", "切换本对话的系统提示词",
+                SettingsTileRow(Icons.AutoMirrored.Filled.List, "提示词模板", "切换本对话的系统提示词",
                     tag = "row-templates") { open(SettingsDestination.Templates) }
                 SettingsTileRow(Icons.Filled.Place, "世界模板", "世界书与地点设定",
                     value = "待实现", tag = "row-worlds") { open(SettingsDestination.Worlds) }
