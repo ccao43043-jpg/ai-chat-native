@@ -143,14 +143,22 @@ class PluginRegistryImpl(
         /** 固定注册顺序（Contracts.kt 注释 + index.html 脚本顺序） */
         val ORDER = listOf("knowledge", "rpcache", "usage", "gcache", "mmcache", "affect")
 
-        /** 默认组装：按 ORDER 注册已实现的插件 */
-        fun createDefault(clock: () -> Long = { System.currentTimeMillis() }): PluginRegistryImpl {
+        /**
+         * 默认组装：按 ORDER 注册已实现的插件。
+         *
+         * [knowledge] 需要 store 与世界兜底，由 AppGraph 注入（C 的 Knowledge 只认 Knowledge.Store）；
+         * 传 null = 未接入，插件缺席（不会改变请求）。ORDER 保证它仍排第一位。
+         */
+        fun createDefault(
+            clock: () -> Long = { System.currentTimeMillis() },
+            knowledge: ((PluginHost) -> ChatPlugin)? = null,
+        ): PluginRegistryImpl {
             val reg = PluginRegistryImpl(clock)
-            val impls: Map<String, (PluginHost) -> ChatPlugin> = mapOf(
-                "usage" to { _ -> com.aichat.app.plugins.usage.UsagePlugin() },
-                "gcache" to { h -> com.aichat.app.plugins.cache.GCachePluginImpl(h) },
-                "mmcache" to { h -> com.aichat.app.plugins.cache.MmCachePluginImpl(h) },
-            )
+            val impls: MutableMap<String, (PluginHost) -> ChatPlugin> = LinkedHashMap()
+            if (knowledge != null) impls["knowledge"] = knowledge
+            impls["usage"] = { _ -> com.aichat.app.plugins.usage.UsagePlugin() }
+            impls["gcache"] = { h -> com.aichat.app.plugins.cache.GCachePluginImpl(h) }
+            impls["mmcache"] = { h -> com.aichat.app.plugins.cache.MmCachePluginImpl(h) }
             ORDER.forEach { id -> impls[id]?.let { reg.register(it(reg)) } }
             return reg
         }
