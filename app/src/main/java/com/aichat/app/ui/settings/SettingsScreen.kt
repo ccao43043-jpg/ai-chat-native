@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.ui.common.LocalUiDeps
+import com.aichat.app.ui.theme.Palette
 import com.aichat.app.ui.theme.Space
 import kotlinx.coroutines.launch
 
