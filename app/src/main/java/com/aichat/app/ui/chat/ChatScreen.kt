@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Star
@@ -87,9 +88,12 @@ import com.aichat.app.ui.theme.Palette
 /**
  * 空对话首屏。对齐旧版 .empty：64dp 渐变圆角块 + 24px 标题 + 副标题 + 一排建议 pill。
  * 建议点一下只把文字塞进输入框，不直接发送 —— 用户通常还要再改两个字。
+ *
+ * 没配服务商时不显示建议：那时候点建议也没用（发不出去），
+ * 改成旧版 v0.29 那张「开始之前」三步引导卡。
  */
 @Composable
-private fun EmptyHero(onPick: (String) -> Unit) {
+private fun EmptyHero(hasProvider: Boolean, onSetup: () -> Unit, onPick: (String) -> Unit) {
     val suggestions = remember {
         listOf("解释量子计算", "写一封感谢信", "推荐一个周末可以去的地方")
     }
@@ -129,30 +133,79 @@ private fun EmptyHero(onPick: (String) -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(28.dp))
-            suggestions.forEach { s ->
-                Surface(
-                    onClick = { onPick(s) },
-                    shape = RoundedCornerShape(999.dp),
-                    color = Palette.Surface2,
-                    border = BorderStroke(1.dp, Palette.Line),
-                    // 不再 fillMaxWidth：建议是「选项」不是「按钮条」，
-                    // 撑满整行会让人以为那是三个并列的大按钮。按文字收口、居中。
-                    modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 300.dp),
-                ) {
-                    Text(
-                        s,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                    )
+            if (hasProvider) {
+                suggestions.forEach { s ->
+                    Surface(
+                        onClick = { onPick(s) },
+                        shape = RoundedCornerShape(999.dp),
+                        color = Palette.Surface2,
+                        border = BorderStroke(1.dp, Palette.Line),
+                        // 不再 fillMaxWidth：建议是「选项」不是「按钮条」，
+                        // 撑满整行会让人以为那是三个并列的大按钮。按文字收口、居中。
+                        modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 300.dp),
+                    ) {
+                        Text(
+                            s,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        )
+                    }
                 }
+            } else {
+                SetupCard(onSetup)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 没配服务商时的引导卡（对齐旧版 v0.29 的「开始之前」三步）。
+ * 空态放三条建议是没意义的：点进去也发不出去，用户只会以为坏了。
+ */
 @Composable
+private fun SetupCard(onSetup: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Palette.Surface,
+        border = BorderStroke(1.dp, Palette.Line),
+        modifier = Modifier.fillMaxWidth().testTag("empty-setup-card"),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("开始之前", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            listOf(
+                "打开设置，选择一个服务商",
+                "粘贴你的 API Key 并保存",
+                "回到这里，点顶部切换模型即可聊天",
+            ).forEachIndexed { i, line ->
+                Row(Modifier.padding(vertical = 3.dp)) {
+                    Text("${i + 1}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text(line, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                onClick = onSetup,
+                shape = RoundedCornerShape(12.dp),
+                color = Palette.Accent,
+                modifier = Modifier.fillMaxWidth().testTag("empty-setup"),
+            ) {
+                Text(
+                    "去设置 API Key",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)@Composable
 fun ChatScreen(
     controller: ChatController,
     onOpenSettings: (SettingsDestination) -> Unit,
@@ -237,7 +290,7 @@ fun ChatScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(conv?.title ?: "新对话", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                             Surface(
-                                onClick = { picker = true },
+                                onClick = { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
                                 shape = RoundedCornerShape(12.dp),
                                 color = Palette.Surface2,
                                 modifier = Modifier.widthIn(max = 168.dp).testTag("model-switch"),
@@ -247,7 +300,10 @@ fun ChatScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
-                                        target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型",
+                                        when {
+                                            settings.providers.isEmpty() -> "未配置服务商"
+                                            else -> target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型"
+                                        },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelMedium,
@@ -328,7 +384,11 @@ fun ChatScreen(
                 // 空对话时里面的「有什么可以帮你？」会被挤到左边贴边，而不是居中。
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
-                        EmptyHero(onPick = { input = it })
+                        EmptyHero(
+                        hasProvider = settings.providers.isNotEmpty(),
+                        onSetup = { onOpenSettings(SettingsDestination.Providers) },
+                        onPick = { input = it },
+                    )
                     } else {
                         // 性能：流式增量只改 live 这一条；stable 列表实例在整个流期间不变，已有条目不重组。
                         // 插件的 messageState / badges（RP 插件里是 O(n) 扫描）按消息 + 对话缓存，并且异常不外泄。
