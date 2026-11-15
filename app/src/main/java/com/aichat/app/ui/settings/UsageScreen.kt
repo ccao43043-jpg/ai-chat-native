@@ -1,5 +1,17 @@
 package com.aichat.app.ui.settings
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.aichat.app.ui.theme.Palette
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -106,7 +118,7 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
         },
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             listOf("today" to "今天", "7d" to "7 天", "30d" to "30 天", "all" to "全部", "custom" to "自定义").forEach { (id, label) ->
@@ -114,14 +126,13 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
                     selected = preset == id,
                     onClick = {
                         if (id == "custom" && fromMs == 0L) {
-                            // 第一次点「自定义」：默认展示最近 7 天，用户再改
                             toMs = System.currentTimeMillis()
                             fromMs = toMs - 6 * 86_400_000L
                         }
                         preset = id
                     },
-                    label = { Text(label) },
-                    modifier = Modifier.testTag("usage-range-$id"),
+                    label = { Text(label, maxLines = 1, fontSize = 13.sp) },
+                    modifier = Modifier.heightIn(max = 36.dp).testTag("usage-range-$id"),
                 )
             }
         }
@@ -174,26 +185,21 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
 
                 if (byModel.isNotEmpty()) {
                     SectionTitle("按模型")
-                    byModel.take(12).forEach { (model, t) ->
-                        StatRow(
-                            title = model,
-                            sub = "${t.requests} 次 · ${fmtTok(t.prompt)} 入 / ${fmtTok(t.completion)} 出 · 命中 ${pct(t.cacheRate)}",
-                            trailing = if (t.pricedRequests > 0) money(t.cost) else "—",
-                        )
+                    Surface(color = Palette.Surface, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            byModel.take(12).forEach { (model, t) ->
+                                StatRow(
+                                    title = model,
+                                    sub = "${t.requests} 次 · ${fmtTok(t.prompt)} 入 / ${fmtTok(t.completion)} 出 · 命中 ${pct(t.cacheRate)}",
+                                    trailing = if (t.pricedRequests > 0) money(t.cost) else "—",
+                                )
+                            }
+                        }
                     }
                 }
 
                 SectionTitle("最近 14 天")
-                val maxTotal = byDay.maxOfOrNull { it.second.total } ?: 0.0
-                byDay.forEach { (day, t) ->
-                    StatRow(
-                        title = day,
-                        sub = if (t.requests > 0) "${t.requests} 次 · ${fmtTok(t.total)} tok · 命中 ${pct(t.cacheRate)}" else "—",
-                        trailing = if (t.pricedRequests > 0) money(t.cost) else "",
-                        // 没数据的日子不画条：进度条在 0 时会画出一小截，看着像"有量"
-                        progress = if (maxTotal > 0 && t.requests > 0) (t.total / maxTotal).toFloat() else null,
-                    )
-                }
+                DayChart(byDay)
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -202,6 +208,7 @@ fun UsageScreen(onBack: () -> Unit, toast: (String) -> Unit = {}) {
 
 @Composable
 private fun SummaryCard(t: UsageReport.Totals) {
+    Surface(color = Palette.Surface, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             StatBlock("费用", if (t.pricedRequests > 0) money(t.cost) else "—")
@@ -214,8 +221,7 @@ private fun SummaryCard(t: UsageReport.Totals) {
             StatBlock("输出", fmtTok(t.completion))
             StatBlock("合计", fmtTok(t.total))
         }
-        Spacer(Modifier.height(8.dp))
-        HorizontalDivider()
+    }
     }
 }
 
@@ -233,8 +239,36 @@ private fun SectionTitle(text: String) {
         text,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
+        color = Palette.Fg2,
     )
+}
+
+
+@Composable
+private fun DayChart(days: List<Pair<String, UsageReport.Totals>>) {
+    val max = days.maxOfOrNull { it.second.total }?.takeIf { it > 0 } ?: 1.0
+    Surface(color = Palette.Surface, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+            Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                if (days.isEmpty()) return@Canvas
+                val gap = 6.dp.toPx()
+                val w = (size.width - gap * (days.size - 1)).coerceAtLeast(0f) / days.size
+                days.forEachIndexed { i, (_, t) ->
+                    val h = if (t.total <= 0) 4f else (t.total / max).toFloat().coerceIn(0.08f, 1f) * size.height
+                    drawRoundRect(
+                        color = Palette.Accent,
+                        topLeft = Offset(i * (w + gap), size.height - h),
+                        size = Size(w, h),
+                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                val marks = listOf(days.firstOrNull()?.first, days.getOrNull(days.size / 2)?.first, days.lastOrNull()?.first).filterNotNull().distinct()
+                marks.forEach { Text(it.takeLast(5), color = Palette.Fg3, fontSize = 11.sp) }
+            }
+        }
+    }
 }
 
 @Composable
