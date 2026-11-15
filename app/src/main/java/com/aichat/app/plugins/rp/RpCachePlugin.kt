@@ -44,19 +44,30 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
 
     private val pending = HashMap<String, Pending>()
 
-    /** RP 类对话自动启用：只有真的填过块才生效，普通对话不受影响。 */
-    override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
-        hasAnyBlock(RpState.normalizeState(Js.fromJson(conv.rpState)))
+    /**
+     * RP 类对话自动启用：填过块、或者写过世界书都算。
+     *
+     * 世界书单独也算「启用」是刻意的偏离：只写世界书、没填任何 RP 块时，
+     * 用户预期显然是「关键词命中就该注入」。旧版只认块，会导致这种对话静默不生效。
+     */
+    override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
+        val st = RpState.normalizeState(Js.fromJson(conv.rpState))
+        return hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
+    }
 
     private fun hasAnyBlock(st: JObj): Boolean {
         val blocks = st["blocks"] as? List<*> ?: return false
         return blocks.any { b -> b is Map<*, *> && Js.str(b["content"]).isNotEmpty() }
     }
 
+    /** 有块内容、或世界书里有条目（含常驻条目）才值得往下走。 */
+    private fun shouldEngage(st: JObj): Boolean =
+        hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
+
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         val base = ctx.systemPrompt
         val st0 = RpState.normalizeState(Js.fromJson(ctx.conv.rpState))
-        if (!hasAnyBlock(st0)) return ctx
+        if (!shouldEngage(st0)) return ctx
 
         val st = RpState.syncBase(st0, base)
         val idx = ctx.messages.indexOfLast { it.role == Role.USER }
