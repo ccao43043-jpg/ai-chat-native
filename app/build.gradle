@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 107                  // 原生 v1.0.7：世界模板 / 世界书改成分层底栏
-        versionName '1.0.7'
+        versionCode 108                  // 原生 v1.0.8：设置页返回保留滚动位置
+        versionName '1.0.8'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

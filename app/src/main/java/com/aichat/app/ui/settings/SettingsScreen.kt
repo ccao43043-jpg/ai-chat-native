@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -78,7 +79,9 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
     val panel = top.removePrefix("panel:").takeIf { top.startsWith("panel:") }
     val dest = if (panel != null) SettingsDestination.Plugins else SettingsDestination.valueOf(top)
     val mounted = SettingsMounts.get(dest)
+    val pages = rememberSaveableStateHolder()
     Box(Modifier.fillMaxSize().testTag("settings")) {
+        pages.SaveableStateProvider(top) {
         when {
             panel != null -> PluginPanels.get(panel)?.invoke(back) ?: SettingsPageScaffold(panel, back) { Text("该插件没有面板", Modifier.padding(20.dp)) }
             mounted != null -> mounted(back)
@@ -100,6 +103,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
                 Text("「${dest.title}」还没做好", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
         }
         SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).imePadding())
     }
