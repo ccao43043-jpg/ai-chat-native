@@ -24,12 +24,14 @@ class AppRootUiTest {
 
     private fun launch() = rule.setContent { AiChatTheme { AppRoot(FakeDeps.create()) } }
 
-    @Test fun tabSwitchKeepsInputDraft() {
+    @Test fun openImagePageAndBackKeepsInputDraft() {
         launch()
         rule.onNodeWithTag("input").performTextInput("草稿")
-        rule.onNodeWithTag("tab-Image").performClick()
-        rule.onNodeWithText("生图", substring = true).assertIsDisplayed()
-        rule.onNodeWithTag("tab-Chat").performClick()
+        // 底部 Tab 已去掉，生图改从抽屉进入
+        rule.onNodeWithTag("open-drawer").performClick()
+        rule.onNodeWithTag("drawer-image").performClick()
+        rule.onNodeWithTag("image-back").assertIsDisplayed()
+        rule.onNodeWithTag("image-back").performClick()
         rule.onNodeWithText("草稿").assertIsDisplayed()
     }
 

@@ -211,8 +211,10 @@ fun ChatScreen(
     onOpenSettings: (SettingsDestination) -> Unit,
     /** 顶栏「更多」菜单的挂载点：B/C 可以在这里追加项（用量、RP 面板等） */
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
-    /** 「据此生图」：把对话提炼出的提示词带去生图 Tab */
+    /** 「据此生图」：把对话提炼出的提示词带去生图页 */
     onOpenImage: (String) -> Unit = {},
+    /** 抽屉里的「生图」入口：不带提示词，直接进生图页 */
+    onOpenImageTab: () -> Unit = {},
 ) {
     val deps = LocalUiDeps.current
     val st by controller.state.collectAsStateWithLifecycle()
@@ -300,11 +302,12 @@ fun ChatScreen(
             onOpenTemplates = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Templates) },
             onOpenUsage = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Usage) },
             onOpenBalance = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Balance) },
-            onOpenImage = { scope.launch { drawer.close() }; onOpenImage("") })
+            onOpenImage = { scope.launch { drawer.close() }; onOpenImageTab() })
     }) {
         Scaffold(
             contentWindowInsets = WindowInsets(0),
-            snackbarHost = { SnackbarHost(snack) },
+            // 底部没有 Tab 栏了，Snackbar 默认会压住输入条，抬到它上面
+            snackbarHost = { SnackbarHost(snack, modifier = Modifier.padding(bottom = 112.dp)) },
             topBar = {
                 CenterAlignedTopAppBar(
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),

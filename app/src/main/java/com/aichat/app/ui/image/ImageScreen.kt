@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
@@ -27,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -64,7 +67,7 @@ import kotlinx.coroutines.launch
  * 本次会话内保留最近若干条结果；从聊天「据此生图」来的提示词走 ImageDraft。
  */
 @Composable
-fun ImageScreen() {
+fun ImageScreen(onBack: (() -> Unit)? = null) {
     val deps = LocalUiDeps.current
     val settings by deps.settings.settings.collectAsStateWithLifecycle()
     val providers = remember(settings.providers) { ImageGen.listImageProviders(settings.providers) }
@@ -177,7 +180,15 @@ fun ImageScreen() {
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("生图", style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) {
+                IconButton(onClick = onBack, modifier = Modifier.testTag("image-back")) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            Text("生图", style = MaterialTheme.typography.titleLarge)
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             "使用已配置的 OpenAI 兼容服务商。模型留空时用该服务商的生图模型。",
