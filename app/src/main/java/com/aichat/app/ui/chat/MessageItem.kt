@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
@@ -164,7 +165,7 @@ fun MessageItem(
                 Modifier.fillMaxWidth().padding(start = 32.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.weight(1f).clip(androidx.compose.foundation.shape.RectangleShape)) {
+                Box(Modifier.weight(1f).clipToBounds()) {
                     AssistantActionRow(m, view, copy, actions)
                 }
                 if (info.isNotEmpty()) Text(
