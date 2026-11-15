@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 114                  // 原生 v1.1.4：世界模板整段粘贴自动分段
-        versionName '1.1.4'
+        versionCode 115                  // 原生 v1.1.5：服务商列表收小，编辑页改填充输入
+        versionName '1.1.5'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
