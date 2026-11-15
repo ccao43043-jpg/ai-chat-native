@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 104                  // 原生 v1.0.4：对话页助手排布、分组菜单、RP 状态层级
-        versionName '1.0.4'
+        versionCode 105                  // 原生 v1.0.5：顶栏悬空、模型小字、输入区悬空胶囊
+        versionName '1.0.5'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
