@@ -436,6 +436,17 @@ fun ChatScreen(
                                 onVersion = { k -> plan = controller.planSwitch(m.id, k) },
                                 onVersionMenu = { if (controller.state.value.isStreaming) controller.toast("请先停止当前生成") else versionMenu = m.id },
                                 onDelete = { controller.deleteMessage(m.id) },
+                                onShareCard = if (isUser) null else ({
+                                                                        ShareCards.shareCard(ctx, conv?.templateName ?: conv?.title.orEmpty(),
+                                        conv?.personaName ?: "角色", conv?.personaEmoji ?: "✦", m.content)
+                                }),
+                                onShareScene = if (isUser) null else ({
+                                                                        val all = conv?.messages.orEmpty()
+                                    val i = all.indexOfFirst { it.id == m.id }.let { if (it < 0) all.lastIndex else it }
+                                    val window = all.subList((i - 5).coerceAtLeast(0), (i + 1).coerceAtMost(all.size))
+                                    ShareCards.shareScene(ctx, conv?.templateName ?: conv?.title.orEmpty(),
+                                        conv?.personaName ?: "角色", conv?.personaEmoji ?: "✦", window)
+                                }),
                                 onBadge = { b -> if (b.action != null) panel = b.action else b.detail?.let(controller::toast) },
                             ) }
                             MessageItem(m, streaming = live && !isUser, badges = badges,

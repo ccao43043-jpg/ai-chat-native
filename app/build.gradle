@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 116                  // 原生 v1.1.6：获取模型列表、分类、OpenRouter 价格
-        versionName '1.1.6'
+        versionCode 117                  // 原生 v1.1.7：台词卡和场景长图分享
+        versionName '1.1.7'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
