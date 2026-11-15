@@ -6,6 +6,16 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -171,8 +181,14 @@ fun InputBar(
                 Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = Palette.Fg3)
             }
 
-            // 点输入框时收起功能胶囊，把位置让给变高的输入框
-            if (!composing && (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null)) {
+            // 点输入框时功能胶囊淡出并收起，输入框高度跟着缓动
+            val hasTools = tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null
+            val ease = FastOutSlowInEasing
+            AnimatedVisibility(
+                visible = !composing && hasTools,
+                enter = fadeIn(tween(220, easing = ease)) + expandVertically(tween(280, easing = ease)) + scaleIn(tween(280, easing = ease), initialScale = 0.96f),
+                exit = fadeOut(tween(180, easing = ease)) + shrinkVertically(tween(260, easing = ease)) + scaleOut(tween(220, easing = ease), targetScale = 0.96f),
+            ) {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -189,13 +205,16 @@ fun InputBar(
 
             // ── 输入条：＋ ｜ 文本 ｜ 发送 ──
             val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
+            val minH by animateDpAsState(if (composing) 72.dp else 48.dp, tween(320, easing = FastOutSlowInEasing), label = "inputMin")
+            val fieldH by animateDpAsState(if (composing) 48.dp else 22.dp, tween(320, easing = FastOutSlowInEasing), label = "fieldMin")
+            val topPad by animateDpAsState(if (composing) 8.dp else 4.dp, tween(320, easing = FastOutSlowInEasing), label = "inputPad")
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
-                modifier = Modifier.fillMaxWidth().heightIn(min = if (composing) 72.dp else 48.dp).testTag("input"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = minH).testTag("input"),
             ) {
                 Row(
-                    Modifier.padding(start = 4.dp, end = 6.dp, top = if (composing) 8.dp else 4.dp, bottom = 4.dp),
+                    Modifier.padding(start = 4.dp, end = 6.dp, top = topPad, bottom = 4.dp),
                     verticalAlignment = if (composing) Alignment.Top else Alignment.CenterVertically,
                 ) {
                     Box {
@@ -227,7 +246,7 @@ fun InputBar(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
                             cursorBrush = SolidColor(Palette.Accent),
                             maxLines = 6,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = if (composing) 48.dp else 22.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = fieldH)
                                 .onFocusChanged { focused = it.isFocused },
                         )
                     }
