@@ -124,19 +124,19 @@ fun ConversationDrawer(
                     shape = RoundedCornerShape(14.dp),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp)
-                        .height(50.dp).testTag("drawer-new"),
+                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp)
+                        .height(44.dp).testTag("drawer-new"),
                 ) {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Filled.Add, null, Modifier.size(20.dp), tint = Color(0xFF18181B))
-                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color(0xFF18181B))
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             "新对话", color = Color(0xFF18181B), fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                         )
                     }
                 }
@@ -202,14 +202,14 @@ fun ConversationDrawer(
 
             // ── 历史会话 ──
             item {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = Palette.Line)
                 Text(
                     "历史会话",
                     style = MaterialTheme.typography.titleSmall,
                     color = Palette.Fg,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
                 )
             }
             item {
@@ -219,7 +219,7 @@ fun ConversationDrawer(
             if (shown.isEmpty()) {
                 item {
                     Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 40.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
@@ -227,7 +227,7 @@ fun ConversationDrawer(
                             style = MaterialTheme.typography.bodyMedium, color = Palette.Fg3,
                         )
                         if (query.isEmpty()) {
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(4.dp))
                             Text("点击上方「新对话」开始", style = MaterialTheme.typography.bodySmall, color = Palette.Fg3)
                         }
                     }
@@ -269,10 +269,10 @@ private fun SearchRow(query: String, onQuery: (String) -> Unit) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Palette.Surface2,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp).testTag("drawer-search"),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(40.dp).testTag("drawer-search"),
     ) {
         Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = Palette.Fg3)
+            Icon(Icons.Filled.Search, null, Modifier.size(16.dp), tint = Palette.Fg3)
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) {
@@ -304,7 +304,7 @@ private fun ConvRow(
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Surface(
-        color = if (selected) Palette.AccentSoft else Color.Transparent,
+        color = Color.Transparent,  // 去掉选中时的紫色高亮背景
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp)
             .pressScale(src)
@@ -316,15 +316,15 @@ private fun ConvRow(
             ).testTag("conv-${m.id}"),
     ) {
         Row(
-            Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     (m.personaEmoji?.let { "$it " } ?: "") + m.title,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (selected) Palette.Accent else Palette.Fg,
+                    style = MaterialTheme.typography.bodyMedium,  // 缩小字体
+                    color = Palette.Fg,  // 始终用普通前景色，去掉选中紫色
                 )
                 val sub = listOf(m.model, formatTime(m.updatedAt)).filter { !it.isNullOrEmpty() }.joinToString(" · ")
                 if (sub.isNotEmpty()) {
@@ -333,8 +333,8 @@ private fun ConvRow(
                 }
             }
             Box {
-                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.MoreVert, "更多", Modifier.size(18.dp), tint = Palette.Fg3)
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.MoreVert, "更多", Modifier.size(16.dp), tint = Palette.Fg3)
                 }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; onRename() })
@@ -356,15 +356,15 @@ private fun DrawerEntry(
     trailing: String? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().height(44.dp).clickable(onClick = onClick)
             .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(icon), null, Modifier.size(21.dp), tint = Palette.Fg2)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        Icon(painterResource(icon), null, Modifier.size(18.dp), tint = Palette.Fg2)
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
         if (trailing != null) {
-            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 11.sp)
         }
     }
 }
@@ -378,15 +378,15 @@ private fun DrawerEntry(
     trailing: String? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().height(44.dp).clickable(onClick = onClick)
             .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(21.dp), tint = Palette.Fg2)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        Icon(icon, null, Modifier.size(18.dp), tint = Palette.Fg2)
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
         if (trailing != null) {
-            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 11.sp)
         }
     }
 }
