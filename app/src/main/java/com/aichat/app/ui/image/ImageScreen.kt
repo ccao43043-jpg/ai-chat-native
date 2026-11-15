@@ -94,7 +94,7 @@ fun ImageScreen() {
     // 相册选图 → 就地转 data URL（不落盘、不上传）。协议层早在 ImageGen.buildImageRequest 里
     // 支持参考图，缺的只是这个入口。
     val pickRefs = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(ImageGen.MAX_REF_IMAGES),
+        ActivityResultContracts.PickMultipleVisualMedia(ImageGen.MAX_REF_IMAGES_HARD),
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val added = uris.mapNotNull { RefImageLoader.toDataUrl(context, it) }
@@ -102,7 +102,8 @@ fun ImageScreen() {
             error = "这几张图读不出来（格式不支持或超过 4MB）"
         } else {
             error = null
-            refs = (refs + added).take(ImageGen.MAX_REF_IMAGES)
+            // 硬上限 16；真正的每服务商上限在 ImageGen.buildImageRequest 里按 OpenRouter 16 / 其余 10 切。
+            refs = (refs + added).take(ImageGen.MAX_REF_IMAGES_HARD)
         }
     }
 
@@ -273,7 +274,11 @@ fun ImageScreen() {
         }
         if (refs.isEmpty()) {
             Text(
-                "最多 ${ImageGen.MAX_REF_IMAGES} 张，长边会缩到 ${RefImageLoader.MAX_EDGE}px",
+                // 与 providers.js:781 一致：OpenRouter 16 张，其余服务商 10 张但只用第一张
+                if (com.aichat.app.net.ProviderRules.isOpenRouterProvider(provider))
+                    "最多 ${ImageGen.MAX_REF_IMAGES_HARD} 张（OpenRouter 图生图），长边会缩到 ${RefImageLoader.MAX_EDGE}px"
+                else
+                    "最多 ${ImageGen.MAX_REF_IMAGES} 张，只会发送第一张；长边会缩到 ${RefImageLoader.MAX_EDGE}px",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

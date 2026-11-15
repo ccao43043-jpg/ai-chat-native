@@ -82,7 +82,7 @@
 |---|---|---|---|
 | 服务商 / 模型 | 两个下拉 + 手动输入框常显 | 卡片（本轮已统一高度） | ✅ 已对齐 |
 | 错误提示 | 模型下方红字「OpenAI · 请先在设置中填写 API Key」 | 生成时才报 | **P1** 应在页内静态提示 |
-| 参考图 | 「最多 16 张」（OpenRouter `input_references`） | `ImageGen.MAX_REF_IMAGES = 10` | **P1 数值不一致，需要核对旧版真实上限** |
+| 参考图 | 「最多 16 张」（OpenRouter `input_references`）；非 OpenRouter 只取第一张并提示 | 已对齐：硬上限 16，按 `ProviderRules.isOpenRouterProvider` 在协议层切 16/10，页内文案随服务商变化 | ✅ 已修 |
 | 提示词占位 | 长示例「赛博朋克风格的城市夜景，霓虹灯倒映在湿润路面上」 | 「描述你想生成的图片」 | P2 可借用示例 |
 
 ---
@@ -93,6 +93,7 @@
 2. **顶栏模型胶囊**：`settings.providers` 为空时显示「未配置服务商」，点击直达服务商设置
 3. 空态图标换回 `ic_launcher_foreground`；建议 pill 按文字收口居中
 4. 生图页「模型」从 `OutlinedTextField` 改成 `InputCard`，与上下两张卡片同形同高
+5. 生图页参考图上限按服务商区分：新增 `ImageGen.MAX_REF_IMAGES_HARD = 16`，选择器放宽到 16，协议层仍按 OpenRouter 16 / 其余 10 切片；页内提示改为「OpenRouter 最多 16 张 / 其余只发第一张」
 
 ## 下一轮建议顺序（按性价比）
 
