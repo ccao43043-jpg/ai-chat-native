@@ -319,7 +319,7 @@ fun ImageScreen(onBack: (() -> Unit)? = null) {
         }
 
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+        com.aichat.app.ui.common.SoftField(
             value = prompt,
             onValueChange = { prompt = it },
             label = { Text("提示词") },

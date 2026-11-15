@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 110                  // 原生 v1.1.0：用量页卡片化，14 天改柱状图
-        versionName '1.1.0'
+        versionCode 111                  // 原生 v1.1.1：二级页填充输入、卡片列表、知识库底栏
+        versionName '1.1.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

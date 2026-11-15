@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.theme.Space
@@ -123,10 +124,16 @@ fun SettingsPageScaffold(title: String, onBack: () -> Unit, actions: @Composable
 
 @Composable
 fun SettingsRow(title: String, subtitle: String? = null, tag: String? = null, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp)
-        .let { if (tag != null) it.testTag(tag) else it }) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    androidx.compose.material3.Surface(
+        color = com.aichat.app.ui.theme.Palette.Surface,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable(onClick = onClick)
+            .let { if (tag != null) it.testTag(tag) else it },
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(title, color = com.aichat.app.ui.theme.Palette.Fg, fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = com.aichat.app.ui.theme.Palette.Fg3, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -236,10 +243,10 @@ private fun GeneralSettings(onBack: () -> Unit, toast: (String) -> Unit) {
     }
     SettingsPageScaffold("对话默认参数", onBack, actions = { TextButton(onClick = { save() }, Modifier.testTag("general-save")) { Text("保存") } }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(sys, { sys = it }, label = { Text("默认系统提示词") }, minLines = 3, maxLines = 10, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(temp, { temp = it }, label = { Text("温度（留空 = 服务商默认）") }, singleLine = true,
+            com.aichat.app.ui.common.SoftField(sys, { sys = it }, label = { Text("默认系统提示词") }, minLines = 3, maxLines = 10, modifier = Modifier.fillMaxWidth())
+            com.aichat.app.ui.common.SoftField(temp, { temp = it }, label = { Text("温度（留空 = 服务商默认）") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(maxT, { maxT = it }, label = { Text("最大输出 tokens（留空 = 自动）") }, singleLine = true,
+            com.aichat.app.ui.common.SoftField(maxT, { maxT = it }, label = { Text("最大输出 tokens（留空 = 自动）") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("流式输出", modifier = Modifier.weight(1f)); Switch(stream, { stream = it })

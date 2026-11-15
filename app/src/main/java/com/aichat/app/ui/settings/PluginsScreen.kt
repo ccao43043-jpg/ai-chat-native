@@ -3,6 +3,7 @@ package com.aichat.app.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -61,7 +62,8 @@ fun PluginsScreen(onBack: () -> Unit, openPanel: (String) -> Unit) {
     SettingsPageScaffold("插件", onBack) {
         if (deps.plugins.plugins.isEmpty()) Text("插件尚未接入（工作流 C）", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         deps.plugins.plugins.forEach { p ->
-            Row(Modifier.clickable(enabled = PluginPanels.get(p.id) != null) { openPanel(p.id) }.padding(horizontal = 20.dp, vertical = 10.dp),
+            androidx.compose.material3.Surface(color = com.aichat.app.ui.theme.Palette.Surface, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Row(Modifier.clickable(enabled = PluginPanels.get(p.id) != null) { openPanel(p.id) }.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(p.name, style = MaterialTheme.typography.bodyLarge)
@@ -70,6 +72,7 @@ fun PluginsScreen(onBack: () -> Unit, openPanel: (String) -> Unit) {
                 }
                 Switch(PluginToggles.enabled(s, p), { on -> scope.launch { deps.settings.update { PluginToggles.withEnabled(it, p.id, on) } } },
                     Modifier.testTag("plugin-${p.id}"))
+            }
             }
         }
         if (errors.isNotEmpty()) {

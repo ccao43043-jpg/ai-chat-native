@@ -220,7 +220,12 @@ private fun KnowledgeRow(
     onEdit: () -> Unit, onDelete: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    androidx.compose.material3.Surface(
+        color = com.aichat.app.ui.theme.Palette.Surface,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title.ifBlank { "(无标题)" }, style = MaterialTheme.typography.bodyLarge)
         if (content.isNotBlank()) {
             Text(
@@ -237,6 +242,7 @@ private fun KnowledgeRow(
             TextButton(onClick = onDelete) { Text("删除", color = cs.error) }
         }
     }
+    }
 }
 
 @Composable
@@ -247,22 +253,15 @@ private fun KnowledgeEditorDialog(
 ) {
     var title by remember { mutableStateOf(title0) }
     var content by remember { mutableStateOf(content0) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (title0.isEmpty() && content0.isEmpty()) "新建条目" else "编辑条目") },
-        text = {
-            Column(
-                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedTextField(title, { title = it }, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    content, { content = it }, label = { Text("内容") },
-                    minLines = 4, modifier = Modifier.fillMaxWidth(),
-                )
-            }
+    com.aichat.app.ui.common.BottomForm(
+        onDismiss = onDismiss,
+        title = if (title0.isEmpty() && content0.isEmpty()) "新建条目" else "编辑条目",
+        actions = {
+            TextButton(onClick = onDismiss) { Text("取消", color = com.aichat.app.ui.theme.Palette.Fg2) }
+            TextButton(onClick = { onSave(title.trim(), content.trim()) }) { Text("保存") }
         },
-        confirmButton = { TextButton(onClick = { onSave(title.trim(), content.trim()) }) { Text("保存") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+    ) {
+        com.aichat.app.ui.common.SoftField(title, { title = it }, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        com.aichat.app.ui.common.SoftField(content, { content = it }, label = { Text("内容") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+    }
 }

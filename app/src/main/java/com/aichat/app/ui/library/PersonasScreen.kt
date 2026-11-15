@@ -228,11 +228,11 @@ private fun PersonaEditor(p: Persona, isNew: Boolean, onClose: () -> Unit, toast
                 PersonaOps.EMOJIS.forEach { em -> FilterChip(emoji == em, { emoji = em }, label = { Text(em) }) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(emoji, { emoji = it }, label = { Text("图标") }, singleLine = true, modifier = Modifier.weight(0.3f))
-                OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.weight(0.7f).testTag("persona-name"))
+                com.aichat.app.ui.common.SoftField(emoji, { emoji = it }, label = { Text("图标") }, singleLine = true, modifier = Modifier.weight(0.3f))
+                com.aichat.app.ui.common.SoftField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.weight(0.7f).testTag("persona-name"))
             }
-            OutlinedTextField(desc, { desc = it }, label = { Text("简介") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(prompt, { prompt = it }, label = { Text("系统提示词") }, minLines = 6, modifier = Modifier.fillMaxWidth().testTag("persona-prompt"))
+            com.aichat.app.ui.common.SoftField(desc, { desc = it }, label = { Text("简介") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            com.aichat.app.ui.common.SoftField(prompt, { prompt = it }, label = { Text("系统提示词") }, minLines = 6, modifier = Modifier.fillMaxWidth().testTag("persona-prompt"))
             Box {
                 TextButton(onClick = { provMenu = true }) {
                     Text("服务商：" + (prov?.let { it.name + if (it.hasKey) "" else "（未配置）" } ?: "跟随当前对话"))
@@ -244,12 +244,12 @@ private fun PersonaEditor(p: Persona, isNew: Boolean, onClose: () -> Unit, toast
                 }
             }
             if (prov != null) {
-                OutlinedTextField(model, { model = it }, label = { Text("模型（留空用服务商第一个）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                com.aichat.app.ui.common.SoftField(model, { model = it }, label = { Text("模型（留空用服务商第一个）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     prov.models.filter { it.isNotBlank() }.forEach { m -> FilterChip(model == m, { model = m }, label = { Text(m) }) }
                 }
             }
-            OutlinedTextField(temp, { temp = it }, label = { Text("温度（0–2，留空 = 默认）") }, singleLine = true,
+            com.aichat.app.ui.common.SoftField(temp, { temp = it }, label = { Text("温度（0–2，留空 = 默认）") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
             val lore = PersonaOps.str(p, "loreText"); val first = PersonaOps.str(p, "firstMes")
             if (lore.isNotEmpty() || first.isNotEmpty()) Text(listOfNotNull(if (lore.isNotEmpty()) "含世界书（${lore.length} 字）" else null,
