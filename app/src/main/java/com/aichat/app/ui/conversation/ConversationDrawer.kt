@@ -252,7 +252,7 @@ fun ConversationDrawer(
     renaming?.let { m ->
         var t by rememberSaveable(m.id) { mutableStateOf(m.title) }
         AlertDialog(onDismissRequest = { renaming = null }, title = { Text("重命名对话") },
-            text = { OutlinedTextField(t, { t = it }, singleLine = true, modifier = Modifier.testTag("rename-field")) },
+            text = { com.aichat.app.ui.common.SoftField(t, { t = it }, singleLine = true, modifier = Modifier.testTag("rename-field")) },
             confirmButton = { TextButton(onClick = { onRename(m.id, t); renaming = null }, enabled = t.isNotBlank()) { Text("确定") } },
             dismissButton = { TextButton(onClick = { renaming = null }) { Text("取消") } })
     }

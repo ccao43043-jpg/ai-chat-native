@@ -84,8 +84,8 @@ fun PromptsScreen(onBack: () -> Unit, toast: (String) -> Unit) {
             }, Modifier.testTag("prompt-save")) { Text("保存") }
         }) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(title, { title = it }, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(content, { content = it }, label = { Text("插入到输入框的文字") }, minLines = 5, modifier = Modifier.fillMaxWidth())
+                com.aichat.app.ui.common.SoftField(title, { title = it }, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                com.aichat.app.ui.common.SoftField(content, { content = it }, label = { Text("插入到输入框的文字") }, minLines = 5, modifier = Modifier.fillMaxWidth())
             }
         }
         return
@@ -156,11 +156,11 @@ fun TemplatesScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         }) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(emoji, { emoji = it }, label = { Text("图标") }, singleLine = true, modifier = Modifier.weight(0.3f))
-                    OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.weight(0.7f))
+                    com.aichat.app.ui.common.SoftField(emoji, { emoji = it }, label = { Text("图标") }, singleLine = true, modifier = Modifier.weight(0.3f))
+                    com.aichat.app.ui.common.SoftField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.weight(0.7f))
                 }
-                OutlinedTextField(tags, { tags = it }, label = { Text("标签（逗号分隔）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(content, { content = it }, label = { Text("系统提示词") }, minLines = 6, modifier = Modifier.fillMaxWidth(),
+                com.aichat.app.ui.common.SoftField(tags, { tags = it }, label = { Text("标签（逗号分隔）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                com.aichat.app.ui.common.SoftField(content, { content = it }, label = { Text("系统提示词") }, minLines = 6, modifier = Modifier.fillMaxWidth(),
                     supportingText = { Text("可以用 {{变量名}} 或 {{变量名|默认值}} 插入变量，套用时提示填写；{{date}} {{time}} 自动替换。") })
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("置顶", Modifier.weight(1f)); Switch(pinned, { pinned = it }) }
             }
@@ -262,7 +262,7 @@ fun TemplateSheet(currentTemplateId: String?, hasSystem: Boolean, onApply: (Prom
         AlertDialog(onDismissRequest = { filling = null }, title = { Text("填写「${t.name}」的变量") }, text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("没填的变量会保留原样，之后可在系统提示词里再改。", style = MaterialTheme.typography.bodySmall)
-                vars.forEach { v -> OutlinedTextField(values[v] ?: "", { values[v] = it }, label = { Text(v) }, singleLine = true) }
+                vars.forEach { v -> com.aichat.app.ui.common.SoftField(values[v] ?: "", { values[v] = it }, label = { Text(v) }, singleLine = true) }
             }
         }, confirmButton = { TextButton(onClick = { onApply(t, TemplateText.fill(t.content, values.toMap(), t.builtin)); filling = null }) { Text("套用") } },
             dismissButton = { TextButton(onClick = { filling = null }) { Text("取消") } })

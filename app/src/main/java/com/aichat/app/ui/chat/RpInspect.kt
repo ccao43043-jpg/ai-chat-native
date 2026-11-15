@@ -197,7 +197,7 @@ fun RpInspectDialog(
 
 @Composable
 private fun NumField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
-    OutlinedTextField(
+    com.aichat.app.ui.common.SoftField(
         value = value,
         onValueChange = { t -> onChange(t.filter { it.isDigit() }.take(9)) },
         label = { Text(label, style = MaterialTheme.typography.bodySmall) },
