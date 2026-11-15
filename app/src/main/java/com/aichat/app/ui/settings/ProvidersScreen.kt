@@ -21,6 +21,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +48,9 @@ import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.SoftField
 import com.aichat.app.ui.theme.Palette
+import com.aichat.app.net.ModelCatalog
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.launch
 
 @Composable
@@ -91,6 +99,15 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
     var image by rememberSaveable(p.id) { mutableStateOf(init.imageModel) }
     var key by rememberSaveable(p.id) { mutableStateOf(init.keyText) }
     var showKey by remember { mutableStateOf(false) }
+    var meta by remember(p.id) { mutableStateOf(p.modelMeta) }
+    var fetching by remember { mutableStateOf(false) }
+    var fetchOpen by remember { mutableStateOf(false) }
+    var fetched by remember { mutableStateOf(emptyList<String>()) }
+    var fetchCat by remember { mutableStateOf("all") }
+    var fetchQuery by remember { mutableStateOf("") }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    var priceBusy by remember { mutableStateOf(false) }
+    val isOr = base.contains("openrouter.ai", ignoreCase = true) || p.presetId == "openrouter"
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     val draft = ProviderDraft(name, type, base, models, image, key)
@@ -101,7 +118,7 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
     SettingsPageScaffold(if (isNew) "添加服务商" else p.name, { if (dirty) confirmDiscard = true else onDone() }, actions = {
         TextButton(onClick = {
             scope.launch {
-                when (val r = editor.save(p, draft)) {
+                when (val r = editor.save(p, draft, meta)) {
                     is ProviderEditor.Result.Invalid -> toast(r.message)
                     is ProviderEditor.Result.Ok -> { toast(r.message); onDone() }
                 }
@@ -130,8 +147,71 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                 visualTransformation = if (showKey || key == KeyMask.MASK) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示") } },
                 supportingText = { Text("保持「已保存」= 不改；清空 = 删除；输入新值 = 替换。Key 只保存在本机加密存储，只发往上面的 Base URL。", fontSize = 12.sp) })
-            Text("模型", color = Palette.Fg2, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("模型", color = Palette.Fg2, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    if (!Regex("^https?://.+").matches(base.trim())) { toast("请先填写正确的 Base URL"); return@TextButton }
+                    if (key.isBlank()) { toast("请先填写 API Key"); return@TextButton }
+                    if (fetching) return@TextButton
+                    fetching = true
+                    scope.launch {
+                        try {
+                            val client = deps.client ?: throw IllegalStateException("当前环境不能获取模型列表")
+                            deps.settings.registerProvider(p.id, base.trim(), ProviderPresets.authFor(type))
+                            if (key != KeyMask.MASK) deps.keys.set(p.id, key.trim())
+                            val probe = p.copy(type = type, baseUrl = base.trim())
+                            val (ids, m) = client.listModels(probe)
+                            if (ids.isEmpty()) throw IllegalStateException("接口没有返回任何模型")
+                            val merged = LinkedHashMap<String, JsonElement>(meta)
+                            m.forEach { (k, v) -> merged[k] = v }
+                            meta = JsonObject(merged)
+                            fetched = ids
+                            fetchCat = "all"; fetchQuery = ""; picked = emptySet(); fetchOpen = true
+                            if (isOr) toast("已获取 ${ids.size} 个模型，可切换分类查看")
+                            else toast("已获取 ${ids.size} 个模型")
+                        } catch (e: Exception) {
+                            toast("获取失败：" + (e.message ?: "未知错误") + "。部分服务商不提供模型列表，可手动输入。")
+                        } finally { fetching = false }
+                    }
+                }, enabled = !fetching) { Text(if (fetching) "获取中…" else "获取模型列表") }
+                if (isOr) TextButton(onClick = {
+                    val ids = ProviderEditor.parseModels(models)
+                    if (ids.isEmpty()) { toast("请先添加模型"); return@TextButton }
+                    if (priceBusy) return@TextButton
+                    priceBusy = true
+                    scope.launch {
+                        try {
+                            val client = deps.client ?: throw IllegalStateException("当前环境不能刷新价格")
+                            val next = LinkedHashMap<String, JsonElement>(meta)
+                            var ok = 0
+                            ids.take(20).forEach { id ->
+                                try {
+                                    val r = client.openRouterEndpoints(p.copy(type = type, baseUrl = base.trim()), id)
+                                    val floor = r["floor"]
+                                    val eps = r["endpoints"]
+                                    ModelCatalog.applyFloorToMeta(JsonObject(next), id, floor as? JsonObject, eps)?.let { next.clear(); next.putAll(it) }
+                                    ok++
+                                } catch (_: Exception) {}
+                            }
+                            meta = JsonObject(next)
+                            toast(if (ok > 0) "价格已刷新（$ok）" else "刷新失败")
+                        } catch (e: Exception) { toast("刷新失败：" + (e.message ?: "")) }
+                        finally { priceBusy = false }
+                    }
+                }, enabled = !priceBusy) { Text(if (priceBusy) "刷新中…" else "刷新价格") }
+            }
             SoftField(models, { models = it }, minLines = 3, maxLines = 12, modifier = Modifier.fillMaxWidth().testTag("pe-models"))
+            run {
+                val lines = ProviderEditor.parseModels(models).take(6).mapNotNull { id ->
+                    val m = meta[id] as? JsonObject ?: return@mapNotNull null
+                    val price = ModelCatalog.formatModelPrice(m)
+                    val cat = when (ModelCatalog.classifyModel(id, m)) {
+                        "text" -> "文本"; "image" -> "图片"; "video" -> "视频"; "embedding" -> "嵌入"; "speech", "transcription" -> "音频"; else -> ""
+                    }
+                    if (price == "—") null else "$id · $cat · $price"
+                }
+                if (lines.isNotEmpty()) Text(lines.joinToString("\n"), color = Palette.Fg3, fontSize = 11.sp)
+            }
             Text("生图模型", color = Palette.Fg2, fontSize = 12.sp)
             SoftField(image, { image = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
             if (!isNew) {
@@ -147,6 +227,18 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
     if (confirmDiscard) AlertDialog(onDismissRequest = { confirmDiscard = false }, title = { Text("放弃修改？") },
         confirmButton = { TextButton(onClick = { confirmDiscard = false; onDone() }) { Text("放弃") } },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("继续编辑") } })
+    if (fetchOpen) ModelFetchSheet(
+        fetched, meta, fetchCat, { fetchCat = it }, fetchQuery, { fetchQuery = it }, picked,
+        { id -> picked = if (id in picked) picked - id else picked + id },
+        ProviderEditor.parseModels(models).toSet(),
+        onAdd = {
+            val add = picked.filter { it !in ProviderEditor.parseModels(models) }
+            if (add.isNotEmpty()) models = (ProviderEditor.parseModels(models) + add).joinToString("\n")
+            fetchOpen = false
+            toast(if (add.isEmpty()) "没有选择新模型" else "已添加 ${add.size} 个模型，记得保存")
+        },
+        onClose = { fetchOpen = false },
+    )
 }
 
 /**
@@ -159,6 +251,53 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
  *   `https://https://a/v1` → `https://a/v1`
  * 而 `https://httpsproxy.example.com` 这种正常域名不会被误伤（后面不是 `https://`）。
  */
+
+@Composable
+private fun ModelFetchSheet(
+    fetched: List<String>, meta: JsonObject, cat: String, onCat: (String) -> Unit,
+    query: String, onQuery: (String) -> Unit, picked: Set<String>, onPick: (String) -> Unit,
+    existing: Set<String>, onAdd: () -> Unit, onClose: () -> Unit,
+) {
+    fun catOf(id: String): String {
+        val c = ModelCatalog.classifyModel(id, meta[id] as? JsonObject)
+        return if (c == "speech" || c == "transcription") "audio" else c
+    }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Surface(color = Palette.Surface, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), modifier = Modifier.fillMaxWidth().padding(top = 48.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("模型列表", color = Palette.Fg, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    SoftField(query, onQuery, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("搜索") })
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("all" to "全部", "text" to "文本", "image" to "图片", "video" to "视频", "embedding" to "嵌入", "audio" to "音频").forEach { (k, label) ->
+                            FilterChip(cat == k, { onCat(k) }, label = { Text(label, fontSize = 13.sp) })
+                        }
+                    }
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        fetched.filter { id ->
+                            (query.isBlank() || id.contains(query, true)) && (cat == "all" || catOf(id) == cat)
+                        }.take(200).forEach { id ->
+                            val m = meta[id] as? JsonObject
+                            val price = ModelCatalog.formatModelPrice(m)
+                            val on = id in picked || id in existing
+                            Surface(onClick = { if (id !in existing) onPick(id) }, color = Palette.Surface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                    Text(id, color = if (on) Palette.Accent else Palette.Fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(listOf(when (catOf(id)) { "text" -> "文本"; "image" -> "图片"; "video" -> "视频"; "embedding" -> "嵌入"; "audio" -> "音频"; else -> "" }, if (price == "—") "" else price, if (id in existing) "已添加" else if (id in picked) "已选" else "").filter { it.isNotEmpty() }.joinToString(" · "), color = Palette.Fg3, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onClose) { Text("取消", color = Palette.Fg2) }
+                        TextButton(onClick = onAdd) { Text("添加所选") }
+                    }
+                }
+            }
+        }
+    }
+}
+
 internal fun collapseScheme(old: String, next: String): String {
     if (next == old) return next
     val dup = Regex("^(?:https?://)+(?=https?://)").find(next) ?: return next

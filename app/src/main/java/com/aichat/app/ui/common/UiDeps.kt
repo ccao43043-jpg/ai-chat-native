@@ -3,6 +3,7 @@ package com.aichat.app.ui.common
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.aichat.app.domain.ChatEngine
 import com.aichat.app.domain.ChatRepository
+import com.aichat.app.domain.ProviderClient
 import com.aichat.app.domain.KeyVault
 import com.aichat.app.domain.LibraryRepository
 import com.aichat.app.domain.MigrationService
@@ -35,6 +36,7 @@ data class UiDeps(
     val balance: com.aichat.app.domain.cost.DefaultBalanceClient? = null,
     /** 知识库后端（knowledge_world_<worldId>.json）；为 null 时知识库页显示未就绪 */
     val knowledge: com.aichat.app.plugins.knowledge.Knowledge.Store? = null,
+    val client: ProviderClient? = null,
     /** 余额缓存（balance-cache.json） */
     val balanceCache: com.aichat.app.data.repo.JsonDocStore? = null,
 )
