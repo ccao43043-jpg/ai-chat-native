@@ -1,6 +1,14 @@
 package com.aichat.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,9 +18,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.aichat.app.ui.theme.Palette
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.app.ui.chat.ChatScreen
 import com.aichat.app.ui.chat.ChatViewModel
@@ -38,26 +48,36 @@ fun AppRoot(deps: UiDeps) {
         var settings by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
 
         BackHandler(enabled = settings == null && showImage) { showImage = false }
+        // 退出动画期间还要拿得到目的地，否则内容先被卸掉会闪一帧
+        var shown by remember { mutableStateOf(settings) }
+        if (settings != null) shown = settings
 
-        if (settings != null) {
-            SettingsScreen(
-                settings!!,
-                onClose = { settings = null },
-                onStartPersona = { p -> showImage = false; chatVm.controller.startFromPersona(p) },
-            )
-            return@CompositionLocalProvider
-        }
-        Scaffold {
-            Box(Modifier.fillMaxSize().padding(it).consumeWindowInsets(it)) {
-                if (showImage) {
-                    ImageScreen(onBack = { showImage = false })
-                } else {
-                    ChatScreen(
-                        chatVm.controller,
-                        onOpenSettings = { settings = it },
-                        // 提示词走 ImageDraft 信箱：生图页进出会重建，靠参数传会丢
-                        onOpenImage = { p -> ImageDraft.pending = p; showImage = true },
-                        onOpenImageTab = { ImageDraft.pending = null; showImage = true },
+        Box(Modifier.fillMaxSize()) {
+            Scaffold(containerColor = Palette.Bg) {
+                Box(Modifier.fillMaxSize().padding(it).consumeWindowInsets(it)) {
+                    if (showImage) {
+                        ImageScreen(onBack = { showImage = false })
+                    } else {
+                        ChatScreen(
+                            chatVm.controller,
+                            onOpenSettings = { settings = it },
+                            onOpenImage = { p -> ImageDraft.pending = p; showImage = true },
+                            onOpenImageTab = { ImageDraft.pending = null; showImage = true },
+                        )
+                    }
+                }
+            }
+            val ease = FastOutSlowInEasing
+            AnimatedVisibility(
+                visible = settings != null,
+                enter = slideInHorizontally(tween(280, easing = ease)) { it } + fadeIn(tween(160)),
+                exit = slideOutHorizontally(tween(240, easing = ease)) { it } + fadeOut(tween(140)),
+            ) {
+                Box(Modifier.fillMaxSize().background(Palette.Bg)) {
+                    SettingsScreen(
+                        shown ?: SettingsDestination.Main,
+                        onClose = { settings = null },
+                        onStartPersona = { p -> showImage = false; chatVm.controller.startFromPersona(p) },
                     )
                 }
             }

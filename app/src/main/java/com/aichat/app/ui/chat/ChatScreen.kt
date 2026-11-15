@@ -295,15 +295,15 @@ fun ChatScreen(
             onNew = { controller.newConversation(); scope.launch { drawer.close() } },
             onRename = controller::rename,
             onDelete = controller::delete,
-            onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Main) },
+            onOpenSettings = { onOpenSettings(SettingsDestination.Main) },
             onExport = exportConv,
-            onOpenPersonas = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Personas) },
+            onOpenPersonas = { onOpenSettings(SettingsDestination.Personas) },
             summary = drawerSummary,
-            onOpenPlugins = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Plugins) },
-            onOpenWorlds = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Worlds) },
-            onOpenTemplates = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Templates) },
-            onOpenUsage = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Usage) },
-            onOpenBalance = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Balance) },
+            onOpenPlugins = { onOpenSettings(SettingsDestination.Plugins) },
+            onOpenWorlds = { onOpenSettings(SettingsDestination.Worlds) },
+            onOpenTemplates = { onOpenSettings(SettingsDestination.Templates) },
+            onOpenUsage = { onOpenSettings(SettingsDestination.Usage) },
+            onOpenBalance = { onOpenSettings(SettingsDestination.Balance) },
             onOpenImage = { scope.launch { drawer.close() }; onOpenImageTab() })
     }) {
         Scaffold(
