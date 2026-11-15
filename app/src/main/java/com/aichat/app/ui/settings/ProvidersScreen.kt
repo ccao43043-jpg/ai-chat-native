@@ -201,17 +201,36 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                     }
                 }, enabled = !priceBusy) { Text(if (priceBusy) "刷新中…" else "刷新价格") }
             }
-            SoftField(models, { models = it }, minLines = 3, maxLines = 12, modifier = Modifier.fillMaxWidth().testTag("pe-models"))
-            run {
-                val lines = editor.parseModels(models).take(6).mapNotNull { id ->
-                    val m = meta[id] as? JsonObject ?: return@mapNotNull null
-                    val price = ModelCatalog.formatModelPrice(m)
-                    val cat = when (ModelCatalog.classifyModel(id, m)) {
-                        "text" -> "文本"; "image" -> "图片"; "video" -> "视频"; "embedding" -> "嵌入"; "speech", "transcription" -> "音频"; else -> ""
-                    }
-                    if (price == "—") null else "$id · $cat · $price"
+            var addModel by remember(p.id) { mutableStateOf("") }
+            val modelIds = editor.parseModels(models)
+            if (modelIds.isEmpty()) Text("还没有模型。获取列表或手动添加。", color = Palette.Fg3, fontSize = 12.sp)
+            modelIds.forEach { id ->
+                val m = meta[id] as? JsonObject
+                val price = ModelCatalog.formatModelPrice(m)
+                val cat = when (ModelCatalog.classifyModel(id, m)) {
+                    "text" -> "文本"; "image" -> "图片"; "video" -> "视频"; "embedding" -> "嵌入"; "speech", "transcription" -> "音频"; else -> ""
                 }
-                if (lines.isNotEmpty()) Text(lines.joinToString("\n"), color = Palette.Fg3, fontSize = 11.sp)
+                val sub = listOf(cat, if (price == "—") "" else price).filter { it.isNotEmpty() }.joinToString(" · ")
+                Surface(color = Palette.Surface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().testTag("pe-models")) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(id, color = Palette.Fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (sub.isNotEmpty()) Text(sub, color = Palette.Fg3, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text("移除", color = Palette.Fg3, fontSize = 12.sp, modifier = Modifier.clickable {
+                            models = modelIds.filter { it != id }.joinToString("\n")
+                        }.padding(start = 8.dp))
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SoftField(addModel, { addModel = it }, singleLine = true, modifier = Modifier.weight(1f), label = { Text("手动添加模型") })
+                TextButton(onClick = {
+                    val id = addModel.trim()
+                    if (id.isEmpty()) return@TextButton
+                    if (id !in modelIds) models = (modelIds + id).joinToString("\n")
+                    addModel = ""
+                }) { Text("添加") }
             }
             Text("生图模型", color = Palette.Fg2, fontSize = 12.sp)
             SoftField(image, { image = it }, singleLine = true, modifier = Modifier.fillMaxWidth())

@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 117                  // 原生 v1.1.7：台词卡和场景长图分享
-        versionName '1.1.7'
+        versionCode 118                  // 原生 v1.1.8：服务商模型改成列表
+        versionName '1.1.8'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
