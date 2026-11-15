@@ -12,6 +12,7 @@ import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
+import com.aichat.app.plugins.rp.RpState
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -32,7 +33,24 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
     override val id: String get() = "affect"
     override val name: String get() = "好感度 / 心情"
     override val defaultEnabled: Boolean get() = true
-    override val perConversation: Boolean get() = false
+
+    /**
+     * 按对话启用（旧版是全局默认开，见 SPEC §3.5 偏离 D7）。
+     *
+     * 原因：affect 会往 system 挂 `[AFFECT_RULE]`、往最后一条 user 前置 `[AFFECT] mood=…`，
+     * 模型在**普通聊天**里也会顺着演起来（实测对一句 "hi" 回「（抬眼打量）侦探。不闲聊，有事直说。」），
+     * 而且每轮都被记成「未输出 <state>」污染漏标率。所以改成：
+     *   - 填过 RP 块的对话（也就是真的在角色扮演）→ 自动开；
+     *   - 其余对话 → 默认关，想要就点「本对话插件」里手动开。
+     * 全局开关（设置 › 插件）关掉时一律不生效，这一层仍由 isGloballyEnabled 管。
+     */
+    override val perConversation: Boolean get() = true
+
+    override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
+        val st = RpState.normalizeState(Js.fromJson(conv.rpState))
+        val blocks = st["blocks"] as? List<*> ?: return false
+        return blocks.any { b -> b is Map<*, *> && Js.str(b["content"]).trim().isNotEmpty() }
+    }
 
     /** 本轮冻结的短 tag，等 onAfterResponse 落到那条 user 消息上。 */
     private val pendingInj = HashMap<String, String>()
