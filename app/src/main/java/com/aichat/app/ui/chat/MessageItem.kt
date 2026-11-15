@@ -63,6 +63,8 @@ data class MessageActions(
     /** 点 n/m：版本菜单（切换到… / 只保留当前 / 删除当前） */
     val onVersionMenu: (() -> Unit)? = null,
     val onDelete: (() -> Unit)? = null,
+    val onShareCard: (() -> Unit)? = null,
+    val onShareScene: (() -> Unit)? = null,
     /** 徽章点击（Badge.action = 面板 id；没有 action 时显示 detail） */
     val onBadge: ((Badge) -> Unit)? = null,
 )
@@ -253,6 +255,8 @@ private fun AssistantActionRow(m: Message, v: MessageView, copy: () -> Unit, a: 
                 modifier = Modifier.alpha(dim).clickable(enabled = k < n - 1) { a.onVersion.invoke(k + 1) }.padding(horizontal = 4.dp, vertical = 4.dp).testTag("ver-next"))
         }
         if (m.content.isNotEmpty()) AssistAct("复制", "copy", copy)
+        if (m.content.isNotEmpty()) a.onShareCard?.let { AssistAct("台词卡", "share-card", it) }
+        if (m.content.isNotEmpty()) a.onShareScene?.let { AssistAct("场景图", "share-scene", it) }
         if (!v.busy) {
             if (!v.dim) a.onContinue?.let { AssistAct("继续生成", "continue", it) }
             if (!v.dim) a.onRegenerate?.let { AssistAct(if (v.isLast) "重新生成" else "从这里重新生成", "regen", it) }
