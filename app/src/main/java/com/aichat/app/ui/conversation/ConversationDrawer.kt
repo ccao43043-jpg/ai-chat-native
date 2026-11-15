@@ -124,19 +124,19 @@ fun ConversationDrawer(
                     shape = RoundedCornerShape(14.dp),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp)
-                        .height(50.dp).testTag("drawer-new"),
+                        .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp)
+                        .height(42.dp).testTag("drawer-new"),
                 ) {
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Filled.Add, null, Modifier.size(20.dp), tint = Color(0xFF18181B))
+                        Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color(0xFF18181B))
                         Spacer(Modifier.width(8.dp))
                         Text(
                             "新对话", color = Color(0xFF18181B), fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }
@@ -209,7 +209,7 @@ fun ConversationDrawer(
                     style = MaterialTheme.typography.titleSmall,
                     color = Palette.Fg,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
                 )
             }
             item {
@@ -304,7 +304,7 @@ private fun ConvRow(
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Surface(
-        color = if (selected) Palette.AccentSoft else Color.Transparent,
+        color = if (selected) Palette.Surface2 else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp)
             .pressScale(src)
@@ -316,15 +316,15 @@ private fun ConvRow(
             ).testTag("conv-${m.id}"),
     ) {
         Row(
-            Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            Modifier.padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     (m.personaEmoji?.let { "$it " } ?: "") + m.title,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (selected) Palette.Accent else Palette.Fg,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Palette.Fg,
                 )
                 val sub = listOf(m.model, formatTime(m.updatedAt)).filter { !it.isNullOrEmpty() }.joinToString(" · ")
                 if (sub.isNotEmpty()) {
@@ -356,13 +356,13 @@ private fun DrawerEntry(
     trailing: String? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onClick)
             .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(icon), null, Modifier.size(21.dp), tint = Palette.Fg2)
+        Icon(painterResource(icon), null, Modifier.size(18.dp), tint = Palette.Fg2)
         Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
         if (trailing != null) {
             Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
         }
@@ -378,13 +378,13 @@ private fun DrawerEntry(
     trailing: String? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onClick)
             .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(21.dp), tint = Palette.Fg2)
+        Icon(icon, null, Modifier.size(18.dp), tint = Palette.Fg2)
         Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
         if (trailing != null) {
             Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
         }
