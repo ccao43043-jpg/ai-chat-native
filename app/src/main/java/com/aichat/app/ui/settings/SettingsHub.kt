@@ -121,7 +121,7 @@ fun SettingsTileRow(
                 contentAlignment = Alignment.Center,
             ) { Icon(icon, null, Modifier.size(Space.icon), tint = cs.onSecondaryContainer) }
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle != null) {
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)

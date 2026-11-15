@@ -6,12 +6,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.aichat.app.ui.theme.Palette
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -70,29 +80,19 @@ fun WorldsScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         onBack = onBack,
         actions = { TextButton(onClick = { creating = true }) { Text("新建") } },
     ) {
-      Column(Modifier.fillMaxWidth().padding(horizontal = Space.page)) {
+      Column(Modifier.fillMaxWidth().padding(horizontal = Space.page, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (worlds.isEmpty()) {
             Text(
-                "还没有世界模板。\n\n世界模板是一组可复用的设定（世界观、角色卡、规则、写作风格……），\n" +
-                    "在对话的「⋮ › RP 状态 › 从世界模板填入」里套用。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "还没有世界模板。在对话的「⋮ › RP 状态 › 从世界模板填入」里套用。",
+                style = MaterialTheme.typography.bodySmall,
+                color = Palette.Fg3,
                 modifier = Modifier.padding(vertical = 24.dp),
             )
         } else {
             worlds.forEach { w ->
-                WorldRow(
-                    world = w,
-                    onClick = { editing = w },
-                    onLongClick = { deleting = w },
-                )
+                WorldRow(world = w, onClick = { editing = w }, onLongClick = { deleting = w })
             }
-            Text(
-                "点一行编辑，长按删除。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+            Text("点一行编辑，长按删除", fontSize = 12.sp, color = Palette.Fg3, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
         }
       }
     }
@@ -136,91 +136,115 @@ fun WorldsScreen(onBack: () -> Unit, toast: (String) -> Unit) {
 
 @Composable
 private fun WorldEditorDialog(world: World, onDismiss: () -> Unit, onSave: (World) -> Unit) {
-    var emoji by remember(world.id) { mutableStateOf(world.emoji) }
+    var emoji by remember(world.id) { mutableStateOf(world.emoji.ifBlank { "🌍" }) }
     var name by remember(world.id) { mutableStateOf(world.name) }
     var desc by remember(world.id) { mutableStateOf(world.desc) }
     var greeting by remember(world.id) { mutableStateOf(world.greeting) }
     val blocks = remember(world.id) { world.blockTexts().toMutableMap() }
     var tick by remember(world.id) { mutableStateOf(0) }
+    val title = if (world.name.isBlank()) "新建世界模板" else "编辑世界模板"
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (world.name.isBlank()) "新建世界模板" else "编辑世界模板") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+    Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Surface(
+                color = Palette.Surface,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = emoji,
-                        onValueChange = { emoji = it.take(4) },
-                        label = { Text("图标") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(0.28f),
-                    )
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("名字") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                OutlinedTextField(
-                    value = desc,
-                    onValueChange = { desc = it },
-                    label = { Text("一句话说明") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = greeting,
-                    onValueChange = { greeting = it },
-                    label = { Text("开场白（可选）") },
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                RpState.BLOCK_DEFS.filter { it["layer"] == "L1" }.forEach { def ->
-                    val id = def["id"] as? String ?: return@forEach
-                    if (id !in World.BLOCK_IDS) return@forEach
-                    val title = def["title"] as? String ?: id
-                    OutlinedTextField(
-                        value = blocks[id].orEmpty(),
-                        onValueChange = { blocks[id] = it; tick++ },
-                        label = { Text("$title · [${def["tag"]}]") },
-                        minLines = 2,
-                        maxLines = 5,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                Column(
+                    Modifier.padding(horizontal = 16.dp, vertical = 16.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(title, color = Palette.Fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(color = Palette.Surface2, shape = androidx.compose.foundation.shape.CircleShape, modifier = Modifier.size(44.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                BasicTextField(
+                                    value = emoji,
+                                    onValueChange = { emoji = it.take(4) },
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, color = Palette.Fg),
+                                    singleLine = true,
+                                    cursorBrush = SolidColor(Palette.Accent),
+                                )
+                            }
+                        }
+                        FilledField("名字", name, { name = it }, modifier = Modifier.weight(1f))
+                    }
+                    Labeled("一句话说明")
+                    FilledField("一句话说明", desc, { desc = it })
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("开场白", color = Palette.Fg2, fontSize = 12.sp)
+                        Pill("可选")
+                    }
+                    FilledField("开场白", greeting, { greeting = it }, minLines = 2)
+                    Text("设定", color = Palette.Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    RpState.BLOCK_DEFS.filter { it["layer"] == "L1" }.forEach { def ->
+                        val id = def["id"] as? String ?: return@forEach
+                        if (id !in World.BLOCK_IDS) return@forEach
+                        val label = def["title"] as? String ?: id
+                        val tag = def["tag"] as? String
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(label, color = Palette.Fg2, fontSize = 12.sp)
+                            if (!tag.isNullOrBlank()) Pill(tag)
+                        }
+                        FilledField(label, blocks[id].orEmpty(), { blocks[id] = it; tick++ }, minLines = 2)
+                        if (tick < 0) Text("")
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onDismiss) { Text("取消", color = Palette.Fg2) }
+                        Spacer(Modifier.padding(4.dp))
+                        Surface(
+                            onClick = {
+                                if (name.isBlank()) return@Surface
+                                val now = System.currentTimeMillis()
+                                onSave(world.copy(
+                                    emoji = emoji.trim().ifBlank { "🌍" },
+                                    name = name.trim(),
+                                    desc = desc.trim(),
+                                    greeting = greeting,
+                                    blocks = buildBlocks(blocks),
+                                    version = if (world.name.isBlank() || blocksChanged(world, blocks)) {
+                                        if (world.version <= 0) 1 else world.version + 1
+                                    } else world.version,
+                                    updatedAt = now,
+                                ))
+                            },
+                            enabled = name.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (name.isNotBlank()) Palette.Accent else Palette.Surface3,
+                        ) {
+                            Text("保存", color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                        }
+                    }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    onSave(
-                        world.copy(
-                            emoji = emoji.trim(),
-                            name = name.trim(),
-                            desc = desc.trim(),
-                            greeting = greeting,
-                            blocks = buildBlocks(blocks),
-                            // 内容变了 version 就 +1，旧版 worlds.js 用这个做"有更新"标记
-                            version = if (world.name.isBlank() || blocksChanged(world, blocks)) {
-                                (if (world.version <= 0) 1 else world.version + 1)
-                            } else world.version,
-                            updatedAt = now,
-                        ),
-                    )
-                },
-            ) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+        }
+    }
+}
+
+@Composable
+private fun Labeled(text: String) = Text(text, color = Palette.Fg2, fontSize = 12.sp)
+
+@Composable
+private fun Pill(text: String) = Surface(shape = RoundedCornerShape(999.dp), color = Palette.AccentSoft) {
+    Text(text, color = Palette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+}
+
+@Composable
+private fun FilledField(placeholder: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, minLines: Int = 1) {
+    Surface(color = Palette.Surface2, shape = RoundedCornerShape(12.dp), modifier = modifier.fillMaxWidth()) {
+        Box(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            if (value.isEmpty()) Text(placeholder, color = Palette.Fg3, fontSize = 14.sp)
+            BasicTextField(
+                value = value,
+                onValueChange = onChange,
+                textStyle = androidx.compose.ui.text.TextStyle(color = Palette.Fg, fontSize = 14.sp),
+                cursorBrush = SolidColor(Palette.Accent),
+                minLines = minLines,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 /** 一行世界：emoji 当图标，长按删除。 */
@@ -233,26 +257,18 @@ private fun WorldRow(world: World, onClick: () -> Unit, onLongClick: () -> Unit)
         modifier = Modifier.fillMaxWidth().testTag("world-${world.id}"),
     ) {
         Row(
-            Modifier.fillMaxWidth().defaultMinSize(minHeight = Space.rowTwo)
-                .padding(horizontal = Space.row, vertical = 8.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Surface)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.row),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(
-                Modifier.size(Space.iconBox).clip(RoundedCornerShape(16.dp)).background(cs.secondaryContainer),
+                Modifier.size(44.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Palette.Surface2),
                 contentAlignment = Alignment.Center,
-            ) { Text(world.emoji.ifBlank { "🌍" }, style = MaterialTheme.typography.titleMedium) }
+            ) { Text(world.emoji.ifBlank { "🌍" }, fontSize = 22.sp) }
             Column(Modifier.weight(1f)) {
-                Text(
-                    world.name.ifBlank { "（未命名）" },
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    world.desc.ifBlank { blockSummary(world) },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = cs.onSurfaceVariant,
+                Text(world.name.ifBlank { "（未命名）" }, color = Palette.Fg, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(world.desc.ifBlank { blockSummary(world) }, fontSize = 12.sp, color = Palette.Fg3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
