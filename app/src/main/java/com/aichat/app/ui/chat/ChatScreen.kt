@@ -269,6 +269,22 @@ fun ChatScreen(
     // 新消息 / 切对话时回到底部
     LaunchedEffect(st.convId, messages.size) { if (messages.isNotEmpty()) listState.scrollToItem(0) }
 
+    // 抽屉底部各行的计数（旧版 v0.29 也展示这些）
+    val personas by deps.library.personas.collectAsState()
+    val prompts by deps.library.prompts.collectAsState()
+    val templates by deps.library.templates.collectAsState()
+    val worlds by deps.library.worlds.collectAsState()
+    val drawerSummary = remember(settings, personas, prompts, templates, worlds) {
+        com.aichat.app.ui.conversation.DrawerSummary(
+            enabledPlugins = deps.plugins.plugins.count { com.aichat.app.ui.settings.PluginToggles.enabled(settings, it) },
+            personaCount = personas.size,
+            promptCount = prompts.size,
+            templateCount = templates.size,
+            worldCount = worlds.size,
+            hasBalanceKey = settings.providers.any { it.hasKey },
+        )
+    }
+
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ConversationDrawer(index, st.convId,
             onSelect = { controller.select(it); scope.launch { drawer.close() } },
@@ -277,7 +293,14 @@ fun ChatScreen(
             onDelete = controller::delete,
             onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Main) },
             onExport = exportConv,
-            onOpenPersonas = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Personas) })
+            onOpenPersonas = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Personas) },
+            summary = drawerSummary,
+            onOpenPlugins = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Plugins) },
+            onOpenWorlds = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Worlds) },
+            onOpenTemplates = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Templates) },
+            onOpenUsage = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Usage) },
+            onOpenBalance = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Balance) },
+            onOpenImage = { scope.launch { drawer.close() }; onOpenImage("") })
     }) {
         Scaffold(
             contentWindowInsets = WindowInsets(0),

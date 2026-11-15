@@ -1,9 +1,10 @@
 <resources>
-    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#FFFFFF</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#000000</item>
-        <item name="android:windowBackground">@android:color/white</item>
-        <item name="android:colorAccent">#5B4CF0</item>
+    <!-- 应用只有深色一套皮肤（对齐旧版 app.css 的 zinc 深色），所以四个变体全部用深色，
+         否则冷启动会先闪一帧白底启动图。色值取 Palette.Background = #09090B。 -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#09090B</item>
+        <item name="android:navigationBarColor">#09090B</item>
+        <item name="android:windowBackground">#09090B</item>
+        <item name="android:colorAccent">#7C3AED</item>
     </style>
 </resources>

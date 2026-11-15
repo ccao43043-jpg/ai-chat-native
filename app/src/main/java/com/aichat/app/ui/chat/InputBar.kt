@@ -9,10 +9,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -48,8 +52,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -128,44 +134,30 @@ fun InputBar(
     Column(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
         Surface(color = Palette.Surface, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        // 旧版 v0.29 输入区只占约 190dp：工具栏一行 + 单行输入 + 无留白。
+        // 这里把外边距从 12/8 收到 10/6，行间距从 8 收到 6，避免整条「下半部」显得笨重。
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             if (tools.onPrompts != null || tools.onTemplates != null || tools.onSearch != null)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     tools.onSearch?.let { f ->
-                        FilterChip(
+                        ToolPill(
+                            icon = Icons.Filled.Search,
+                            label = "联网搜索",
                             selected = tools.searchOn,
+                            tag = "search-toggle",
                             onClick = { f(!tools.searchOn) },
-                            label = { Text("联网搜索", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(16.dp)) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Palette.AccentSoft,
-                                selectedLabelColor = Palette.Accent,
-                                selectedLeadingIconColor = Palette.Accent,
-                            ),
-                            modifier = Modifier.testTag("search-toggle"),
                         )
                     }
                     tools.onPrompts?.let {
-                        FilterChip(
-                            selected = false,
-                            onClick = it,
-                            label = { Text("提示词", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.Filled.Create, null, Modifier.size(16.dp)) },
-                            modifier = Modifier.testTag("prompts-open"),
-                        )
+                        ToolPill(icon = Icons.Filled.Create, label = "提示词", selected = false, tag = "prompts-open", onClick = it)
                     }
                     tools.onTemplates?.let {
-                        FilterChip(
+                        ToolPill(
+                            icon = Icons.AutoMirrored.Filled.List,
+                            label = tools.templateLabel ?: "模板",
                             selected = tools.templateLabel != null,
+                            tag = "templates-open",
                             onClick = it,
-                            label = { Text(tools.templateLabel ?: "模板", fontSize = 12.sp) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(16.dp)) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Palette.AccentSoft,
-                                selectedLabelColor = Palette.Accent,
-                                selectedLeadingIconColor = Palette.Accent,
-                            ),
-                            modifier = Modifier.testTag("templates-open"),
                         )
                     }
                 }
@@ -186,7 +178,9 @@ fun InputBar(
             if (reading > 0) Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.Bottom) {
                 Box {
-                    IconButton(onClick = { attachMenu = true }, modifier = Modifier.testTag("attach")) { Icon(Icons.Filled.Add, "添加附件") }
+                    IconButton(onClick = { attachMenu = true }, modifier = Modifier.size(40.dp).testTag("attach")) {
+                        Icon(Icons.Filled.Add, "添加附件", Modifier.size(20.dp))
+                    }
                     DropdownMenu(attachMenu, { attachMenu = false }) {
                         DropdownMenuItem(text = { Text("从相册选择") }, modifier = Modifier.testTag("attach-image"), onClick = {
                             attachMenu = false; picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
@@ -194,30 +188,84 @@ fun InputBar(
                             attachMenu = false; docPicker.launch(arrayOf("*/*")) })
                     }
                 }
-                OutlinedTextField(
-                    text, onText,
-                    modifier = Modifier.weight(1f).testTag("input"),
-                    placeholder = { Text("给 AI 发消息…") },
-                    maxLines = 6,
+                // 不用 OutlinedTextField：Material3 的它有 56dp 最小高度与内建内边距，
+                // 空态看着像个大 textarea，而旧版是一行 44dp 的细框。这里自己拼一个
+                // Surface + BasicTextField，高度完全由内容 + 10dp 内边距决定。
+                var inputFocused by remember { mutableStateOf(false) }
+                Surface(
                     shape = RoundedCornerShape(20.dp),
-                )
+                    color = Palette.Surface2,
+                    border = BorderStroke(1.dp, if (inputFocused) Palette.Accent.copy(alpha = 0.55f) else Palette.Line2),
+                    modifier = Modifier.weight(1f).testTag("input"),
+                ) {
+                    Box(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        if (text.isEmpty()) {
+                            Text(
+                                "给 AI 发消息…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Palette.Fg3,
+                            )
+                        }
+                        BasicTextField(
+                            value = text,
+                            onValueChange = onText,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
+                            cursorBrush = SolidColor(Palette.Accent),
+                            maxLines = 5,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { inputFocused = it.isFocused },
+                        )
+                    }
+                }
                 val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
-                if (streaming) FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 4.dp).testTag("stop"),
+                if (streaming) FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 4.dp).size(36.dp).testTag("stop"),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                    Icon(Icons.Filled.Close, "停止")
+                    Icon(Icons.Filled.Close, "停止", Modifier.size(18.dp))
                 } else Box(
-                    Modifier.padding(start = 4.dp).size(40.dp)
+                    Modifier.padding(start = 4.dp).size(36.dp)
                         .clip(CircleShape)
                         .background(if (canSend) Palette.Grad else Brush.linearGradient(listOf(Palette.Surface3, Palette.Surface3)))
                         .clickable(enabled = canSend, onClick = onSend)
                         .testTag("send"),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "发送", tint = if (canSend) Color.White else Palette.Fg3)
+                    Icon(Icons.AutoMirrored.Filled.Send, "发送", tint = if (canSend) Color.White else Palette.Fg3, modifier = Modifier.size(18.dp))
                 }
             }
         }
     }
+    }
+}
+
+/**
+ * 工具栏小药丸。比 Material `FilterChip` 矮 4dp、内边距更紧，
+ * 对齐旧版 v0.29 输入区上方那排 28px 的浅边框胶囊。
+ */
+@Composable
+private fun ToolPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val fg = if (selected) Palette.Accent else Palette.Fg2
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = if (selected) Palette.AccentSoft else Color.Transparent,
+        border = BorderStroke(1.dp, if (selected) Palette.Accent.copy(alpha = 0.5f) else Palette.Line2),
+        modifier = Modifier.height(30.dp).testTag(tag),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp).fillMaxHeight(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(icon, null, Modifier.size(14.dp), tint = fg)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = fg, maxLines = 1)
+        }
     }
 }
 

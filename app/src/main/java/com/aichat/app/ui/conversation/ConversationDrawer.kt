@@ -2,28 +2,41 @@ package com.aichat.app.ui.conversation
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,17 +58,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.annotation.DrawableRes
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import com.aichat.app.R
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aichat.app.domain.model.ConversationMeta
 import com.aichat.app.ui.common.pressScale
+import com.aichat.app.ui.theme.Palette
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 对话抽屉：列表（convs.json 顺序 = updatedAt 降序）、新建、重命名、删除 */
+/**
+ * 抽屉底部各项的计数（旧版 v0.29 的「已启用 4」「8 助手 · 6 提示词」「10 个模板」）。
+ * 全部可空：拿不到就不显示，不猜。
+ */
+data class DrawerSummary(
+    val enabledPlugins: Int? = null,
+    val personaCount: Int? = null,
+    val promptCount: Int? = null,
+    val templateCount: Int? = null,
+    val worldCount: Int? = null,
+    val hasBalanceKey: Boolean? = null,
+)
+
+/**
+ * 对话抽屉。结构对齐旧版 v0.29：
+ *   白底「＋ 新对话」大按钮 → 搜索框 → 对话列表 → 最近使用 → 设置/插件 → 更多（助手/世界/模板/生图/用量/余额）
+ * 测试依赖的 tag 保持不变：drawer / drawer-new / drawer-personas / drawer-settings / conv-<id> / rename-field。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationDrawer(
@@ -68,44 +105,175 @@ fun ConversationDrawer(
     onOpenSettings: () -> Unit,
     onExport: ((String) -> Unit)? = null,
     onOpenPersonas: (() -> Unit)? = null,
+    summary: DrawerSummary? = null,
+    onOpenPlugins: (() -> Unit)? = null,
+    onOpenWorlds: (() -> Unit)? = null,
+    onOpenTemplates: (() -> Unit)? = null,
+    onOpenUsage: (() -> Unit)? = null,
+    onOpenBalance: (() -> Unit)? = null,
+    onOpenImage: (() -> Unit)? = null,
 ) {
     var renaming by remember { mutableStateOf<ConversationMeta?>(null) }
     var deleting by remember { mutableStateOf<ConversationMeta?>(null) }
-    ModalDrawerSheet(Modifier.testTag("drawer")) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("对话", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onNew, modifier = Modifier.testTag("drawer-new")) {
-                Icon(Icons.Filled.Add, null); Text("新对话")
-            }
+    var query by rememberSaveable { mutableStateOf("") }
+    var searchFocused by remember { mutableStateOf(false) }
+    var recentOpen by rememberSaveable { mutableStateOf(true) }
+    var moreOpen by rememberSaveable { mutableStateOf(true) }
+
+    val shown = remember(index, query) {
+        val q = query.trim()
+        if (q.isEmpty()) index else index.filter {
+            it.title.contains(q, ignoreCase = true) ||
+                (it.model?.contains(q, ignoreCase = true) == true)
         }
-        HorizontalDivider()
-        if (index.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Edit, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.size(8.dp))
-                    Text("还没有对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        "点右上角「新对话」开始",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
+    }
+
+    ModalDrawerSheet(Modifier.testTag("drawer")) {
+        Column(Modifier.fillMaxWidth().weight(1f)) {
+            // 白底大按钮：旧版这里是整个抽屉最显眼的元素，也是「新建」唯一入口
+            Surface(
+                onClick = onNew,
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 10.dp)
+                    .height(48.dp).testTag("drawer-new"),
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp), tint = Color(0xFF18181B))
+                    Spacer(Modifier.width(8.dp))
+                    Text("新对话", color = Color(0xFF18181B), fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+
+            // 搜索：旧版是 surface-2 的圆角框，44dp 高
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Palette.Surface2,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp).testTag("drawer-search"),
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = Palette.Fg3)
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f)) {
+                        if (query.isEmpty()) {
+                            Text("搜索对话", style = MaterialTheme.typography.bodyMedium, color = Palette.Fg3)
+                        }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
+                            cursorBrush = SolidColor(Palette.Accent),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            if (shown.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (query.isEmpty()) "还没有对话" else "没有匹配「$query」的对话",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Palette.Fg2,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            if (query.isEmpty()) "点击上方「新对话」开始" else "换个词试试",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Palette.Fg3,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    items(shown, key = { it.id }) { m ->
+                        ConvRow(
+                            m, m.id == currentId,
+                            onClick = { onSelect(m.id) },
+                            onRename = { renaming = m },
+                            onDelete = { deleting = m },
+                            onExport = onExport?.let { f -> { f(m.id) } },
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Palette.Line)
+
+            // ── 最近使用 ──
+            SectionHeader("最近使用", recentOpen) { recentOpen = !recentOpen }
+            if (recentOpen) {
+                Text(
+                    "使用世界、助手或模板后会出现在这里",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.Fg3,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                )
+            }
+
+            DrawerEntry(Icons.Filled.Settings, "设置", Palette.Fg2, tag = "drawer-settings", onClick = onOpenSettings)
+            onOpenPlugins?.let {
+                DrawerEntry(
+                    R.drawable.ic_drawer_plugin, "插件", Palette.Fg2, tag = "drawer-plugins",
+                    trailing = summary?.enabledPlugins?.let { n -> "已启用 $n" },
+                    onClick = it,
+                )
+            }
+
+            // ── 更多 ──
+            SectionHeader("更多", moreOpen) { moreOpen = !moreOpen }
+            if (moreOpen) {
+                onOpenPersonas?.let {
+                    DrawerEntry(
+                        Icons.Filled.Person, "助手", Palette.Fg2, tag = "drawer-personas",
+                        trailing = summary?.let { s ->
+                            listOfNotNull(
+                                s.personaCount?.let { n -> "$n 助手" },
+                                s.promptCount?.let { n -> "$n 提示词" },
+                            ).joinToString(" · ").ifEmpty { null }
+                        },
+                        onClick = it,
+                    )
+                }
+                onOpenWorlds?.let {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_world, "世界", Palette.Fg2, tag = "drawer-worlds",
+                        trailing = summary?.worldCount?.let { n -> "$n 个世界" } ?: "世界模板",
+                        onClick = it,
+                    )
+                }
+                onOpenTemplates?.let {
+                    DrawerEntry(
+                        Icons.Filled.List, "模板", Palette.Fg2, tag = "drawer-templates",
+                        trailing = summary?.templateCount?.let { n -> "$n 个模板" },
+                        onClick = it,
+                    )
+                }
+                onOpenImage?.let {
+                    DrawerEntry(R.drawable.ic_drawer_image, "生图", Palette.Fg2, tag = "drawer-image", trailing = "文字生成图片", onClick = it)
+                }
+                onOpenUsage?.let {
+                    DrawerEntry(R.drawable.ic_drawer_usage, "用量", Palette.Fg2, tag = "drawer-usage", trailing = "Token 统计", onClick = it)
+                }
+                onOpenBalance?.let {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_wallet, "余额", Palette.Fg2, tag = "drawer-balance",
+                        trailing = when (summary?.hasBalanceKey) {
+                            true -> "查看余额"
+                            false -> "未配置 Key"
+                            null -> null
+                        },
+                        onClick = it,
                     )
                 }
             }
-        } else {
-            LazyColumn(Modifier.weight(1f)) {
-                items(index, key = { it.id }) { m ->
-                    ConvRow(m, m.id == currentId, onClick = { onSelect(m.id) }, onRename = { renaming = m }, onDelete = { deleting = m },
-                        onExport = onExport?.let { f -> { f(m.id) } })
-                }
-            }
+            Spacer(Modifier.height(8.dp).navigationBarsPadding())
         }
-        HorizontalDivider()
-        if (onOpenPersonas != null) {
-            DrawerEntry(Icons.Filled.Person, "助手库", "drawer-personas", onOpenPersonas)
-        }
-        DrawerEntry(Icons.Filled.Settings, "设置", "drawer-settings", onOpenSettings)
     }
 
     renaming?.let { m ->
@@ -123,15 +291,30 @@ fun ConversationDrawer(
     }
 }
 
+/** 可折叠分组标题：左侧灰色小标题，右侧箭头 */
+@Composable
+private fun SectionHeader(label: String, expanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(40.dp).clickable(onClick = onToggle).padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Palette.Fg3, modifier = Modifier.weight(1f))
+        Icon(
+            if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+            null, Modifier.size(18.dp), tint = Palette.Fg3,
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onExport: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Surface(
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        color = if (selected) Palette.AccentSoft else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
             .pressScale(src)
             .combinedClickable(
                 interactionSource = src,
@@ -140,15 +323,18 @@ private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit,
                 onLongClick = { menu = true },
             ).testTag("conv-${m.id}"),
     ) {
-        Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text((m.personaEmoji?.let { "$it " } ?: "") + m.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge)
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (selected) Palette.Accent else Palette.Fg)
                 Text(listOf(m.model, formatTime(m.updatedAt)).filter { it.isNotEmpty() }.joinToString(" · "), maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3)
             }
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.MoreVert, "更多", Modifier.size(18.dp), tint = Palette.Fg3)
+                }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; onRename() })
                     if (onExport != null) DropdownMenuItem(text = { Text("导出") }, onClick = { menu = false; onExport() })
@@ -159,15 +345,50 @@ private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit,
     }
 }
 
+/** 底部导航行：图标 + 文案 + 右侧计数 */
 @Composable
-private fun DrawerEntry(icon: ImageVector, label: String, tag: String, onClick: () -> Unit) {
+private fun DrawerEntry(
+    @DrawableRes icon: Int,
+    label: String,
+    tint: Color,
+    tag: String,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
     Row(
-        Modifier.fillMaxWidth().height(52.dp).clickable(onClick = onClick).padding(horizontal = 20.dp).testTag(tag),
+        Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick)
+            .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.size(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = tint)
+        Spacer(Modifier.width(14.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun DrawerEntry(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    tag: String,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick)
+            .padding(horizontal = 20.dp).testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = tint)
+        Spacer(Modifier.width(14.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+        }
     }
 }
 

@@ -1,18 +1,29 @@
 package com.aichat.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -21,9 +32,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.app.ui.chat.ChatScreen
 import com.aichat.app.ui.chat.ChatViewModel
@@ -63,22 +79,31 @@ fun AppRoot(deps: UiDeps) {
         }
         Scaffold(
             bottomBar = {
-                NavigationBar(containerColor = Palette.Surface) {
-                    MainTab.entries.forEach { t ->
-                        NavigationBarItem(
-                            selected = tab == t,
-                            onClick = { tab = t },
-                            icon = { Icon(t.icon, contentDescription = t.label) },
-                            label = { Text(t.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Palette.Accent,
-                                selectedTextColor = Palette.Accent,
-                                indicatorColor = Palette.AccentSoft,
-                                unselectedIconColor = Palette.Fg2,
-                                unselectedTextColor = Palette.Fg2,
-                            ),
-                            modifier = Modifier.testTag("tab-${t.name}"),
-                        )
+                // 旧版 v0.29 的底栏只有 56dp：图标 + 11sp 文字，选中态是图标后面的胶囊。
+                // Material 的 NavigationBar 默认 80dp（含 32dp 图标与 12sp 文字），整体比旧版高一半。
+                Surface(color = Palette.Surface) {
+                    Row(Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp)) {
+                        MainTab.entries.forEach { t ->
+                            val sel = tab == t
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .clickable { tab = t }
+                                    .testTag("tab-${t.name}"),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Box(
+                                    Modifier.size(width = 44.dp, height = 26.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (sel) Palette.AccentSoft else Color.Transparent),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(t.icon, t.label, Modifier.size(18.dp), tint = if (sel) Palette.Accent else Palette.Fg2)
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Text(t.label, fontSize = 11.sp, color = if (sel) Palette.Accent else Palette.Fg2)
+                            }
+                        }
                     }
                 }
             },
