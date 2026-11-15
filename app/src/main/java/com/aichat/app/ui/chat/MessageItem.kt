@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -120,10 +121,10 @@ fun MessageItem(
         Row(Modifier.alpha(alpha)) {
             // 旧版 .bot-avatar：28dp 渐变圆 + 2px 半透明紫描边，贴着消息左上角
             androidx.compose.foundation.layout.Box(
-                Modifier.padding(top = 2.dp).size(28.dp)
+                Modifier.padding(top = 2.dp).size(24.dp)
                     .clip(androidx.compose.foundation.shape.CircleShape)
                     .background(com.aichat.app.ui.theme.Palette.Grad)
-                    .border(2.dp, com.aichat.app.ui.theme.Palette.AccentSoft, androidx.compose.foundation.shape.CircleShape),
+                    .border(1.dp, com.aichat.app.ui.theme.Palette.AccentSoft, androidx.compose.foundation.shape.CircleShape),
             )
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -155,13 +156,22 @@ fun MessageItem(
             }
         }
         if (!streaming) {
-            androidx.compose.foundation.layout.Box(Modifier.padding(start = 36.dp)) { ActionRow(m, view, copy, actions) }
             val info = listOfNotNull(if (m.truncated) "已中断" else null, m.usage?.let { u ->
                 listOfNotNull(u.prompt?.let { "入 $it" }, u.completion?.let { "出 $it" }, u.hit?.takeIf { it > 0 }?.let { "命中 $it" })
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
-            })
-            if (info.isNotEmpty()) Text(info.joinToString("  "), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 40.dp))
+            }).joinToString("  ")
+            Row(
+                Modifier.fillMaxWidth().padding(start = 32.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) { AssistantActionRow(m, view, copy, actions) }
+                if (info.isNotEmpty()) Text(
+                    info,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = com.aichat.app.ui.theme.Palette.Fg3,
+                    fontSize = 11.sp,
+                )
+            }
         }
     }
 }
@@ -219,6 +229,44 @@ private fun ActionRow(m: Message, v: MessageView, copy: () -> Unit, a: MessageAc
     }
 }
 
+/** 助手操作栏：贴气泡、12sp 灰字，不用 TextButton 的 48dp 紫字。用户气泡那一行不动。 */
+@Composable
+private fun AssistantActionRow(m: Message, v: MessageView, copy: () -> Unit, a: MessageActions) {
+    val n = Versions.count(m); val k = Versions.index(m)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()).testTag("actions-${m.role.name.lowercase()}"),
+    ) {
+        if (n > 1 && a.onVersion != null) {
+            val dim = if (v.dim) 0.55f else 1f
+            Text("‹", fontSize = 14.sp, color = if (k > 0) com.aichat.app.ui.theme.Palette.Fg2 else com.aichat.app.ui.theme.Palette.Fg3,
+                modifier = Modifier.alpha(dim).clickable(enabled = k > 0) { a.onVersion.invoke(k - 1) }.padding(horizontal = 4.dp, vertical = 4.dp).testTag("ver-prev"))
+            Text("${k + 1}/$n", fontSize = 12.sp, color = com.aichat.app.ui.theme.Palette.Accent,
+                modifier = Modifier.alpha(dim).clickable { a.onVersionMenu?.invoke() }.padding(horizontal = 2.dp, vertical = 4.dp).testTag("ver-label"))
+            Text("›", fontSize = 14.sp, color = if (k < n - 1) com.aichat.app.ui.theme.Palette.Fg2 else com.aichat.app.ui.theme.Palette.Fg3,
+                modifier = Modifier.alpha(dim).clickable(enabled = k < n - 1) { a.onVersion.invoke(k + 1) }.padding(horizontal = 4.dp, vertical = 4.dp).testTag("ver-next"))
+        }
+        if (m.content.isNotEmpty()) AssistAct("复制", "copy", copy)
+        if (!v.busy) {
+            if (!v.dim) a.onContinue?.let { AssistAct("继续生成", "continue", it) }
+            if (!v.dim) a.onRegenerate?.let { AssistAct(if (v.isLast) "重新生成" else "从这里重新生成", "regen", it) }
+            a.onEdit?.let { AssistAct("编辑", "edit", it) }
+            a.onDelete?.let { AssistAct("删除", "delete", it, danger = true) }
+        }
+    }
+}
+
+@Composable
+private fun AssistAct(label: String, tag: String, onClick: () -> Unit, danger: Boolean = false) {
+    Text(
+        label,
+        fontSize = 12.sp,
+        color = if (danger) com.aichat.app.ui.theme.Palette.Danger else com.aichat.app.ui.theme.Palette.Fg3,
+        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp).testTag(tag),
+    )
+}
+
 private val SmallPad = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
 
 @Composable
@@ -254,14 +302,27 @@ fun FileChips(files: List<JsonObject>, onRemove: ((Int) -> Unit)? = null) {
 @Composable
 private fun Reasoning(text: String, live: Boolean) {
     var open by rememberSaveable { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.clickable { open = !open }.padding(10.dp)) {
-            Text((if (live) "思考中…" else "思考过程") + if (open) " ▲" else " ▼", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            AnimatedVisibility(open || live) {
-                Text(if (live && !open) text.takeLast(200) else text, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            color = com.aichat.app.ui.theme.Palette.Surface2,
+            shape = RoundedCornerShape(999.dp),
+            modifier = Modifier.clickable { open = !open },
+        ) {
+            Text(
+                (if (live) "思考中…" else "思考过程") + if (open) "  ▴" else "  ▾",
+                style = MaterialTheme.typography.labelMedium,
+                color = com.aichat.app.ui.theme.Palette.Fg2,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        AnimatedVisibility(open || live) {
+            Text(
+                if (live && !open) text.takeLast(200) else text,
+                style = MaterialTheme.typography.bodySmall,
+                color = com.aichat.app.ui.theme.Palette.Fg2,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 2.dp),
+            )
         }
     }
 }

@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 103                  // 原生 v1.0.3：侧边栏字号收小、去掉历史会话紫色高亮
-        versionName '1.0.3'
+        versionCode 104                  // 原生 v1.0.4：对话页助手排布、分组菜单、RP 状态层级
+        versionName '1.0.4'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

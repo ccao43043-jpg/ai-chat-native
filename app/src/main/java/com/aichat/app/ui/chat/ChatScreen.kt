@@ -309,88 +309,71 @@ fun ChatScreen(
             // 底部没有 Tab 栏了，Snackbar 默认会压住输入条，抬到它上面
             snackbarHost = { SnackbarHost(snack, modifier = Modifier.padding(bottom = 112.dp)) },
             topBar = {
-                CenterAlignedTopAppBar(
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-                    navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }, Modifier.testTag("open-drawer")) { Icon(Icons.Filled.Menu, "对话列表") } },
-                    title = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(conv?.title ?: "新对话", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                            Surface(
-                                onClick = { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
-                                shape = RoundedCornerShape(12.dp),
-                                color = Palette.Surface2,
-                                modifier = Modifier.widthIn(max = 168.dp).testTag("model-switch"),
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        when {
-                                            settings.providers.isEmpty() -> "未配置服务商"
-                                            else -> target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型"
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                    )
-                                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
-                                }
-                            }
+                Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { scope.launch { drawer.open() } }, Modifier.testTag("open-drawer")) {
+                            Icon(Icons.Filled.Menu, "对话列表")
                         }
-                    },
-                    actions = {
-                        ChatMounts.usage?.invoke(conv, settings) ?: DefaultUsageChip(conv, settings)
-                        IconButton(onClick = { controller.newConversation() }, Modifier.testTag("new-conv")) { Icon(Icons.Filled.Add, "新对话") }
+                        Text(
+                            conv?.title ?: "新对话",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f),
+                        )
                         Box {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem(text = { Text("设置") }, onClick = { menu = false; onOpenSettings(SettingsDestination.Main) })
-                                if (conv != null) DropdownMenuItem(text = { Text("导出本对话") }, onClick = { menu = false; exportConv(conv.id) })
-                                if (conv != null) DropdownMenuItem(text = { Text("本对话插件") }, onClick = { menu = false; convPlugins = true })
-            DropdownMenuItem(text = { Text("RP 状态") }, onClick = {
-                menu = false
-                // 新对话还没有 conv：先建一个，这样可以先写设定再发第一句
-                controller.ensureConversation()
-                rpPanel = true
-            })
-                                DropdownMenuItem(text = { Text("记忆") }, onClick = {
-                menu = false
-                controller.ensureConversation()
-                rpMemoryPanel = true
-            })
-            DropdownMenuItem(text = { Text("RP 检视") }, onClick = {
-                menu = false
-                controller.ensureConversation()
-                rpInspect = true
-            })
-            DropdownMenuItem(text = { Text("RP 章节") }, onClick = {
-                menu = false
-                controller.ensureConversation()
-                rpChapter = true
-            })
-            DropdownMenuItem(text = { Text("世界书") }, onClick = {
-                menu = false
-                controller.ensureConversation()
-                rpLore = true
-            })
-            if (conv != null) DropdownMenuItem(text = { Text("据此生图") }, onClick = {
-                menu = false
-                val p = com.aichat.app.net.ImageGen.buildPromptFromMessages(conv.messages)
-                if (p.isBlank()) controller.toast("这段对话还没内容可提炼") else onOpenImage(p)
-            })
-            DropdownMenuItem(text = { Text("好感度") }, onClick = {
-                menu = false
-                controller.ensureConversation()
-                affectPanel = true
-            })
-            DropdownMenuItem(text = { Text("数据与备份") }, onClick = { menu = false; onOpenSettings(SettingsDestination.DataBackup) })
-                                extraMenu.forEach { (label, act) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; act() }) }
-                            }
+                            ChatOverflowMenu(
+                                expanded = menu,
+                                onDismiss = { menu = false },
+                                conv = conv,
+                                extraMenu = extraMenu,
+                                onSettings = { menu = false; onOpenSettings(SettingsDestination.Main) },
+                                onExport = { menu = false; conv?.let { exportConv(it.id) } },
+                                onConvPlugins = { menu = false; convPlugins = true },
+                                onRp = { menu = false; controller.ensureConversation(); rpPanel = true },
+                                onMemory = { menu = false; controller.ensureConversation(); rpMemoryPanel = true },
+                                onInspect = { menu = false; controller.ensureConversation(); rpInspect = true },
+                                onChapter = { menu = false; controller.ensureConversation(); rpChapter = true },
+                                onLore = { menu = false; controller.ensureConversation(); rpLore = true },
+                                onImage = {
+                                    menu = false
+                                    val c = conv ?: return@ChatOverflowMenu
+                                    val p = com.aichat.app.net.ImageGen.buildPromptFromMessages(c.messages)
+                                    if (p.isBlank()) controller.toast("这段对话还没内容可提炼") else onOpenImage(p)
+                                },
+                                onAffect = { menu = false; controller.ensureConversation(); affectPanel = true },
+                                onBackup = { menu = false; onOpenSettings(SettingsDestination.DataBackup) },
+                            )
                         }
-                    },
-                )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            onClick = { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            modifier = Modifier.weight(1f).testTag("model-switch"),
+                        ) {
+                            Text(
+                                when {
+                                    settings.providers.isEmpty() -> "未配置服务商"
+                                    else -> target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型"
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Palette.Fg2,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+                        ChatMounts.usage?.invoke(conv, settings) ?: DefaultUsageChip(conv, settings)
+                    }
+                }
             },
         ) { pad ->
             Column(Modifier.padding(pad).fillMaxSize()) {
@@ -608,4 +591,72 @@ fun ChatScreen(
         onManage = { picker = false; onOpenSettings(SettingsDestination.Providers) },
         onDismiss = { picker = false })
     viewing?.let { ImageViewer(it) { viewing = null } }
+}
+
+
+private val MenuItemPad = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+
+@Composable
+private fun MenuSection(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = Palette.Fg3,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
+private fun MenuEntry(label: String, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg) },
+        onClick = onClick,
+        contentPadding = MenuItemPad,
+        modifier = Modifier.height(40.dp),
+    )
+}
+
+@Composable
+private fun ChatOverflowMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    conv: com.aichat.app.domain.model.Conversation?,
+    extraMenu: List<Pair<String, () -> Unit>>,
+    onSettings: () -> Unit,
+    onExport: () -> Unit,
+    onConvPlugins: () -> Unit,
+    onRp: () -> Unit,
+    onMemory: () -> Unit,
+    onInspect: () -> Unit,
+    onChapter: () -> Unit,
+    onLore: () -> Unit,
+    onImage: () -> Unit,
+    onAffect: () -> Unit,
+    onBackup: () -> Unit,
+) {
+    DropdownMenu(expanded, onDismiss) {
+        MenuSection("对话")
+        if (conv != null) MenuEntry("导出本对话", onExport)
+        if (conv != null) MenuEntry("本对话插件", onConvPlugins)
+        if (conv != null) MenuEntry("据此生图", onImage)
+        androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            color = Palette.Line,
+        )
+        MenuSection("RP")
+        MenuEntry("RP 状态", onRp)
+        MenuEntry("记忆", onMemory)
+        MenuEntry("RP 检视", onInspect)
+        MenuEntry("RP 章节", onChapter)
+        MenuEntry("世界书", onLore)
+        MenuEntry("好感度", onAffect)
+        androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            color = Palette.Line,
+        )
+        MenuSection("其他")
+        MenuEntry("设置", onSettings)
+        MenuEntry("数据与备份", onBackup)
+        extraMenu.forEach { (label, act) -> MenuEntry(label) { onDismiss(); act() } }
+    }
 }
