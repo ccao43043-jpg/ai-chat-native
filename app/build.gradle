@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 102                  // 原生 v1.0.2：> 旧 WebView 版 v0.29.0 (90)，且 > 上一版 101
-        versionName '1.0.2'
+        versionCode 103                  // 原生 v1.0.3：侧边栏字号收小、去掉历史会话紫色高亮
+        versionName '1.0.3'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
