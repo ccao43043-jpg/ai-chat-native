@@ -214,6 +214,7 @@ fun ConversationDrawer(
             }
             item {
                 SearchRow(query) { query = it }
+                Spacer(Modifier.height(8.dp))
             }
 
             if (shown.isEmpty()) {
@@ -304,9 +305,9 @@ private fun ConvRow(
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Surface(
-        color = if (selected) Palette.Surface2 else Color.Transparent,
+        color = Color.Transparent,
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
             .pressScale(src)
             .combinedClickable(
                 interactionSource = src,
@@ -324,7 +325,8 @@ private fun ConvRow(
                     (m.personaEmoji?.let { "$it " } ?: "") + m.title,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Palette.Fg,
+                    color = if (selected) Palette.Fg else Palette.Fg2,
+                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                 )
                 val sub = listOf(m.model, formatTime(m.updatedAt)).filter { !it.isNullOrEmpty() }.joinToString(" · ")
                 if (sub.isNotEmpty()) {

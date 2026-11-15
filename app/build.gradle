@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 108                  // 原生 v1.0.8：设置页返回保留滚动位置
-        versionName '1.0.8'
+        versionCode 109                  // 原生 v1.0.9：历史会话去掉灰底，搜索不再贴住列表
+        versionName '1.0.9'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
