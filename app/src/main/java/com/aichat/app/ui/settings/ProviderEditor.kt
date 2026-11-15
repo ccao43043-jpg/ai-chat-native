@@ -26,12 +26,12 @@ class ProviderEditor(private val settings: SettingsRepository, private val keys:
 
     fun parseModels(text: String): List<String> = text.split('\n', ',', '，').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
-    suspend fun save(base: ProviderConfig, d: ProviderDraft): Result {
+    suspend fun save(base: ProviderConfig, d: ProviderDraft, modelMeta: kotlinx.serialization.json.JsonObject? = null): Result {
         val url = d.baseUrl.trim()
         if (!Regex("^https?://.+").matches(url)) return Result.Invalid("Base URL 需以 http:// 或 https:// 开头")
         val models = parseModels(d.modelsText)
         if (models.isEmpty()) return Result.Invalid("请至少添加一个模型")
-        var p = base.copy(name = d.name.trim().ifEmpty { "未命名" }, type = d.type, baseUrl = url, models = models, imageModel = d.imageModel.trim())
+        var p = base.copy(name = d.name.trim().ifEmpty { "未命名" }, type = d.type, baseUrl = url, models = models, imageModel = d.imageModel.trim(), modelMeta = modelMeta ?: base.modelMeta)
         // 先登记 Base URL（主机变化时数据层会清掉旧 Key），再写 Key —— 顺序与旧版一致，Key 才会绑定到新源
         val cleared = settings.registerProvider(p.id, url, ProviderPresets.authFor(d.type))
         val action = KeyMask.resolve(d.keyText)
