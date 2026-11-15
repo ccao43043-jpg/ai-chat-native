@@ -78,6 +78,7 @@ fun AppRoot(deps: UiDeps) {
                         shown ?: SettingsDestination.Main,
                         onClose = { settings = null },
                         onStartPersona = { p -> showImage = false; chatVm.controller.startFromPersona(p) },
+                        onStartWorld = { w -> showImage = false; chatVm.controller.startFromWorld(w) },
                     )
                 }
             }

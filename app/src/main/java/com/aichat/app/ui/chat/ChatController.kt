@@ -369,6 +369,39 @@ class ChatController(
         }
     }
 
+    /** 用世界模板开一个新对话：写入 RP 块，空对话时插入开场白。 */
+    fun startFromWorld(w: com.aichat.app.domain.model.World) {
+        if (_state.value.isStreaming) { toast("请先停止当前生成"); return }
+        scope.launch {
+            val s = settings.value
+            val cur = currentTarget(s)
+            val providerId = cur?.first?.id ?: ""
+            val model = cur?.second ?: ""
+            val c0 = deps.chats.create(providerId, model, w.name.ifBlank { "新对话" })
+            var st = RpState.normalizeState(JObj())
+            val at = System.currentTimeMillis().toDouble()
+            w.blocks.forEach { (blockId, obj) ->
+                val text = (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+                if (text.isNotBlank()) {
+                    val res = RpState.setBlock(st, blockId, text, at, null)
+                    st = res["state"] as? JObj ?: st
+                }
+            }
+            var c = c0.copy(
+                title = w.name.ifBlank { c0.title },
+                rpState = Js.toJson(st) as? kotlinx.serialization.json.JsonObject ?: c0.rpState,
+                templateName = w.name,
+                templateEmoji = w.emoji.ifBlank { "🌍" },
+            )
+            if (w.greeting.isNotBlank()) {
+                c = c.copy(messages = listOf(Message(newId(), Role.ASSISTANT, w.greeting, now())))
+            }
+            _state.update { it.copy(convId = c.id, conv = c) }
+            save(c, touch = true)
+            toast("已用「${w.name.ifBlank { "世界" }}」开始对话")
+        }
+    }
+
     /** 发送时联网搜索开关（settings.searchOn，同旧版输入框左侧地球按钮） */
     fun setSearchOn(on: Boolean) {
         scope.launch { deps.settings.update { it.copy(searchOn = on) }; toast(if (on) "联网搜索已开启" else "联网搜索已关闭") }
