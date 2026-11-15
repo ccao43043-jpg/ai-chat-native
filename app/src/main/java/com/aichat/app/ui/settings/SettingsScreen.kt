@@ -3,6 +3,13 @@ package com.aichat.app.ui.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -74,36 +81,53 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val toast: (String) -> Unit = { m -> scope.launch { snack.showSnackbar(m) } }
-    val back: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.size - 1) else onClose() }
+    var forward by remember { mutableStateOf(true) }
+    val back: () -> Unit = { if (stack.size > 1) { forward = false; stack.removeAt(stack.size - 1) } else onClose() }
     BackHandler(onBack = back)
     val top = stack.last()
     val panel = top.removePrefix("panel:").takeIf { top.startsWith("panel:") }
     val dest = if (panel != null) SettingsDestination.Plugins else SettingsDestination.valueOf(top)
     val mounted = SettingsMounts.get(dest)
     val pages = rememberSaveableStateHolder()
-    Box(Modifier.fillMaxSize().testTag("settings")) {
-        pages.SaveableStateProvider(top) {
+    Box(Modifier.fillMaxSize().background(Palette.Bg).testTag("settings")) {
+        AnimatedContent(
+            targetState = top,
+            transitionSpec = {
+                val ease = FastOutSlowInEasing
+                if (forward) {
+                    slideInHorizontally(tween(260, easing = ease)) { it } togetherWith slideOutHorizontally(tween(220, easing = ease)) { -it / 4 }
+                } else {
+                    slideInHorizontally(tween(260, easing = ease)) { -it / 4 } togetherWith slideOutHorizontally(tween(220, easing = ease)) { it }
+                }
+            },
+            label = "settingsPage",
+        ) { page ->
+        val pagePanel = page.removePrefix("panel:").takeIf { page.startsWith("panel:") }
+        val pageDest = if (pagePanel != null) SettingsDestination.Plugins else SettingsDestination.valueOf(page)
+        val pageMounted = SettingsMounts.get(pageDest)
+        pages.SaveableStateProvider(page) {
         when {
-            panel != null -> PluginPanels.get(panel)?.invoke(back) ?: SettingsPageScaffold(panel, back) { Text("该插件没有面板", Modifier.padding(20.dp)) }
-            mounted != null -> mounted(back)
-            dest == SettingsDestination.Main -> SettingsMain(onBack = back, open = { stack.add(it.name) })
-            dest == SettingsDestination.Search -> SearchSettingsScreen(onBack = back, toast = toast)
-            dest == SettingsDestination.Plugins -> PluginsScreen(onBack = back, openPanel = { stack.add("panel:$it") })
-            dest == SettingsDestination.Prompts -> com.aichat.app.ui.library.PromptsScreen(onBack = back, toast = toast)
-            dest == SettingsDestination.Templates -> com.aichat.app.ui.library.TemplatesScreen(onBack = back, toast = toast)
-            dest == SettingsDestination.Personas -> com.aichat.app.ui.library.PersonasScreen(onBack = back, toast = toast,
+            pagePanel != null -> PluginPanels.get(pagePanel)?.invoke(back) ?: SettingsPageScaffold(pagePanel ?: page, back) { Text("该插件没有面板", Modifier.padding(20.dp)) }
+            pageMounted != null -> pageMounted(back)
+            pageDest == SettingsDestination.Main -> SettingsMain(onBack = back, open = { forward = true; stack.add(it.name) })
+            pageDest == SettingsDestination.Search -> SearchSettingsScreen(onBack = back, toast = toast)
+            pageDest == SettingsDestination.Plugins -> PluginsScreen(onBack = back, openPanel = { forward = true; stack.add("panel:$it") })
+            pageDest == SettingsDestination.Prompts -> com.aichat.app.ui.library.PromptsScreen(onBack = back, toast = toast)
+            pageDest == SettingsDestination.Templates -> com.aichat.app.ui.library.TemplatesScreen(onBack = back, toast = toast)
+            pageDest == SettingsDestination.Personas -> com.aichat.app.ui.library.PersonasScreen(onBack = back, toast = toast,
                 onStart = { p -> onStartPersona?.invoke(p); onClose() })
-            dest == SettingsDestination.General -> GeneralSettings(onBack = back, toast = toast)
-            dest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
-            dest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
-            dest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
-        dest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
-        dest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
-        dest == SettingsDestination.Knowledge -> KnowledgeScreen(onBack = back, toast = toast)
-            else -> SettingsPageScaffold(dest.title, back) {
-                Text("「${dest.title}」还没做好", modifier = Modifier.padding(20.dp),
+            pageDest == SettingsDestination.General -> GeneralSettings(onBack = back, toast = toast)
+            pageDest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
+            pageDest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
+            pageDest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
+        pageDest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
+        pageDest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
+        pageDest == SettingsDestination.Knowledge -> KnowledgeScreen(onBack = back, toast = toast)
+            else -> SettingsPageScaffold(pageDest.title, back) {
+                Text("「${pageDest.title}」还没做好", modifier = Modifier.padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
         }
         }
         SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).imePadding())
@@ -113,10 +137,13 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsPageScaffold(title: String, onBack: () -> Unit, actions: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
-    Scaffold(topBar = {
-        TopAppBar(title = { Text(title) },
+    Scaffold(containerColor = Palette.Bg, topBar = {
+        TopAppBar(
+            title = { Text(title) },
             navigationIcon = { IconButton(onClick = onBack, Modifier.testTag("settings-back")) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
-            actions = { actions() })
+            actions = { actions() },
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Palette.Bg),
+        )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())) { content() }
     }
