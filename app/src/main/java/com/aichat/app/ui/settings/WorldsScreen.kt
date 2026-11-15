@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.World
+import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.rp.RpState
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.Pressable
@@ -178,6 +179,37 @@ private fun WorldEditorDialog(world: World, onDismiss: () -> Unit, onSave: (Worl
                     }
                     FilledField("开场白", greeting, { greeting = it }, minLines = 2)
                     Text("设定", color = Palette.Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                    var paste by remember(world.id) { mutableStateOf("") }
+                    var pasteHint by remember(world.id) { mutableStateOf("") }
+                    Labeled("整段粘贴，自动拆到各栏")
+                    FilledField("粘贴完整设定。用【世界观】【角色卡】【写作风格】这类标题分段", paste, { paste = it }, minLines = 4)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            onClick = {
+                                val parsed = RpState.parseWorldSections(paste)
+                                if (parsed == null) {
+                                    pasteHint = "没认出分段。请用【世界观】【角色卡】【RP规则】【写作风格】这类标题。"
+                                    return@Surface
+                                }
+                                val b = parsed["blocks"] as? Map<*, *>
+                                var n = 0
+                                World.BLOCK_IDS.forEach { id ->
+                                    val v = Js.trim(Js.str(b?.get(id) ?: ""))
+                                    if (v.isNotEmpty()) { blocks[id] = v; n++ }
+                                }
+                                val g = Js.trim(Js.str(parsed["greeting"] ?: ""))
+                                if (g.isNotEmpty()) greeting = g
+                                val nm = Js.trim(Js.str(parsed["name"] ?: ""))
+                                if (name.isBlank() && nm.isNotEmpty()) name = nm
+                                tick++
+                                paste = ""
+                                pasteHint = "已填入 $n 段"
+                            },
+                            color = Palette.Accent,
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text("拆分填入", color = androidx.compose.ui.graphics.Color.White, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) }
+                        if (pasteHint.isNotEmpty()) Text(pasteHint, color = Palette.Fg3, fontSize = 12.sp)
+                    }
                     RpState.BLOCK_DEFS.filter { it["layer"] == "L1" }.forEach { def ->
                         val id = def["id"] as? String ?: return@forEach
                         if (id !in World.BLOCK_IDS) return@forEach
