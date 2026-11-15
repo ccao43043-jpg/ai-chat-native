@@ -164,12 +164,16 @@ fun MessageItem(
                 Modifier.fillMaxWidth().padding(start = 32.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.weight(1f)) { AssistantActionRow(m, view, copy, actions) }
+                Box(Modifier.weight(1f).clip(androidx.compose.foundation.shape.RectangleShape)) {
+                    AssistantActionRow(m, view, copy, actions)
+                }
                 if (info.isNotEmpty()) Text(
                     info,
                     style = MaterialTheme.typography.labelSmall,
                     color = com.aichat.app.ui.theme.Palette.Fg3,
                     fontSize = 11.sp,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
