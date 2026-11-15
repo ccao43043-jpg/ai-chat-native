@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 113                  // 原生 v1.1.3：侧边栏进出滑动，退出不再闪白回聊天
-        versionName '1.1.3'
+        versionCode 114                  // 原生 v1.1.4：世界模板整段粘贴自动分段
+        versionName '1.1.4'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
