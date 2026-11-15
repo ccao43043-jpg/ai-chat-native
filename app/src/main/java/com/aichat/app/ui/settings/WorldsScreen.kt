@@ -62,7 +62,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * 这里不做"应用世界到对话"——那一步在聊天页的 RP 状态面板里，因为要改的是 `conv.rpState`。
  */
 @Composable
-fun WorldsScreen(onBack: () -> Unit, toast: (String) -> Unit) {
+fun WorldsScreen(onBack: () -> Unit, toast: (String) -> Unit, onStart: ((World) -> Unit)? = null) {
     val deps = LocalUiDeps.current
     val worlds by deps.library.worlds.collectAsState()
     val scope = rememberCoroutineScope()
@@ -92,9 +92,9 @@ fun WorldsScreen(onBack: () -> Unit, toast: (String) -> Unit) {
             )
         } else {
             worlds.forEach { w ->
-                WorldRow(world = w, onClick = { editing = w }, onLongClick = { deleting = w })
+                WorldRow(world = w, onClick = { editing = w }, onLongClick = { deleting = w }, onStart = onStart?.let { { it(w) } })
             }
-            Text("点一行编辑，长按删除", fontSize = 12.sp, color = Palette.Fg3, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
+            Text("点一行编辑，长按删除，右侧开聊", fontSize = 12.sp, color = Palette.Fg3, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
         }
       }
     }
@@ -282,7 +282,7 @@ private fun FilledField(placeholder: String, value: String, onChange: (String) -
 
 /** 一行世界：emoji 当图标，长按删除。 */
 @Composable
-private fun WorldRow(world: World, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun WorldRow(world: World, onClick: () -> Unit, onLongClick: () -> Unit, onStart: (() -> Unit)? = null) {
     val cs = MaterialTheme.colorScheme
     Pressable(
         onClick = onClick,
@@ -305,6 +305,11 @@ private fun WorldRow(world: World, onClick: () -> Unit, onLongClick: () -> Unit)
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (onStart != null) {
+                Surface(onClick = onStart, color = Palette.Accent, shape = RoundedCornerShape(12.dp)) {
+                    Text("开聊", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
             }
         }
     }

@@ -76,7 +76,7 @@ import kotlinx.coroutines.launch
  * 子页面可以自己用 BackHandler 先拦截（例如服务商编辑页的「放弃修改？」）。
  */
 @Composable
-fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPersona: ((com.aichat.app.domain.model.Persona) -> Unit)? = null) {
+fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPersona: ((com.aichat.app.domain.model.Persona) -> Unit)? = null, onStartWorld: ((com.aichat.app.domain.model.World) -> Unit)? = null) {
     // 栈元素：SettingsDestination.name 或 "panel:<pluginId>"（插件面板挂载点）
     val stack = remember(start) { mutableStateListOf(start.name) }
     val snack = remember { SnackbarHostState() }
@@ -121,7 +121,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             pageDest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
             pageDest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
             pageDest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
-        pageDest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast)
+        pageDest == SettingsDestination.Worlds -> WorldsScreen(onBack = back, toast = toast, onStart = { w -> onStartWorld?.invoke(w); onClose() })
         pageDest == SettingsDestination.Balance -> BalanceScreen(onBack = back, toast = toast)
         pageDest == SettingsDestination.Knowledge -> KnowledgeScreen(onBack = back, toast = toast)
             else -> SettingsPageScaffold(pageDest.title, back) {
