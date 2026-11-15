@@ -135,9 +135,7 @@ fun InputBar(
         }
     }
 
-    Column(modifier.fillMaxWidth().navigationBarsPadding()) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
-        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
+    Column(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)) {
             // ── 附件缩略图（有才显示） ──
             if (images.isNotEmpty()) {
                 Row(
@@ -168,10 +166,10 @@ fun InputBar(
                 Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = Palette.Fg3)
             }
 
-            // ── 功能胶囊（在输入条上方，Kimi 同款位置） ──
-            if (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null) {
+            // 点输入框时收起功能胶囊，把位置让给变高的输入框
+            if (!focused && (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null)) {
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     tools.onSearch?.let { f ->
@@ -187,21 +185,22 @@ fun InputBar(
             // ── 输入条：＋ ｜ 文本 ｜ 发送 ──
             val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
             Surface(
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
-                border = BorderStroke(1.dp, if (focused) Palette.Accent.copy(alpha = 0.45f) else Palette.Line),
-                modifier = Modifier.fillMaxWidth().testTag("input"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = if (focused) 72.dp else 48.dp).testTag("input"),
             ) {
                 Row(
-                    Modifier.padding(start = 4.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
-                    verticalAlignment = Alignment.Bottom,
+                    Modifier.padding(start = 4.dp, end = 6.dp, top = if (focused) 8.dp else 4.dp, bottom = 4.dp),
+                    verticalAlignment = if (focused) Alignment.Top else Alignment.CenterVertically,
                 ) {
                     Box {
                         Box(
-                            Modifier.size(38.dp).clip(CircleShape).clickable { attachMenu = true }.testTag("attach"),
+                            Modifier.padding(top = 2.dp).size(36.dp).clip(CircleShape)
+                                .background(Palette.Surface3)
+                                .clickable { attachMenu = true }.testTag("attach"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Add, "添加附件", Modifier.size(22.dp), tint = Palette.Fg2)
+                            Icon(Icons.Filled.Add, "添加附件", Modifier.size(20.dp), tint = Palette.Fg)
                         }
                         DropdownMenu(attachMenu, { attachMenu = false }) {
                             DropdownMenuItem(text = { Text("从相册选择") }, modifier = Modifier.testTag("attach-image"), onClick = {
@@ -223,7 +222,7 @@ fun InputBar(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
                             cursorBrush = SolidColor(Palette.Accent),
                             maxLines = 6,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = if (focused) 48.dp else 22.dp)
                                 .onFocusChanged { focused = it.isFocused },
                         )
                     }
@@ -249,11 +248,10 @@ fun InputBar(
                     }
                 }
             }
-        }
     }
 }
 
-/** Kimi 风格的功能胶囊：36dp 高、12dp 圆角、灰底无边框，图标 16dp + 文案 */
+/** 悬空功能胶囊：44dp 高、全圆角、灰底无边框 */
 @Composable
 private fun ToolPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -265,9 +263,9 @@ private fun ToolPill(
     val fg = if (selected) Palette.Accent else Palette.Fg
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(999.dp),
         color = if (selected) Palette.AccentSoft else Palette.Surface2,
-        modifier = Modifier.height(36.dp).testTag(tag),
+        modifier = Modifier.height(44.dp).testTag(tag),
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp).fillMaxHeight(),

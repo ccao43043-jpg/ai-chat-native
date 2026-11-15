@@ -3,6 +3,7 @@ package com.aichat.app.ui.chat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.ui.common.ConfirmDialog
 import com.aichat.app.ui.common.EditorAction
@@ -309,22 +311,49 @@ fun ChatScreen(
             // 底部没有 Tab 栏了，Snackbar 默认会压住输入条，抬到它上面
             snackbarHost = { SnackbarHost(snack, modifier = Modifier.padding(bottom = 112.dp)) },
             topBar = {
-                Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { scope.launch { drawer.open() } }, Modifier.testTag("open-drawer")) {
-                            Icon(Icons.Filled.Menu, "对话列表")
+                val hbadges = if (conv != null) deps.plugins.headerBadges(settings, conv) else emptyList()
+                val modelLabel = when {
+                    settings.providers.isEmpty() -> "未配置"
+                    else -> target?.second ?: "选择模型"
+                }
+                Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(Palette.Surface2)
+                                .clickable { scope.launch { drawer.open() } }
+                                .testTag("open-drawer"),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.Menu, "对话列表") }
+                        Row(
+                            Modifier.weight(1f).padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                conv?.title ?: "新对话",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text(
+                                modelLabel,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp,
+                                color = Palette.Fg2,
+                                modifier = Modifier.padding(start = 8.dp).testTag("model-switch")
+                                    .clickable { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
+                            )
                         }
-                        Text(
-                            conv?.title ?: "新对话",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.weight(1f),
-                        )
                         Box {
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                            Box(
+                                Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(Palette.Surface2)
+                                    .clickable { menu = true },
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Filled.MoreVert, "更多") }
                             ChatOverflowMenu(
                                 expanded = menu,
                                 onDismiss = { menu = false },
@@ -349,27 +378,18 @@ fun ChatScreen(
                             )
                         }
                     }
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                    if (hbadges.isNotEmpty()) Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 2.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Surface(
-                            onClick = { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            modifier = Modifier.weight(1f).testTag("model-switch"),
+                        Row(
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState()).testTag("header-badges"),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text(
-                                when {
-                                    settings.providers.isEmpty() -> "未配置服务商"
-                                    else -> target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型"
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Palette.Fg2,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            )
+                            hbadges.forEach { b ->
+                                BadgeChip(b, prefix = when (b.plugin) { "affect" -> "💓 "; else -> "" },
+                                    onClick = { if (b.action != null) panel = b.action else b.detail?.let(controller::toast) })
+                            }
                         }
                         ChatMounts.usage?.invoke(conv, settings) ?: DefaultUsageChip(conv, settings)
                     }
@@ -377,15 +397,6 @@ fun ChatScreen(
             },
         ) { pad ->
             Column(Modifier.padding(pad).fillMaxSize()) {
-                val hbadges = if (conv != null) deps.plugins.headerBadges(settings, conv) else emptyList()
-                if (hbadges.isNotEmpty()) androidx.compose.foundation.layout.Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp).testTag("header-badges"),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    hbadges.forEach { b ->
-                        BadgeChip(b, prefix = when (b.plugin) { "affect" -> "💓 "; else -> "" },
-                            onClick = { if (b.action != null) panel = b.action else b.detail?.let(controller::toast) })
-                    }
-                }
                 if (deps.isFake) Text("演示模式：数据层 / 网络层尚未接入，回复由 fake 引擎生成，不会保存",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
