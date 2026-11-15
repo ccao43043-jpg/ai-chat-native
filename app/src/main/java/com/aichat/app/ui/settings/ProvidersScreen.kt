@@ -175,7 +175,7 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                     }
                 }, enabled = !fetching) { Text(if (fetching) "获取中…" else "获取模型列表") }
                 if (isOr) TextButton(onClick = {
-                    val ids = ProviderEditor.parseModels(models)
+                    val ids = editor.parseModels(models)
                     if (ids.isEmpty()) { toast("请先添加模型"); return@TextButton }
                     if (priceBusy) return@TextButton
                     priceBusy = true
@@ -184,12 +184,13 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                             val client = deps.client ?: throw IllegalStateException("当前环境不能刷新价格")
                             val next = LinkedHashMap<String, JsonElement>(meta)
                             var ok = 0
-                            ids.take(20).forEach { id ->
+                            for (id in ids.take(20)) {
                                 try {
                                     val r = client.openRouterEndpoints(p.copy(type = type, baseUrl = base.trim()), id)
                                     val floor = r["floor"]
                                     val eps = r["endpoints"]
-                                    ModelCatalog.applyFloorToMeta(JsonObject(next), id, floor as? JsonObject, eps)?.let { next.clear(); next.putAll(it) }
+                                    val applied = ModelCatalog.applyFloorToMeta(JsonObject(next), id, floor as? JsonObject, eps)
+                                    if (applied != null) { next.clear(); applied.forEach { (k, v) -> next[k] = v } }
                                     ok++
                                 } catch (_: Exception) {}
                             }
@@ -202,7 +203,7 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
             }
             SoftField(models, { models = it }, minLines = 3, maxLines = 12, modifier = Modifier.fillMaxWidth().testTag("pe-models"))
             run {
-                val lines = ProviderEditor.parseModels(models).take(6).mapNotNull { id ->
+                val lines = editor.parseModels(models).take(6).mapNotNull { id ->
                     val m = meta[id] as? JsonObject ?: return@mapNotNull null
                     val price = ModelCatalog.formatModelPrice(m)
                     val cat = when (ModelCatalog.classifyModel(id, m)) {
@@ -230,10 +231,10 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
     if (fetchOpen) ModelFetchSheet(
         fetched, meta, fetchCat, { fetchCat = it }, fetchQuery, { fetchQuery = it }, picked,
         { id -> picked = if (id in picked) picked - id else picked + id },
-        ProviderEditor.parseModels(models).toSet(),
+        editor.parseModels(models).toSet(),
         onAdd = {
-            val add = picked.filter { it !in ProviderEditor.parseModels(models) }
-            if (add.isNotEmpty()) models = (ProviderEditor.parseModels(models) + add).joinToString("\n")
+            val add = picked.filter { it !in editor.parseModels(models) }
+            if (add.isNotEmpty()) models = (editor.parseModels(models) + add).joinToString("\n")
             fetchOpen = false
             toast(if (add.isEmpty()) "没有选择新模型" else "已添加 ${add.size} 个模型，记得保存")
         },
