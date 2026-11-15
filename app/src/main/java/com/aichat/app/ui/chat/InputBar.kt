@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +56,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.aichat.app.data.files.FileText
@@ -103,6 +106,8 @@ fun InputBar(
     var attachMenu by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(0) }
     var focused by remember { mutableStateOf(false) }
+    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val composing = focused && imeOpen
     // 回调里读最新值（launcher 回调在组合之外触发）
     val cur = remember { object { var images = images; var files = files } }
     cur.images = images; cur.files = files
@@ -167,7 +172,7 @@ fun InputBar(
             }
 
             // 点输入框时收起功能胶囊，把位置让给变高的输入框
-            if (!focused && (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null)) {
+            if (!composing && (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null)) {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -187,11 +192,11 @@ fun InputBar(
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
-                modifier = Modifier.fillMaxWidth().heightIn(min = if (focused) 72.dp else 48.dp).testTag("input"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = if (composing) 72.dp else 48.dp).testTag("input"),
             ) {
                 Row(
-                    Modifier.padding(start = 4.dp, end = 6.dp, top = if (focused) 8.dp else 4.dp, bottom = 4.dp),
-                    verticalAlignment = if (focused) Alignment.Top else Alignment.CenterVertically,
+                    Modifier.padding(start = 4.dp, end = 6.dp, top = if (composing) 8.dp else 4.dp, bottom = 4.dp),
+                    verticalAlignment = if (composing) Alignment.Top else Alignment.CenterVertically,
                 ) {
                     Box {
                         Box(
@@ -222,7 +227,7 @@ fun InputBar(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
                             cursorBrush = SolidColor(Palette.Accent),
                             maxLines = 6,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = if (focused) 48.dp else 22.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = if (composing) 48.dp else 22.dp)
                                 .onFocusChanged { focused = it.isFocused },
                         )
                     }
