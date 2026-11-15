@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -207,19 +209,24 @@ fun ImageScreen() {
         }
 
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
+        // 用和上下两张 OptionCard 同形同高的可编辑卡片。
+        // 原来这里是 OutlinedTextField：自带 56dp 高度 + supportingText，
+        // 夹在两张卡片中间明显高出一截，整列的节奏被打断。
+        InputCard(
+            label = "模型",
             value = model,
-            onValueChange = { model = it },
-            label = { Text("模型") },
-            placeholder = { Text(provider?.imageModel?.ifEmpty { "例如 gpt-image-1" } ?: "例如 gpt-image-1") },
-            supportingText = if (imageModels.isNotEmpty()) {
-                { Text("可选：" + imageModels.joinToString("、"), style = MaterialTheme.typography.bodySmall) }
-            } else {
-                { Text("留空则用服务商里的生图模型", style = MaterialTheme.typography.bodySmall) }
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("image-model"),
+            placeholder = provider?.imageModel?.takeIf { it.isNotEmpty() } ?: "留空则用服务商里的生图模型",
+            tag = "image-model",
+            onChange = { model = it },
         )
+        if (imageModels.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "可选：" + imageModels.joinToString("、"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Spacer(Modifier.height(12.dp))
         Box {
@@ -411,6 +418,43 @@ private fun OptionCard(label: String, value: String, tag: String, onClick: () ->
                 Text(value, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * 和 [OptionCard] 同形同高的可编辑行：卡片里放一个无边框输入框。
+ * 这样「服务商 / 模型 / 尺寸」三行高度一致，不会因为 OutlinedTextField 自带的
+ * 56dp 高度和 supportingText 而突然高出一截。
+ */
+@Composable
+private fun InputCard(label: String, value: String, placeholder: String, tag: String, onChange: (String) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Palette.Surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.fillMaxWidth()) {
+                if (value.isEmpty()) {
+                    Text(
+                        placeholder,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth().testTag(tag),
+                )
+            }
         }
     }
 }

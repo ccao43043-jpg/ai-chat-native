@@ -1,6 +1,7 @@
 package com.aichat.app.ui.chat
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -105,7 +107,13 @@ private fun EmptyHero(onPick: (String) -> Unit) {
                     .background(Palette.Grad),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Star, null, Modifier.size(40.dp), tint = Color.White)
+                // 用启动图标而不是某个通用 material 图标：空态是品牌位，
+                // 星星/闪光/灯泡这类通用符号换成任何 app 都成立，反而更廉价。
+                Image(
+                    painterResource(com.aichat.app.R.mipmap.ic_launcher_foreground),
+                    null,
+                    Modifier.size(52.dp),
+                )
             }
             Spacer(Modifier.height(24.dp))
             Text(
@@ -127,13 +135,15 @@ private fun EmptyHero(onPick: (String) -> Unit) {
                     shape = RoundedCornerShape(999.dp),
                     color = Palette.Surface2,
                     border = BorderStroke(1.dp, Palette.Line),
-                    modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 320.dp).fillMaxWidth(),
+                    // 不再 fillMaxWidth：建议是「选项」不是「按钮条」，
+                    // 撑满整行会让人以为那是三个并列的大按钮。按文字收口、居中。
+                    modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 300.dp),
                 ) {
                     Text(
                         s,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
                     )
                 }
             }
