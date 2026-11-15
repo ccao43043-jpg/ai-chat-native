@@ -6,31 +6,38 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,21 +49,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.aichat.app.data.files.FileText
 import com.aichat.app.ui.common.ImageLoader
 import com.aichat.app.ui.common.PdfPages
 import com.aichat.app.ui.common.RemoteImage
+import com.aichat.app.ui.theme.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** 输入框上方工具条（提示词库 / 模板 / 联网搜索）的回调；null 表示不显示 */
+/** 输入框工具条（提示词库 / 模板 / 联网搜索）的回调；null 表示不显示 */
 data class InputTools(
     val onPrompts: (() -> Unit)? = null,
     val onTemplates: (() -> Unit)? = null,
@@ -65,7 +76,13 @@ data class InputTools(
     val onSearch: ((Boolean) -> Unit)? = null,
 )
 
-/** 输入区：多行文字 + 附件（相册图片 / 文件：PDF、Office、文本）+ 发送 / 停止 */
+/**
+ * 输入区，布局对齐 Kimi：
+ *   卡片**上方**一排功能胶囊（联网搜索 / 提示词 / 模板）→ 一条细长输入条（＋ ｜ 文本 ｜ 发送）
+ *
+ * 相比上一版把工具条塞进卡片里，这里把胶囊移出去 —— 好处是输入条只剩一行高（48dp），
+ * 整个底部只占「一排胶囊 + 一条输入」，视觉上最接近参考图。
+ */
 @Composable
 fun InputBar(
     text: String,
@@ -85,6 +102,7 @@ fun InputBar(
     val scope = rememberCoroutineScope()
     var attachMenu by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(0) }
+    var focused by remember { mutableStateOf(false) }
     // 回调里读最新值（launcher 回调在组合之外触发）
     val cur = remember { object { var images = images; var files = files } }
     cur.images = images; cur.files = files
@@ -116,51 +134,148 @@ fun InputBar(
             }
         }
     }
-    Surface(tonalElevation = 2.dp, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-            if (tools.onPrompts != null || tools.onTemplates != null || tools.onSearch != null)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    tools.onSearch?.let { f -> FilterChip(tools.searchOn, { f(!tools.searchOn) }, label = { Text("🌐 联网搜索", fontSize = 12.sp) },
-                        modifier = Modifier.testTag("search-toggle")) }
-                    tools.onPrompts?.let { FilterChip(false, it, label = { Text("⚡ 提示词", fontSize = 12.sp) }, modifier = Modifier.testTag("prompts-open")) }
-                    tools.onTemplates?.let { FilterChip(tools.templateLabel != null, it, label = { Text(tools.templateLabel ?: "📋 模板", fontSize = 12.sp) },
-                        modifier = Modifier.testTag("templates-open")) }
-                }
-            if (images.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                images.forEachIndexed { i, src ->
-                    Box {
-                        RemoteImage(src, Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
-                        Box(Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape)
-                            .clickable { onImages(images.filterIndexed { j, _ -> j != i }) }) {
-                            Surface(color = MaterialTheme.colorScheme.inverseSurface, shape = CircleShape) {
-                                Icon(Icons.Filled.Close, "移除图片", tint = MaterialTheme.colorScheme.inverseOnSurface, modifier = Modifier.size(20.dp).padding(3.dp))
+
+    Column(modifier.fillMaxWidth().navigationBarsPadding()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
+            // ── 附件缩略图（有才显示） ──
+            if (images.isNotEmpty()) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    images.forEachIndexed { i, src ->
+                        Box {
+                            RemoteImage(src, Modifier.size(60.dp).clip(RoundedCornerShape(10.dp)))
+                            Box(
+                                Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape)
+                                    .clickable { onImages(images.filterIndexed { j, _ -> j != i }) },
+                            ) {
+                                Surface(color = MaterialTheme.colorScheme.inverseSurface, shape = CircleShape) {
+                                    Icon(
+                                        Icons.Filled.Close, "移除图片",
+                                        tint = MaterialTheme.colorScheme.inverseOnSurface,
+                                        modifier = Modifier.size(20.dp).padding(3.dp),
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
             FileChips(files, onRemove = { i -> onFiles(files.filterIndexed { j, _ -> j != i }) })
-            if (reading > 0) Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.Bottom) {
-                Box {
-                    IconButton(onClick = { attachMenu = true }, modifier = Modifier.testTag("attach")) { Icon(Icons.Filled.Add, "添加附件") }
-                    DropdownMenu(attachMenu, { attachMenu = false }) {
-                        DropdownMenuItem(text = { Text("从相册选择") }, modifier = Modifier.testTag("attach-image"), onClick = {
-                            attachMenu = false; picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                        DropdownMenuItem(text = { Text("选择文件（PDF / Word / PPT / Excel / 文本）") }, modifier = Modifier.testTag("attach-file"), onClick = {
-                            attachMenu = false; docPicker.launch(arrayOf("*/*")) })
+            if (reading > 0) {
+                Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = Palette.Fg3)
+            }
+
+            // ── 功能胶囊（在输入条上方，Kimi 同款位置） ──
+            if (tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    tools.onSearch?.let { f ->
+                        ToolPill(Icons.Filled.Search, "联网搜索", tools.searchOn, "search-toggle") { f(!tools.searchOn) }
+                    }
+                    tools.onPrompts?.let { ToolPill(Icons.Filled.Create, "提示词", false, "prompts-open", it) }
+                    tools.onTemplates?.let {
+                        ToolPill(Icons.AutoMirrored.Filled.List, tools.templateLabel ?: "模板", tools.templateLabel != null, "templates-open", it)
                     }
                 }
-                OutlinedTextField(text, onText, modifier = Modifier.weight(1f).testTag("input"), placeholder = { Text("给 AI 发消息…") },
-                    maxLines = 6, shape = RoundedCornerShape(20.dp))
-                if (streaming) FilledIconButton(onClick = onStop, modifier = Modifier.padding(start = 4.dp).testTag("stop"),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                    Icon(Icons.Filled.Close, "停止")
-                } else FilledIconButton(onClick = onSend, enabled = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty()),
-                    modifier = Modifier.padding(start = 4.dp).testTag("send")) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "发送")
+            }
+
+            // ── 输入条：＋ ｜ 文本 ｜ 发送 ──
+            val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = Palette.Surface2,
+                border = BorderStroke(1.dp, if (focused) Palette.Accent.copy(alpha = 0.45f) else Palette.Line),
+                modifier = Modifier.fillMaxWidth().testTag("input"),
+            ) {
+                Row(
+                    Modifier.padding(start = 4.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Box {
+                        Box(
+                            Modifier.size(38.dp).clip(CircleShape).clickable { attachMenu = true }.testTag("attach"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Add, "添加附件", Modifier.size(22.dp), tint = Palette.Fg2)
+                        }
+                        DropdownMenu(attachMenu, { attachMenu = false }) {
+                            DropdownMenuItem(text = { Text("从相册选择") }, modifier = Modifier.testTag("attach-image"), onClick = {
+                                attachMenu = false
+                                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            })
+                            DropdownMenuItem(text = { Text("选择文件（PDF / Word / PPT / Excel / 文本）") }, modifier = Modifier.testTag("attach-file"), onClick = {
+                                attachMenu = false; docPicker.launch(arrayOf("*/*"))
+                            })
+                        }
+                    }
+                    Box(Modifier.weight(1f).padding(vertical = 9.dp)) {
+                        if (text.isEmpty()) {
+                            Text("尽管问，或做个任务…", style = MaterialTheme.typography.bodyMedium, color = Palette.Fg3)
+                        }
+                        BasicTextField(
+                            value = text,
+                            onValueChange = onText,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
+                            cursorBrush = SolidColor(Palette.Accent),
+                            maxLines = 6,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 22.dp)
+                                .onFocusChanged { focused = it.isFocused },
+                        )
+                    }
+                    if (streaming) {
+                        Box(
+                            Modifier.padding(bottom = 2.dp).size(36.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.18f))
+                                .clickable(onClick = onStop).testTag("stop"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Close, "停止", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        }
+                    } else {
+                        Box(
+                            Modifier.padding(bottom = 2.dp).size(36.dp).clip(CircleShape)
+                                .background(if (canSend) Palette.Grad else Brush.linearGradient(listOf(Palette.Surface3, Palette.Surface3)))
+                                .clickable(enabled = canSend, onClick = onSend)
+                                .testTag("send"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, "发送", tint = if (canSend) Color.White else Palette.Fg3, modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/** Kimi 风格的功能胶囊：36dp 高、12dp 圆角、灰底无边框，图标 16dp + 文案 */
+@Composable
+private fun ToolPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val fg = if (selected) Palette.Accent else Palette.Fg
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) Palette.AccentSoft else Palette.Surface2,
+        modifier = Modifier.height(36.dp).testTag(tag),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp).fillMaxHeight(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, null, Modifier.size(16.dp), tint = fg)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1)
         }
     }
 }

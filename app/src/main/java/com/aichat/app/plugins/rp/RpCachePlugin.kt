@@ -96,10 +96,13 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
         val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
         val inputId = p.input?.let { Js.str(it["id"]) }
+        // p.input 可能已带世界书冻结片段（applyFrozenLore 追加在锚点 user 上），
+        // finalUserContent 必须基于它改写，否则 [LORE_TRIGGERED …] 会被原内容覆盖
+        val inputBase = p.input?.let { Js.str(it["content"]) }.orEmpty()
         val msgs = ctx.messages.mapIndexedNotNull { i, m ->
             val mid = m.srcId ?: "i$i"
             when {
-                mid == inputId -> m.copy(content = RpCacheCore.finalUserContent(st2, m.content))
+                mid == inputId -> m.copy(content = RpCacheCore.finalUserContent(st2, inputBase.ifEmpty { m.content }))
                 keepIds.contains(mid) -> m
                 else -> null
             }

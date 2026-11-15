@@ -396,4 +396,34 @@ object RpLoreCore {
         }
         return JObj(st1) to fired
     }
+
+    /**
+     * 世界书文本编辑（对应 rpcache.js 的 setLore）：
+     * 解析成条目、记哈希；若已冻结过又改了文本，打 loreEditedWhileFrozen；开了 rebuildOnEdit 就直接清冻结并置 loreNeedsRebuild。
+     */
+    fun setLore(st: JObj, text: String, at: Long): JObj {
+        val prev = s(st["loreTextHash"])
+        val hash = Js.sha256(text)
+        val next = LinkedHashMap<String, Any?>(st)
+        next["lore"] = Lore.parseLore(text)
+        next["loreText"] = text
+        next["loreTextHash"] = hash
+        if (prev.isNotEmpty() && prev != hash && firedOf(st).isNotEmpty()) next["loreEditedWhileFrozen"] = true
+        val ls = loreSettings(st)
+        if (ls["rebuildOnEdit"] == true && prev.isNotEmpty() && prev != hash) {
+            next["loreFired"] = ArrayList<Any?>()
+            next["loreEditedWhileFrozen"] = false
+            next["loreNeedsRebuild"] = true
+        }
+        return next
+    }
+
+    /** 手动重建：清空本次冻结，下一轮按新文本重新触发 */
+    fun rebuildFrozen(st: JObj): JObj {
+        val next = LinkedHashMap<String, Any?>(st)
+        next["loreFired"] = ArrayList<Any?>()
+        next["loreEditedWhileFrozen"] = false
+        next["loreNeedsRebuild"] = false
+        return next
+    }
 }

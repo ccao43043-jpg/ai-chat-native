@@ -1,7 +1,9 @@
 package com.aichat.app.ui.conversation
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -9,17 +11,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -42,16 +47,42 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.aichat.app.R
 import com.aichat.app.domain.model.ConversationMeta
 import com.aichat.app.ui.common.pressScale
+import com.aichat.app.ui.theme.Palette
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 对话抽屉：列表（convs.json 顺序 = updatedAt 降序）、新建、重命名、删除 */
+/**
+ * 抽屉底部各项的计数（旧版 v0.29 的「已启用 4」「8 助手 · 6 提示词」「10 个模板」）。
+ * 全部可空：拿不到就不显示，不猜。
+ */
+data class DrawerSummary(
+    val enabledPlugins: Int? = null,
+    val personaCount: Int? = null,
+    val promptCount: Int? = null,
+    val templateCount: Int? = null,
+    val worldCount: Int? = null,
+    val hasBalanceKey: Boolean? = null,
+)
+
+/**
+ * 对话抽屉，按 Kimi 的形态重排：
+ *   新建 → 功能（设置 / 插件 / 生图 / 助手 / 世界 / 模板 / 用量 / 余额）→ 「历史会话」+ 搜索 → 对话列表
+ *
+ * **整块放在一个 LazyColumn 里**：往上滑时功能区和对话列表一起滚走（之前是列表单独滚、
+ * 上下两块钉死，滑动感觉很别扭）。
+ * 测试依赖的 tag：drawer / drawer-new / drawer-personas / drawer-settings / conv-<id> / rename-field。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationDrawer(
@@ -64,45 +95,156 @@ fun ConversationDrawer(
     onOpenSettings: () -> Unit,
     onExport: ((String) -> Unit)? = null,
     onOpenPersonas: (() -> Unit)? = null,
+    summary: DrawerSummary? = null,
+    onOpenPlugins: (() -> Unit)? = null,
+    onOpenWorlds: (() -> Unit)? = null,
+    onOpenTemplates: (() -> Unit)? = null,
+    onOpenUsage: (() -> Unit)? = null,
+    onOpenBalance: (() -> Unit)? = null,
+    onOpenImage: (() -> Unit)? = null,
 ) {
     var renaming by remember { mutableStateOf<ConversationMeta?>(null) }
     var deleting by remember { mutableStateOf<ConversationMeta?>(null) }
-    ModalDrawerSheet(Modifier.testTag("drawer")) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("对话", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onNew, modifier = Modifier.testTag("drawer-new")) {
-                Icon(Icons.Filled.Add, null); Text("新对话")
-            }
+    var query by rememberSaveable { mutableStateOf("") }
+
+    val shown = remember(index, query) {
+        val q = query.trim()
+        if (q.isEmpty()) index else index.filter {
+            it.title.contains(q, ignoreCase = true) ||
+                (it.model?.contains(q, ignoreCase = true) == true)
         }
-        HorizontalDivider()
-        if (index.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Edit, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.size(8.dp))
-                    Text("还没有对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        "点右上角「新对话」开始",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
+    }
+
+    ModalDrawerSheet(Modifier.testTag("drawer")) {
+        LazyColumn(Modifier.fillMaxWidth()) {
+            // ── 新建 ──
+            item {
+                Surface(
+                    onClick = onNew,
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.White,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp)
+                        .height(50.dp).testTag("drawer-new"),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.Add, null, Modifier.size(20.dp), tint = Color(0xFF18181B))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "新对话", color = Color(0xFF18181B), fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // ── 功能区（Kimi 里这一块在对话记录上方） ──
+            item { DrawerEntry(Icons.Filled.Settings, "设置", "drawer-settings", onOpenSettings) }
+            onOpenPlugins?.let { f ->
+                item {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_plugin, "插件", "drawer-plugins", f,
+                        trailing = summary?.enabledPlugins?.let { n -> "已启用 $n" },
                     )
                 }
             }
-        } else {
-            LazyColumn(Modifier.weight(1f)) {
-                items(index, key = { it.id }) { m ->
-                    ConvRow(m, m.id == currentId, onClick = { onSelect(m.id) }, onRename = { renaming = m }, onDelete = { deleting = m },
-                        onExport = onExport?.let { f -> { f(m.id) } })
+            onOpenImage?.let { f ->
+                item { DrawerEntry(R.drawable.ic_drawer_image, "生图", "drawer-image", f, trailing = "文字生成图片") }
+            }
+            onOpenPersonas?.let { f ->
+                item {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_people, "助手", "drawer-personas", f,
+                        trailing = summary?.let { s ->
+                            listOfNotNull(
+                                s.personaCount?.let { n -> "$n 助手" },
+                                s.promptCount?.let { n -> "$n 提示词" },
+                            ).joinToString(" · ").ifEmpty { null }
+                        },
+                    )
                 }
             }
-        }
-        HorizontalDivider()
-        if (onOpenPersonas != null) TextButton(onClick = onOpenPersonas, modifier = Modifier.padding(horizontal = 8.dp).testTag("drawer-personas")) {
-            Text("🤖 助手库")
-        }
-        TextButton(onClick = onOpenSettings, modifier = Modifier.padding(8.dp).testTag("drawer-settings")) {
-            Icon(Icons.Filled.Settings, null); Text("  设置")
+            onOpenWorlds?.let { f ->
+                item {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_world, "世界", "drawer-worlds", f,
+                        trailing = summary?.worldCount?.let { n -> "$n 个世界" } ?: "世界模板",
+                    )
+                }
+            }
+            onOpenTemplates?.let { f ->
+                item {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_template, "模板", "drawer-templates", f,
+                        trailing = summary?.templateCount?.let { n -> "$n 个模板" },
+                    )
+                }
+            }
+            onOpenUsage?.let { f ->
+                item { DrawerEntry(R.drawable.ic_drawer_usage, "用量", "drawer-usage", f, trailing = "Token 统计") }
+            }
+            onOpenBalance?.let { f ->
+                item {
+                    DrawerEntry(
+                        R.drawable.ic_drawer_wallet, "余额", "drawer-balance", f,
+                        trailing = when (summary?.hasBalanceKey) {
+                            true -> "查看余额"
+                            false -> "未配置 Key"
+                            null -> null
+                        },
+                    )
+                }
+            }
+
+            // ── 历史会话 ──
+            item {
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = Palette.Line)
+                Text(
+                    "历史会话",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Palette.Fg,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 10.dp),
+                )
+            }
+            item {
+                SearchRow(query) { query = it }
+            }
+
+            if (shown.isEmpty()) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            if (query.isEmpty()) "还没有对话" else "没有匹配「$query」的对话",
+                            style = MaterialTheme.typography.bodyMedium, color = Palette.Fg3,
+                        )
+                        if (query.isEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("点击上方「新对话」开始", style = MaterialTheme.typography.bodySmall, color = Palette.Fg3)
+                        }
+                    }
+                }
+            } else {
+                items(shown, key = { it.id }) { m ->
+                    ConvRow(
+                        m, m.id == currentId,
+                        onClick = { onSelect(m.id) },
+                        onRename = { renaming = m },
+                        onDelete = { deleting = m },
+                        onExport = onExport?.let { f -> { f(m.id) } },
+                    )
+                }
+            }
+
+            item { Spacer(Modifier.height(12.dp).navigationBarsPadding()) }
         }
     }
 
@@ -121,15 +263,50 @@ fun ConversationDrawer(
     }
 }
 
+/** 搜索框：灰色圆角，图标 + 占位 */
+@Composable
+private fun SearchRow(query: String, onQuery: (String) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Palette.Surface2,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp).testTag("drawer-search"),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = Palette.Fg3)
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text("搜索对话", style = MaterialTheme.typography.bodyMedium, color = Palette.Fg3)
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQuery,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
+                    cursorBrush = SolidColor(Palette.Accent),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onExport: (() -> Unit)? = null) {
+private fun ConvRow(
+    m: ConversationMeta,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onExport: (() -> Unit)? = null,
+) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Surface(
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        color = if (selected) Palette.AccentSoft else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp)
             .pressScale(src)
             .combinedClickable(
                 interactionSource = src,
@@ -138,21 +315,78 @@ private fun ConvRow(m: ConversationMeta, selected: Boolean, onClick: () -> Unit,
                 onLongClick = { menu = true },
             ).testTag("conv-${m.id}"),
     ) {
-        Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text((m.personaEmoji?.let { "$it " } ?: "") + m.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge)
-                Text(listOf(m.model, formatTime(m.updatedAt)).filter { it.isNotEmpty() }.joinToString(" · "), maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    (m.personaEmoji?.let { "$it " } ?: "") + m.title,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (selected) Palette.Accent else Palette.Fg,
+                )
+                val sub = listOf(m.model, formatTime(m.updatedAt)).filter { !it.isNullOrEmpty() }.joinToString(" · ")
+                if (sub.isNotEmpty()) {
+                    Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall, color = Palette.Fg3)
+                }
             }
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "更多") }
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.MoreVert, "更多", Modifier.size(18.dp), tint = Palette.Fg3)
+                }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; onRename() })
                     if (onExport != null) DropdownMenuItem(text = { Text("导出") }, onClick = { menu = false; onExport() })
                     DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onDelete() })
                 }
             }
+        }
+    }
+}
+
+/** 功能行：图标 + 文案 + 右侧计数（不带箭头，和 Kimi 一致） */
+@Composable
+private fun DrawerEntry(
+    @DrawableRes icon: Int,
+    label: String,
+    tag: String,
+    onClick: () -> Unit,
+    trailing: String? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+            .padding(horizontal = 20.dp).testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), null, Modifier.size(21.dp), tint = Palette.Fg2)
+        Spacer(Modifier.width(14.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun DrawerEntry(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tag: String,
+    onClick: () -> Unit,
+    trailing: String? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick)
+            .padding(horizontal = 20.dp).testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(21.dp), tint = Palette.Fg2)
+        Spacer(Modifier.width(14.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = Palette.Fg, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
         }
     }
 }

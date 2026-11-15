@@ -97,9 +97,9 @@ fun MessageItem(
                 if (m.content.isNotEmpty()) Surface(
                     // 旧版 .msg.user .bubble：16/16/4/16 的「尖角朝下」，实心紫 + 一层紫色投影
                     color = com.aichat.app.ui.theme.Palette.UserBubble,
-                    shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
+                    shape = RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.clip(RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp))
                         .combinedClickable(onClick = {}, onLongClick = copy).testTag("msg-user"),
                 ) {
                     Text(
@@ -137,9 +137,9 @@ fun MessageItem(
                 if (m.content.isNotEmpty()) Surface(
                     // 旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
                     color = com.aichat.app.ui.theme.Palette.AssistantBubble,
-                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                    shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)).testTag("msg-assistant-body"),
+                    modifier = Modifier.clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).testTag("msg-assistant-body"),
                 ) {
                     SelectionContainer {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {

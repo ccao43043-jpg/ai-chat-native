@@ -28,6 +28,8 @@ object ImageGen {
 
     /** UI 选图上限：OpenRouter 收 16 张、其余 10 张，这里按较小的一边收。 */
     const val MAX_REF_IMAGES = 10
+    /** 硬上限：OpenRouter 走新 Image API，最多 16 张（providers.js:781 `maxRefs = openrouter ? 16 : 10`）。 */
+    const val MAX_REF_IMAGES_HARD = 16
     const val MSG_SLICE = 280
 
     /** providers.js 的 ASPECT_RATIOS（顺序影响"最接近"的取舍，别排序） */

@@ -3,10 +3,8 @@ package com.aichat.app.ui.chat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
@@ -55,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,6 +67,19 @@ import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.conversation.ConversationDrawer
 import com.aichat.app.ui.settings.SettingsDestination
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.aichat.app.ui.theme.Palette
 
 /**
  * 聊天页：顶栏（抽屉 / 标题 + 模型切换 / 更多）、消息列表（reverseLayout，流式时贴底）、输入区。
@@ -76,67 +88,133 @@ import kotlinx.coroutines.launch
 /**
  * 空对话首屏。对齐旧版 .empty：64dp 渐变圆角块 + 24px 标题 + 副标题 + 一排建议 pill。
  * 建议点一下只把文字塞进输入框，不直接发送 —— 用户通常还要再改两个字。
+ *
+ * 没配服务商时不显示建议：那时候点建议也没用（发不出去），
+ * 改成旧版 v0.29 那张「开始之前」三步引导卡。
  */
 @Composable
-private fun EmptyHero(onPick: (String) -> Unit) {
+private fun EmptyHero(hasProvider: Boolean, onSetup: () -> Unit, onPick: (String) -> Unit) {
     val suggestions = remember {
-        listOf("帮我写一封请假邮件", "解释这段报错的含义", "把下面这段话改得更正式")
+        listOf("解释量子计算", "写一封感谢信", "推荐一个周末可以去的地方")
     }
-    androidx.compose.foundation.layout.Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp).padding(top = 72.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
     ) {
-        androidx.compose.foundation.layout.Box(
-            Modifier.size(64.dp)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                .background(
-                    androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(androidx.compose.ui.graphics.Color(0x337C3AED), androidx.compose.ui.graphics.Color(0x33C026D3)),
-                    )
-                )
-                .border(1.dp, androidx.compose.ui.graphics.Color(0x4D8B5CF6), androidx.compose.foundation.shape.RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center,
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(
-                androidx.compose.ui.res.painterResource(com.aichat.app.R.mipmap.ic_launcher_foreground),
-                null,
-                Modifier.size(40.dp),
-            )
-        }
-        androidx.compose.foundation.layout.Spacer(Modifier.height(14.dp))
-        Text("你好，我是 AI Chat", style = MaterialTheme.typography.headlineSmall)
-        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
-        Text(
-            "专注高质量文字生成。支持插件扩展能力。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.height(20.dp))
-        suggestions.forEach { s ->
-            androidx.compose.material3.Surface(
-                onClick = { onPick(s) },
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
-                color = com.aichat.app.ui.theme.Palette.Surface2,
-                border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                modifier = Modifier.padding(vertical = 4.dp),
+            Box(
+                Modifier.size(88.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Palette.Grad),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(s, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp))
+                // 用启动图标而不是某个通用 material 图标：空态是品牌位，
+                // 星星/闪光/灯泡这类通用符号换成任何 app 都成立，反而更廉价。
+                Image(
+                    painterResource(com.aichat.app.R.mipmap.ic_launcher_foreground),
+                    null,
+                    Modifier.size(52.dp),
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "有什么可以帮你？",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "我可以回答问题、提供建议或帮你生成创意",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(28.dp))
+            if (hasProvider) {
+                suggestions.forEach { s ->
+                    Surface(
+                        onClick = { onPick(s) },
+                        shape = RoundedCornerShape(999.dp),
+                        color = Palette.Surface2,
+                        border = BorderStroke(1.dp, Palette.Line),
+                        // 不再 fillMaxWidth：建议是「选项」不是「按钮条」，
+                        // 撑满整行会让人以为那是三个并列的大按钮。按文字收口、居中。
+                        modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 300.dp),
+                    ) {
+                        Text(
+                            s,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        )
+                    }
+                }
+            } else {
+                SetupCard(onSetup)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 没配服务商时的引导卡（对齐旧版 v0.29 的「开始之前」三步）。
+ * 空态放三条建议是没意义的：点进去也发不出去，用户只会以为坏了。
+ */
 @Composable
+private fun SetupCard(onSetup: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Palette.Surface,
+        border = BorderStroke(1.dp, Palette.Line),
+        modifier = Modifier.fillMaxWidth().testTag("empty-setup-card"),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("开始之前", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            listOf(
+                "打开设置，选择一个服务商",
+                "粘贴你的 API Key 并保存",
+                "回到这里，点顶部切换模型即可聊天",
+            ).forEachIndexed { i, line ->
+                Row(Modifier.padding(vertical = 3.dp)) {
+                    Text("${i + 1}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text(line, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                onClick = onSetup,
+                shape = RoundedCornerShape(12.dp),
+                color = Palette.Accent,
+                modifier = Modifier.fillMaxWidth().testTag("empty-setup"),
+            ) {
+                Text(
+                    "去设置 API Key",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)@Composable
 fun ChatScreen(
     controller: ChatController,
     onOpenSettings: (SettingsDestination) -> Unit,
     /** 顶栏「更多」菜单的挂载点：B/C 可以在这里追加项（用量、RP 面板等） */
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
-    /** 「据此生图」：把对话提炼出的提示词带去生图 Tab */
+    /** 「据此生图」：把对话提炼出的提示词带去生图页 */
     onOpenImage: (String) -> Unit = {},
+    /** 抽屉里的「生图」入口：不带提示词，直接进生图页 */
+    onOpenImageTab: () -> Unit = {},
 ) {
     val deps = LocalUiDeps.current
     val st by controller.state.collectAsStateWithLifecycle()
@@ -159,6 +237,7 @@ fun ChatScreen(
     var rpMemoryPanel by remember { mutableStateOf(false) }
     var rpInspect by remember { mutableStateOf(false) }
     var rpChapter by remember { mutableStateOf(false) }
+    var rpLore by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
@@ -192,6 +271,22 @@ fun ChatScreen(
     // 新消息 / 切对话时回到底部
     LaunchedEffect(st.convId, messages.size) { if (messages.isNotEmpty()) listState.scrollToItem(0) }
 
+    // 抽屉底部各行的计数（旧版 v0.29 也展示这些）
+    val personas by deps.library.personas.collectAsState()
+    val prompts by deps.library.prompts.collectAsState()
+    val templates by deps.library.templates.collectAsState()
+    val worlds by deps.library.worlds.collectAsState()
+    val drawerSummary = remember(settings, personas, prompts, templates, worlds) {
+        com.aichat.app.ui.conversation.DrawerSummary(
+            enabledPlugins = deps.plugins.plugins.count { com.aichat.app.ui.settings.PluginToggles.enabled(settings, it) },
+            personaCount = personas.size,
+            promptCount = prompts.size,
+            templateCount = templates.size,
+            worldCount = worlds.size,
+            hasBalanceKey = settings.providers.any { it.hasKey },
+        )
+    }
+
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ConversationDrawer(index, st.convId,
             onSelect = { controller.select(it); scope.launch { drawer.close() } },
@@ -200,22 +295,48 @@ fun ChatScreen(
             onDelete = controller::delete,
             onOpenSettings = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Main) },
             onExport = exportConv,
-            onOpenPersonas = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Personas) })
+            onOpenPersonas = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Personas) },
+            summary = drawerSummary,
+            onOpenPlugins = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Plugins) },
+            onOpenWorlds = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Worlds) },
+            onOpenTemplates = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Templates) },
+            onOpenUsage = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Usage) },
+            onOpenBalance = { scope.launch { drawer.close() }; onOpenSettings(SettingsDestination.Balance) },
+            onOpenImage = { scope.launch { drawer.close() }; onOpenImageTab() })
     }) {
         Scaffold(
             contentWindowInsets = WindowInsets(0),
-            snackbarHost = { SnackbarHost(snack) },
+            // 底部没有 Tab 栏了，Snackbar 默认会压住输入条，抬到它上面
+            snackbarHost = { SnackbarHost(snack, modifier = Modifier.padding(bottom = 112.dp)) },
             topBar = {
                 CenterAlignedTopAppBar(
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
                     navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }, Modifier.testTag("open-drawer")) { Icon(Icons.Filled.Menu, "对话列表") } },
                     title = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(conv?.title ?: "新对话", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { picker = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.testTag("model-switch")) {
-                                Text(target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelMedium)
-                                Icon(Icons.Filled.ArrowDropDown, null)
+                            Surface(
+                                onClick = { if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Palette.Surface2,
+                                modifier = Modifier.widthIn(max = 168.dp).testTag("model-switch"),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        when {
+                                            settings.providers.isEmpty() -> "未配置服务商"
+                                            else -> target?.let { "${it.first.name} · ${it.second}" } ?: "选择模型"
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp))
+                                }
                             }
                         }
                     },
@@ -248,6 +369,11 @@ fun ChatScreen(
                 menu = false
                 controller.ensureConversation()
                 rpChapter = true
+            })
+            DropdownMenuItem(text = { Text("世界书") }, onClick = {
+                menu = false
+                controller.ensureConversation()
+                rpLore = true
             })
             if (conv != null) DropdownMenuItem(text = { Text("据此生图") }, onClick = {
                 menu = false
@@ -284,7 +410,11 @@ fun ChatScreen(
                 // 空对话时里面的「有什么可以帮你？」会被挤到左边贴边，而不是居中。
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (messages.isEmpty()) {
-                        EmptyHero(onPick = { input = it })
+                        EmptyHero(
+                        hasProvider = settings.providers.isNotEmpty(),
+                        onSetup = { onOpenSettings(SettingsDestination.Providers) },
+                        onPick = { input = it },
+                    )
                     } else {
                         // 性能：流式增量只改 live 这一条；stable 列表实例在整个流期间不变，已有条目不重组。
                         // 插件的 messageState / badges（RP 插件里是 O(n) 扫描）按消息 + 对话缓存，并且异常不外泄。
@@ -334,7 +464,7 @@ fun ChatScreen(
                     onStop = controller::stop, onToast = controller::toast, modifier = Modifier.imePadding(),
                     files = st.draftFiles, onFiles = controller::setDraftFiles,
                     tools = InputTools(onPrompts = { sheet = 1 }, onTemplates = { sheet = 2 },
-                        templateLabel = tplName?.let { (tplEmoji.ifEmpty { "📋" }) + " " + it },
+                        templateLabel = tplName?.let { listOfNotNull(tplEmoji.takeIf { e -> e.isNotEmpty() }, it).joinToString(" ") },
                         searchOn = settings.searchOn, onSearch = controller::setSearchOn))
             }
         }
@@ -392,7 +522,7 @@ fun ChatScreen(
             androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
                 if (page != null) page { panel = null }
                 else com.aichat.app.ui.settings.SettingsPageScaffold(id, { panel = null }) {
-                    Text("面板「$id」尚未接入（工作流 C）", Modifier.padding(20.dp))
+                    Text("这个面板还不能打开", Modifier.padding(20.dp))
                 }
             }
         }
@@ -447,6 +577,14 @@ fun ChatScreen(
             plugin = deps.plugins.plugins.firstOrNull { it.id == "rpcache" } as? com.aichat.app.plugins.rp.RpCachePlugin,
             onSaveState = { controller.setRpStateJson(conv.id, it) },
             onDismiss = { rpChapter = false },
+            onToast = controller::toast,
+        )
+    }
+    if (rpLore && conv != null) {
+        RpLoreDialog(
+            conv = conv,
+            onSaveState = { controller.setRpStateJson(conv.id, it) },
+            onDismiss = { rpLore = false },
             onToast = controller::toast,
         )
     }

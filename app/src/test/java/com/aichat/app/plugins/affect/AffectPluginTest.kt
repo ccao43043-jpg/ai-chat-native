@@ -13,6 +13,12 @@ import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.domain.model.Role
 import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.js.JObj
+import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.rp.RpState
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -53,6 +59,36 @@ class AffectPluginTest {
         messages = c.messages.map { WireMessage(it.role, it.content, srcId = it.id) },
         opts = ChatOptions(), settings = settings, lastUserId = "m1",
     )
+
+    @Test
+    fun plainConversationDoesNotAutoActivate() {
+        // 普通聊天不该自动挂上感情协议（否则模型会把 "hi" 演成角色扮演）
+        val plugin = AffectPlugin(host)
+        assertTrue("perConversation 应为 true，才会按对话判定", plugin.perConversation)
+        assertFalse(plugin.autoActive(conv(), settings))
+    }
+
+    @Test
+    fun roleplayConversationAutoActivates() {
+        val plugin = AffectPlugin(host)
+        val rp = conv().copy(rpState = rpStateWith("海边渔村", ""))
+        assertTrue(plugin.autoActive(rp, settings))
+        // 只有空白块时仍算普通对话
+        val blank = conv().copy(rpState = rpStateWith("   "))
+        assertFalse(plugin.autoActive(blank, settings))
+    }
+
+    /** 造一份带 blocks 的 rpState：第 0 块是 world，其后是 character */
+    private fun rpStateWith(vararg contents: String): JsonObject {
+        val ids = listOf("world", "character")
+        val blocks = contents.mapIndexed { i, text ->
+            buildJsonObject {
+                put("id", ids.getOrElse(i) { "block$i" })
+                put("content", text)
+            }
+        }
+        return buildJsonObject { put("blocks", JsonArray(blocks)) }
+    }
 
     @Test
     fun addsProtocolOnceAndPrefixesLastUser() = runTest {
