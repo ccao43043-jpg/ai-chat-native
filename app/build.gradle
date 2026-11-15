@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 111                  // 原生 v1.1.1：二级页填充输入、卡片列表、知识库底栏
-        versionName '1.1.1'
+        versionCode 112                  // 原生 v1.1.2：输入框和功能键动画放缓
+        versionName '1.1.2'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
