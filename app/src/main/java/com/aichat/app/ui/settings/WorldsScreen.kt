@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.World
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.rp.RpState
+import com.aichat.app.plugins.rp.Worlds
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.Pressable
 import com.aichat.app.ui.theme.Space
@@ -186,7 +187,7 @@ private fun WorldEditorDialog(world: World, onDismiss: () -> Unit, onSave: (Worl
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(
                             onClick = {
-                                val parsed = RpState.parseWorldSections(paste)
+                                val parsed = Worlds.parseWorldSections(paste)
                                 if (parsed == null) {
                                     pasteHint = "没认出分段。请用【世界观】【角色卡】【RP规则】【写作风格】这类标题。"
                                     return@Surface
