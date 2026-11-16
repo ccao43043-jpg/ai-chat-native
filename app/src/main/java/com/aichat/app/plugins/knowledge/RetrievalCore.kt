@@ -111,12 +111,18 @@ object RetrievalCore {
         return inter.toDouble() / (A.size + B.size - inter)
     }
 
-    fun mmr(cands: List<JObj>?, lambda: Double?, sim: ((JObj, JObj) -> Double)?, maxN: Int?): MutableList<JObj> {
+    fun mmr(cands: List<JObj>?, lambda: Double?, sim: ((JObj, JObj) -> Double)?, maxN: Int?): MutableList<JObj> =
+        mmr(cands, lambda, sim, maxN, null)
+
+    /** seed：初始已选集——只参与冗余度计算，不进输出、不占 limit（D11：置顶强制先入后，普通条目仍要避开与置顶重复的内容） */
+    fun mmr(cands: List<JObj>?, lambda: Double?, sim: ((JObj, JObj) -> Double)?, maxN: Int?, seed: List<JObj>?): MutableList<JObj> {
         val lam = lambda ?: 0.7
         val simFn = sim ?: { a, b -> jaccard3(Js.or(a["text"], ""), Js.or(b["text"], "")) }
         val limit = maxN ?: (cands?.size ?: 0)
-        val left = ArrayList(cands ?: emptyList()); val S = ArrayList<JObj>()
-        while (left.isNotEmpty() && S.size < limit) {
+        val left = ArrayList(cands ?: emptyList()); val S = ArrayList<JObj>(); val out = ArrayList<JObj>()
+        if (seed != null) S.addAll(seed)
+        var picked = 0
+        while (left.isNotEmpty() && picked < limit) {
             var best: JObj? = null; var bv = Double.NEGATIVE_INFINITY
             for (x in left) {
                 val red = if (S.isNotEmpty()) S.maxOf { y -> simFn(x, y) } else 0.0
@@ -124,9 +130,9 @@ object RetrievalCore {
                 if (v > bv) { bv = v; best = x }
             }
             if (best == null) break
-            left.removeAt(left.indexOfFirst { it === best }); S += best
+            left.removeAt(left.indexOfFirst { it === best }); S += best; out += best; picked++
         }
-        return S
+        return out
     }
 
     fun pickByBudget(cands: List<JObj>?, tokenOf: ((JObj) -> Double)?, budget: Any?): MutableList<JObj> {

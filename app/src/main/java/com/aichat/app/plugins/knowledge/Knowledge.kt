@@ -284,17 +284,23 @@ object Knowledge {
                 if (RetrievalCore.jaccard3(text, ct) > 0.6) { dropped.add(jobj("id" to h["entry"]["id"], "reason" to "dup")); return }
             }
             seen += keyOf(h["entry"]["id"])
-            cands += jobj("id" to h["entry"]["id"], "score" to Js.or(h["score"], 0.0), "text" to text, "categoryId" to h["categoryId"], "categoryName" to h["categoryName"], "entry" to h["entry"])
+            cands += jobj("id" to h["entry"]["id"], "score" to Js.or(h["score"], 0.0), "text" to text, "pinned" to Js.truthy(h["entry"]["pinned"]), "categoryId" to h["categoryId"], "categoryName" to h["categoryName"], "entry" to h["entry"])
         }
         pinned.forEach { consider(it) }
         raw.forEach { h ->
             if (h["score"].d() <= 0 && !Js.truthy(h["entry"]["pinned"])) { dropped.add(jobj("id" to h["entry"]["id"], "reason" to "lowscore")); return@forEach }
             consider(h)
         }
-        val maxS = maxOf(1e-9, cands.maxOfOrNull { it["score"].d() } ?: Double.NEGATIVE_INFINITY)
-        cands.forEach { c -> c["score"] = c["score"].d() / maxS }
-        var ranked: List<JObj> = cands
-        if (cands.isNotEmpty()) ranked = RetrievalCore.mmr(cands, if (o["lambda"] != null) o["lambda"].d() else 0.7, null, cands.size)
+        // D11 修复（偏离 JS 行为，ai-chat-app knowledge.js 未同步修）：置顶条目强制先入、取满分 1，
+        // 不参与归一化——此前 1e6 哨兵分进入 maxS，把普通命中的相关性分压到 ~1e-5，
+        // MMR 只剩「去冗余」在起作用，与置顶措辞相近的强相关条目会被弱相关条目顶掉。
+        val pinnedC = cands.filter { Js.truthy(it["pinned"]) }
+        val normalC = cands.filter { !Js.truthy(it["pinned"]) }
+        val maxS = maxOf(1e-9, normalC.maxOfOrNull { it["score"].d() } ?: Double.NEGATIVE_INFINITY)
+        normalC.forEach { c -> c["score"] = c["score"].d() / maxS }
+        pinnedC.forEach { c -> c["score"] = 1.0 }
+        val lam = if (o["lambda"] != null) o["lambda"].d() else 0.7
+        val ranked: List<JObj> = pinnedC + if (normalC.isNotEmpty()) RetrievalCore.mmr(normalC, lam, null, normalC.size, pinnedC) else emptyList()
         val tokenOf = { c: JObj -> ceil(so(c["entry"]["content"]).length * 0.7) + ceil(so(c["entry"]["title"]).length * 0.5) + 8 }
         val picked = RetrievalCore.pickByBudget(ranked, tokenOf, budget.toDouble())
         val pickIds = picked.map { keyOf(Js.or(it["id"], it["entry"]?.let { e -> e["id"] })) }.toSet()
