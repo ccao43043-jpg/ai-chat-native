@@ -96,14 +96,10 @@ class FileChatRepository(
         mutex.withLock { saveLocked(if (touch) conv.copy(updatedAt = now()) else conv) }
     }
     private fun saveLocked(c: Conversation) {
-        var json: JsonElement = ConversationCodec.encode(c)
-        val prev = codec.engine.session(store, c.id)?.last ?: codec.loadJs(fs, c.id)
-        if (prev != null) {
-            // structured-diff 阶段 B：不再做 KeyOrder.align——diff 判等已切 semanticEqual（键序无关，
-            // 阶段 A / PR #70），键序变化不再产生幻影 msg.edit；编码输出本来就是「建模键固定序 + extras 原序」，
-            // 旧文件首次重存会一次性规范化键序，属预期。nullRemovedMessageKeys 留待阶段 C。
-            json = nullRemovedMessageKeys(json.jsonObject, prev)
-        }
+        // structured-diff 阶段 B+C：不再做 KeyOrder.align（判等已切 semanticEqual，键序无关），
+        // 也不再做 nullRemovedMessageKeys（D5 根修移到 diff 层：msg.edit payload 对缺键显式写 null，
+        // 见 JsConvLog.msgEqual / gone-keys 注释）。旧文件首次重存会一次性规范化键序，属预期。
+        val json: JsonElement = ConversationCodec.encode(c)
         codec.commitJs(fs, Js.fromJson(json) as JsObj)
         // app.js saveConv：索引项没变就不重写
         val meta = ConversationMeta(c.id, c.title, c.providerId, c.model, c.updatedAt, c.personaName?.takeIf { it.isNotEmpty() }, c.personaEmoji.takeIf { !c.personaName.isNullOrEmpty() })
@@ -113,26 +109,6 @@ class FileChatRepository(
         val next = (if (i >= 0) cur.toMutableList().also { it[i] = meta } else listOf(meta) + cur).sortedByDescending { it.updatedAt }
         store.putJson(INDEX, ConvMetaCodec.encodeList(next))
         idx.value = next
-    }
-
-    /**
-     * 有意差异 D5：conv-log 的 msg.edit 是 Object.assign 合并，payload 里缺的键不会被删掉——JS 里 `delete m.truncated` /
-     * `delete m.error` 后保存，重启回放又会冒出来（JS 本身的潜在 bug）；原生 Codec 省略默认值（truncated:false、vi:0、error:null）
-     * 也会撞上。这里对「上次状态里有非 null 值、这次缺失」的消息顶层键显式写 null：JS 回放得到 null（读法都是真假判断 / `vi|0`，
-     * 与缺键等价），Kotlin 解码为默认值。只补消息顶层键（嵌套对象本来就整体替换）。
-     */
-    private fun nullRemovedMessageKeys(next: JsonObject, prev: JsObj): JsonObject {
-        val pm = HashMap<String, JsObj>()
-        (prev["messages"] as? List<*>)?.forEach { m -> (m as? JsObj)?.let { o -> (o["id"] as? String)?.let { pm[it] = o } } }
-        val msgs = next["messages"] as? JsonArray ?: return next
-        var changed = false
-        val out = msgs.map { e ->
-            val o = e as? JsonObject ?: return@map e
-            val p = (o["id"] as? JsonPrimitive)?.contentOrNull?.let { pm[it] } ?: return@map e
-            val gone = p.keys().filter { k -> k !in o && p[k] != null && p[k] !== Undef }
-            if (gone.isEmpty()) e else { changed = true; JsonObject(LinkedHashMap(o).also { m -> gone.forEach { m[it] = JsonNull } }) }
-        }
-        return if (!changed) next else JsonObject(LinkedHashMap(next).also { it["messages"] = JsonArray(out) })
     }
 
     override suspend fun create(providerId: String, model: String, title: String): Conversation {

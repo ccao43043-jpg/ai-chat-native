@@ -63,14 +63,14 @@ codec.commitJs(fs, Js.fromJson(json) as JsObj)
 - `KeyOrder` 类已无调用方（原计划假设 ConvMetaCodec 在用，实际没有），@Deprecated 留一个版本周期，阶段 D 删除
 - 验收：`CodecRoundTripTest`（语义相等）+ `RepositoryTest` + golden 回归；真机编辑消息后重启，oplog 不出现成对的 `msg.edit` 抖动
 
-### 阶段 C：去掉 `nullRemovedMessageKeys`（中风险）
+### 阶段 C：去掉 `nullRemovedMessageKeys`（中风险）— 代码已完成（2026-11-17）
 
-- `diff()` 对消息字段增加 removed-keys 采集：上次有值、这次缺失 → payload `deleted: [...]`
+- `diff()` 对消息字段增加 removed-keys 采集 → **实现改为 payload 显式 null**（原案 `deleted: [...]` 数组不兼容 JS 回放：Object.assign 会把数组当字段写进消息；显式 null 在 assign 下与 JS 语义天然一致，oplog 格式不变）
 - `applyOp("msg.edit")` 支持 `deleted`
-- 删除 `saveLocked` 里的 `nullRemovedMessageKeys`
+- 删除 `saveLocked` 里的 `nullRemovedMessageKeys` ✅ 及已无用的 prev 读取（阶段 D 提前，省每次保存一次 IO+解析）
 - 验收：新增用例覆盖 `truncated:true → false`、`error:"x" → null`、`vi:1 → 0`，断言回放后字段为默认值且不复活
 
-### 阶段 D：清理（低风险）
+### 阶段 D：清理（低风险）— 代码已完成（2026-11-17，随 C 同 PR）
 
 - `saveLocked` 不再读取 `prev`（省一次 IO + 解析）
 - 删除 `KeyOrder` 与相关注释

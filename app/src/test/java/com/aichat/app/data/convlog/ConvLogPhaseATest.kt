@@ -19,6 +19,13 @@ import org.junit.Test
 class ConvLogPhaseATest {
     private val C = JsConvLog.Companion
 
+    private fun convMsg(vararg pairs: Pair<String, Any?>): JsObj {
+        val m = JsObj("id" to "m1", "role" to "user", "content" to "x", "createdAt" to 1.0)
+        pairs.forEach { (k, v) -> m[k] = v }
+        return m
+    }
+    private fun conv(vararg messages: JsObj): JsObj = JsObj("id" to "c1", "updatedAt" to 1.0, "messages" to messages.toList())
+
     private fun eachDiff(block: (label: String, prev: Any?, next: Any?) -> Unit) {
         val cs = Golden.cases("convlog", "diff")
         assertTrue("diff 没有用例", cs.isNotEmpty())
@@ -75,22 +82,14 @@ class ConvLogPhaseATest {
         assertTrue("必须含 msg.edit：${Js.stringify(ops)}", ops.any { (it as JsObj)["op"] == "msg.edit" })
     }
 
-    /** ④ Undef/null 边界：缺键 → 显式 null 是变化；双缺键不是 */
+    /** ④ null/缺键边界（阶段 C 放宽，取代阶段 A 的 stringify 口径）：消息顶层 **null ≡ 缺键**——
+     *  Object.assign 合并语义下两者都表示「无值」，不产生 op；否则回放物化的 null 会与下一次
+     *  编码的缺键互相制造幻影 msg.edit。golden 语料不含 null，JS 基准对照不受影响。 */
     @Test
-    fun undefNullBoundaryMatchesJs() {
-        val base = JsObj("id" to "m1", "role" to "user", "content" to "x", "createdAt" to 1.0)
-        val convPrev = JsObj("id" to "c1", "updatedAt" to 1.0, "messages" to listOf(base))
-        val convAbsentToNull = JsObj(
-            "id" to "c1", "updatedAt" to 1.0,
-            "messages" to listOf(JsObj("id" to "m1", "role" to "user", "content" to "x", "createdAt" to 1.0, "error" to null)),
-        )
-        val ops = C.diff(convPrev, convAbsentToNull)
-        assertTrue("缺键 → 显式 null 必须产生 op（与 JS stringify 语义一致）：${Js.stringify(ops)}", ops.isNotEmpty())
-
-        val convNullToNull = JsObj(
-            "id" to "c1", "updatedAt" to 1.0,
-            "messages" to listOf(JsObj("id" to "m1", "role" to "user", "content" to "x", "createdAt" to 1.0, "error" to null)),
-        )
-        assertTrue("双显式 null 不产生 op", C.diff(convAbsentToNull, convNullToNull).isEmpty())
+    fun nullVsAbsentIsMergeEquivalent() {
+        val prev = conv(convMsg())
+        val next = conv(convMsg("error" to null))
+        assertEquals("缺键 ↔ 显式 null 合并等价（阶段 C）", 0, C.diff(prev, next).size)
+        assertEquals("双显式 null 不产生 op", 0, C.diff(next, conv(convMsg("error" to null))).size)
     }
 }
