@@ -8,16 +8,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Surface
-import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import com.aichat.app.ui.theme.Palette
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -67,39 +58,53 @@ fun RpLoreDialog(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomCenter) {
-            Surface(color = Palette.Surface, shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("世界书", color = Palette.Fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("## 名字 | 触发词 | 属性。触发词写 * 或留空是常驻。", color = Palette.Fg3, fontSize = 12.sp)
-                    if (frozen > 0) Text(
-                        "已冻结 $frozen 条" + if (editedWhileFrozen) " · 改过还没重建" else "",
-                        color = Palette.Accent, fontSize = 12.sp,
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("世界书") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "每条形如「## 名字 | 触发词1, 触发词2 | 属性」：触发词写 * 或留空表示常驻（每轮都进 system），" +
+                        "否则按关键词触发；属性用分号分隔，如 priority=7; depth=2; prob=60; sticky=3; cooldown=4; group=g1。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (frozen > 0) {
+                    Text(
+                        "当前有 $frozen 条已冻结（内容按触发时的样子发出去）。改完文本要「重建冻结」才会换新内容。" +
+                            if (editedWhileFrozen) "  ← 已经改过但还没重建。" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
                     )
-                    Surface(color = Palette.Surface2, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Box(Modifier.padding(12.dp).heightIn(min = 160.dp)) {
-                            if (text.isEmpty()) Text("## 港口 | 船, 潮汐", color = Palette.Fg3, fontSize = 14.sp)
-                            BasicTextField(
-                                value = text, onValueChange = { text = it },
-                                textStyle = androidx.compose.ui.text.TextStyle(color = Palette.Fg, fontSize = 14.sp),
-                                cursorBrush = SolidColor(Palette.Accent),
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag("rp-lore-text"),
-                            )
-                        }
+                }
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("世界书文本") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag("rp-lore-text"),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { apply(rebuild = false) }, modifier = Modifier.testTag("rp-lore-save")) {
+                        Text("保存")
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        TextButton(onClick = onDismiss) { Text("关闭", color = Palette.Fg2) }
-                        TextButton(onClick = { apply(false) }, modifier = Modifier.testTag("rp-lore-save")) { Text("保存", color = Palette.Fg) }
-                        Surface(onClick = { apply(true) }, enabled = frozen > 0, shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp), color = if (frozen > 0) Palette.Accent else Palette.Surface3, modifier = Modifier.testTag("rp-lore-rebuild")) {
-                            Text("保存并重建", color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
-                        }
-                    }
-                    Spacer(Modifier.padding(4.dp))
+                    TextButton(
+                        onClick = { apply(rebuild = true) },
+                        enabled = frozen > 0,
+                        modifier = Modifier.testTag("rp-lore-rebuild"),
+                    ) { Text("保存并重建") }
+                }
+                if (text.isBlank()) {
+                    Text("留空 = 这份对话没有世界书，触发规则不会生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        }
-    }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
 }
 
 private fun rpStateOfLore(conv: Conversation): JObj =

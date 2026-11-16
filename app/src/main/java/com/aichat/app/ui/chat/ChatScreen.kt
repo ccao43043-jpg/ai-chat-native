@@ -238,6 +238,7 @@ fun ChatScreen(
                             }
                         }
                         Box {
+
                             val morePress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                             Box(
                                 Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
@@ -288,6 +289,7 @@ fun ChatScreen(
                             hbadges.forEach { b ->
                                 BadgeChip(b, prefix = when (b.plugin) { "affect" -> "💓 "; else -> "" },
                                     onClick = { if (b.action != null) panel = b.action else b.detail?.let(controller::toast) })
+
                             }
                         }
                         ChatMounts.usage?.invoke(conv, settings) ?: DefaultUsageChip(conv, settings)
