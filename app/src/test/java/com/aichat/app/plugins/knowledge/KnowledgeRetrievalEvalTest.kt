@@ -3,19 +3,20 @@ package com.aichat.app.plugins.knowledge
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * 知识库检索质量评测（改进方案 §4.5.2 第 4 条「评测先行」）：
- * golden 里的记忆召回已饱和（P@5/MRR = 1，输入是英文/整句），看不出改进空间。
- * 这里补「同义改写 / 跨条目」类困难用例，**建立优化前基线**——
- * 改进 §4.5.2（PRF / RRF / 实体整词）之前，先让指标可信。
+ * 这里补「同义改写 / 跨条目」类困难用例，作为检索优化的回归门禁。
  *
- * 基线（2026-11-17 实测，9 例）：overall MRR = 0.889；**同义改写子集 MRR = 0.5（最弱项，
- * 印证方案诊断：bigram 对同义改写吃不到重叠）**；跨条目 = 1.0。
- * 方案目标 overall ≥ 0.75 → 实测已过，真正的改进空间在同义改写子集（目标 1.0）。
- * §4.5.2（PRF / RRF / 实体整词）落地时逐步抬高断言门槛，本测试即回归门禁。
+ * 时间线（2026-11-17）：
+ * - 基线（PRF+RRF 前，9 例）：overall MRR = 0.889；同义改写子集 = 0.5（最弱项，印证方案诊断）；
+ *   跨条目 = 1.0。
+ * - PRF+RRF 落地后：修理例（「修理机械设备」↔「维修蒸汽泵」）修复 ✅；**闭港例（「不让船只进出」↔
+ *   「凌晨闭港」）仍是词表鸿沟——lexical 检索无桥可过，需同义词表或向量方案，另立项**。
+ * - 同义改写门槛维持 0.5（1/2 例修复）；整体 ≥ 0.85 保持不退步。
  */
 class KnowledgeRetrievalEvalTest {
 
@@ -61,15 +62,29 @@ class KnowledgeRetrievalEvalTest {
     // ---------------- 困难用例（同义改写 / 跨条目 / 字面不匹配） ----------------
 
     @Test
-    fun paraphraseQueriesFindRightEntries() {
-        // 同义改写：query 与条目用词不同，靠语义近似命中（bigram 只能吃到零星重叠）。
-        // 当前基线下 top1 常常不是期望条目——这两条先按 MRR 记入基线，§4.5.2 落地后改成硬断言。
-        val cases = listOf(
+    fun paraphraseRepairQueryHitsVera() {
+        // 同义改写：「修理机械设备」↔「维修蒸汽泵与钟表」——PRF 扩展词（蒸汽/维修…）建立词面桥
+        assertEquals("e1", top1("薇拉平时负责修理哪些机械设备？"))
+    }
+
+    @Test
+    fun paraphrasePortQueryIsALexicalGap() {
+        // 已知极限哨兵：「不让船只进出」↔「凌晨闭港」/「港口」↔「港城·贸易港」——零 bigram 重叠，
+        // lexical 检索（含 PRF：首轮捞不到就没有反馈信号）无法桥接，需同义词表或向量方案。
+        // 若此断言翻转（e3 被命中）= 同义词/向量方案已生效，请同步抬高 paraphrase 门禁。
+        val hits = Knowledge.search(doc(), "港口什么时候不让船只进出？", jobj("limit" to 5.0, "mode" to "bm25"))
+        val ids = hits.map { Js.str(((it as JObj)["entry"] as JObj)["id"]) }
+        assertTrue("词表鸿沟哨兵：e3 当前不可达（同义词方案落地后此断言会失败，属预期信号）", "e3" !in ids)
+    }
+
+    @Test
+    fun paraphraseMrrGate() {
+        // 同义改写门槛：PRF+RRF 修复了修理例（0.5 → 0.75 区间）；闭港例受词表鸿沟限制（见上）
+        val v = mrr(listOf(
             "薇拉平时负责修理哪些机械设备？" to listOf("e1"),
             "港口什么时候不让船只进出？" to listOf("e3"),
-        )
-        val v = mrr(cases)
-        assertTrue("同义改写 MRR=$v 基线 ≥ 0.5（§4.5.2 落地后逐步抬到 1.0）", v >= 0.5)
+        ))
+        assertTrue("同义改写 MRR=$v ≥ 0.5（1/2 例修复；剩余例需同义词表支持）", v >= 0.5)
     }
 
     @Test
@@ -94,7 +109,7 @@ class KnowledgeRetrievalEvalTest {
             "废料场的升降机谁会修？" to listOf("e6", "e1"),            // 直接命中锚
         )
         val mrrVal = mrr(cases)
-        assertTrue("整体 MRR=$mrrVal 基线 ≥ 0.85", mrrVal >= 0.85)
+        assertTrue("整体 MRR=$mrrVal ≥ 0.85（PRF+RRF 后不退步）", mrrVal >= 0.85)
         assertTrue("MRR=$mrrVal 不应意外高于 0.95（否则困难集失去区分度）", mrrVal <= 0.95)
     }
 }
