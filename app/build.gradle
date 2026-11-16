@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 122                  // 原生 v1.4.0：世界书编辑面板 + 流式整屏重组消除 + 图片计价按服务商
-        versionName '1.4.0'
+        versionCode 123                  // 原生 v1.5.0：摘要时点自适应（开关）+ op-log 真追加 + 删除字段根修 + 缓存骤降告警
+        versionName '1.5.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
