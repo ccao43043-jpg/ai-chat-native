@@ -15,7 +15,8 @@ import kotlinx.serialization.json.*
  *    一旦调用方改了这个字段，就写新值、丢弃影子。
  *  - 缺键记号：若原对象缺某个「必写」键（encode 默认值仍会写出，如 strReq / temperature:''），键名记进
  *    extras[[ABSENT_KEY]]（字符串数组，Writer 永不写出）；字段值未改时编码继续省略该键。
- * 于是：encode(decode(x)) 与 x JSON 语义相等（键顺序不保证；需要保序时用 [KeyOrder.align]）。
+ * 于是：encode(decode(x)) 与 x JSON 语义相等（键顺序不保证；structured-diff 阶段 B 起判等走
+ * 语义比较，不再需要 [KeyOrder.align]，该工具仅保留一个版本周期供回滚）。
  */
 internal fun sem(a: JsonElement?, b: JsonElement?): Boolean =
     if (a == null || b == null) a == b else Js.semanticEqual(Js.fromJson(a), Js.fromJson(b))
@@ -322,7 +323,9 @@ object WorldCodec : Codec<World> {
 }
 
 /** 键顺序对齐：把 next 的对象键按 prev 的顺序排（prev 没有的键排后）；数组元素按 id 或下标配对。
- *  ChatRepository 提交前用它，避免 conv-log 的 JSON.stringify 判等因键序不同而产生无意义的 msg.edit。 */
+ *  【structured-diff 阶段 B 起无调用方】原用于 ChatRepository 提交前保序，判等切 `semanticEqual` 后不再需要。
+ *  按计划保留一个版本周期供回滚，下版本删除（structured-diff-plan.md §4.D）。 */
+@Deprecated("阶段 B 后无调用方，保留一个版本周期供回滚；阶段 D 删除")
 object KeyOrder {
     fun align(next: JsonElement, prev: JsonElement?): JsonElement = when {
         next is JsonObject && prev is JsonObject -> {

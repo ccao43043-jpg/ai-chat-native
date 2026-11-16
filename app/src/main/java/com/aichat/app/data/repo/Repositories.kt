@@ -99,8 +99,9 @@ class FileChatRepository(
         var json: JsonElement = ConversationCodec.encode(c)
         val prev = codec.engine.session(store, c.id)?.last ?: codec.loadJs(fs, c.id)
         if (prev != null) {
-            // 键序与上次 load/commit 的结果对齐，避免 JSON.stringify 判等产生无意义的 msg.edit
-            json = KeyOrder.align(json, Js.toJson(prev))
+            // structured-diff 阶段 B：不再做 KeyOrder.align——diff 判等已切 semanticEqual（键序无关，
+            // 阶段 A / PR #70），键序变化不再产生幻影 msg.edit；编码输出本来就是「建模键固定序 + extras 原序」，
+            // 旧文件首次重存会一次性规范化键序，属预期。nullRemovedMessageKeys 留待阶段 C。
             json = nullRemovedMessageKeys(json.jsonObject, prev)
         }
         codec.commitJs(fs, Js.fromJson(json) as JsObj)
