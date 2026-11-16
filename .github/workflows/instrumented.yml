@@ -1,0 +1,47 @@
+name: instrumented
+# instrumented 测试（模拟器）：仅在 main 推送与手动触发时跑——PR 循环保持 ~3 分钟（评审 §6.1）。
+# 本地已验证：dsh34 模拟器（API 34 / x86_64）10/10 全绿（PR #86）。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: instrumented-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  emu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 准备 gradlew
+        run: chmod +x gradlew
+
+      - name: 模拟器上跑 instrumented 测试
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest
+
+      - name: 上传测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-report
+          path: app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
