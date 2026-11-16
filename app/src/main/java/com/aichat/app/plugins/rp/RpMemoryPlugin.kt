@@ -75,6 +75,9 @@ class RpMemoryPlugin(
             "minScore" to cfg.minScore,
             "tau" to cfg.tau,
             "mmrLambda" to cfg.mmrLambda,
+            // rpcache 用真实 usage 校准出来的系数，记忆条目也按同一把尺子折：否则同一次请求里
+            // 「分层预算」按校准值算、「记忆预算」按未校准值算，两条预算的判断互相矛盾。
+            "calib" to calibOf(ctx.conv),
             "nowTurn" to userTurns(ctx.conv),
             "expand" to jobj(
                 "context" to (mood + " " + (lastA?.content ?: "").takeLast(200)),
@@ -168,6 +171,16 @@ class RpMemoryPlugin(
     }
 
     private fun cfgOf(settings: AppSettings) = RpMemoryCore.settingsOf(host.config(settings, id))
+
+    /**
+     * rpcache 校准出来的 token 系数（`rpState.calib`）。拿不到就按 1.0（未校准），
+     * 夹到 0.5–2.5 与 [RpCacheCore.calibrate] 一致——这是「同一个请求里两条预算用同一把尺子」的唯一保证。
+     */
+    private fun calibOf(conv: Conversation): Double {
+        val v = (conv.rpState["calib"] as? kotlinx.serialization.json.JsonPrimitive)
+            ?.takeIf { !it.isString }?.content?.toDoubleOrNull() ?: return 1.0
+        return if (v.isNaN() || v <= 0.0) 1.0 else v.coerceIn(0.5, 2.5)
+    }
 
     private fun bucketOf(key: String): JObj? {
         val all = store.load()

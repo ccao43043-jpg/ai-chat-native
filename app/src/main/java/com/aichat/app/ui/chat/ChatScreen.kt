@@ -241,6 +241,9 @@ fun ChatScreen(
     var rpChapter by remember { mutableStateOf(false) }
     var rpLore by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
+    var pluginErrPanel by remember { mutableStateOf(false) }
+    // 插件错误：以前只有一个没人读的 StateFlow，插件静默失效时用户完全无感（世界书整版不生效就是这么漏的）
+    val pluginErrs by deps.plugins.errors.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -270,8 +273,19 @@ fun ChatScreen(
     val messages = st.messages
     val conv = st.conv
 
-    // 新消息 / 切对话时回到底部
-    LaunchedEffect(st.convId, messages.size) { if (messages.isNotEmpty()) listState.scrollToItem(0) }
+    // 新消息 / 切对话时回到底部。
+    //
+    // 旧版是无条件 `scrollToItem(0)`：只要消息条数变化（新消息、删一条、编辑重发）就把列表弹回底部。
+    // 用户往上翻历史时，这几件事都会把他正在读的位置弹走，所以这里只在「本来就在底部附近」时才滚。
+    // `reverseLayout = true` → item 0 是最新消息，离底 ≈ firstVisibleItemIndex == 0。
+    var lastConvId by remember { mutableStateOf(st.convId) }
+    LaunchedEffect(st.convId, messages.size) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        val switched = lastConvId != st.convId
+        lastConvId = st.convId
+        val atBottom = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 200
+        if (switched || atBottom) listState.animateScrollToItem(0)
+    }
 
     // 抽屉底部各行的计数（旧版 v0.29 也展示这些）
     val personas by deps.library.personas.collectAsState()
@@ -354,11 +368,18 @@ fun ChatScreen(
                                     .clickable { menu = true },
                                 contentAlignment = Alignment.Center,
                             ) { Icon(Icons.Filled.MoreVert, "更多") }
+                            PluginErrorDot(
+                                count = pluginErrs.size,
+                                onClick = { pluginErrPanel = true },
+                                modifier = Modifier.align(Alignment.TopEnd),
+                            )
                             ChatOverflowMenu(
                                 expanded = menu,
                                 onDismiss = { menu = false },
                                 conv = conv,
-                                extraMenu = extraMenu,
+                                // 有插件错误时，菜单第一项就是入口（不依赖顶栏那个小气泡被发现）
+                                extraMenu = if (pluginErrs.isEmpty()) extraMenu else
+                                    listOf("插件错误（${pluginErrs.size}）" to { menu = false; pluginErrPanel = true }) + extraMenu,
                                 onSettings = { menu = false; onOpenSettings(SettingsDestination.Main) },
                                 onExport = { menu = false; conv?.let { exportConv(it.id) } },
                                 onConvPlugins = { menu = false; convPlugins = true },
@@ -606,6 +627,14 @@ fun ChatScreen(
     }
     if (affectPanel && conv != null) {
         AffectPanelDialog(conv, onDismiss = { affectPanel = false })
+    }
+    if (pluginErrPanel) {
+        PluginErrorsDialog(
+            errors = pluginErrs,
+            onDismiss = { pluginErrPanel = false },
+            onClear = { deps.plugins.clearErrors(); pluginErrPanel = false },
+            nameOf = { id -> deps.plugins.plugins.firstOrNull { it.id == id }?.name ?: id },
+        )
     }
 
     if (picker) ModelPicker(settings.providers, target?.first?.id, target?.second,

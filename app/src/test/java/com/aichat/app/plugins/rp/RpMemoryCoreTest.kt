@@ -210,4 +210,38 @@ class RpMemoryCoreTest {
         assertEquals("persona:p1", RpMemoryCore.charKey("c1", "p1"))
         assertEquals("conv:c1", RpMemoryCore.charKey("c1", null))
     }
+
+    /**
+     * 中文整句查询必须能召回。
+     *
+     * 旧分词（`/\s+|标点/`）在中文里等于「按分句切」：查询「我们想去看看灯塔」是一个 term，
+     * `idx.df[那个term] == 0`，而 `bm25f` 第一行就 `return@forEach` → 全部条目 0 分 → 一条都召不回。
+     * 这是真实使用中的常态（用户不会用空格把关键词隔开），所以这条测试是防止回归的关键。
+     */
+    @Test
+    fun chineseSentenceQueryRetrievesBySubstring() {
+        val list = listOf(
+            jobj("id" to "m1", "seq" to 1, "type" to "detail", "text" to "海边有个渔村，灯塔是红色的。",
+                "keywords" to listOf("渔村", "灯塔"), "disabled" to false),
+            jobj("id" to "m2", "seq" to 2, "type" to "fact", "text" to "王城在北边，城墙很高。",
+                "keywords" to listOf("王城"), "disabled" to false),
+        )
+        val ids = RpMemoryCore.selectRelevant(list, "我们想去看看灯塔", mapOf("maxInject" to 3))
+            .map { Js.str(it["id"]) }
+        assertEquals(listOf("m1"), ids)
+
+        // 反过来：查询与内容只在 bigram 上重合也要能命中（旧实现下「灯塔」是两个字的整词才能对上）
+        val ids2 = RpMemoryCore.selectRelevant(list, "灯塔在哪个方向", mapOf("maxInject" to 3))
+            .map { Js.str(it["id"]) }
+        assertEquals(listOf("m1"), ids2)
+    }
+
+    @Test
+    fun calibIsClampedLikeRpcache() {
+        assertEquals(1.0, RpMemoryCore.settingsOf(null).calib, 1e-9)
+        assertEquals(2.5, RpMemoryCore.settingsOf(mapOf("calib" to 9.0)).calib, 1e-9)
+        assertEquals(0.5, RpMemoryCore.settingsOf(mapOf("calib" to 0.1)).calib, 1e-9)
+        assertEquals(1.0, RpMemoryCore.settingsOf(mapOf("calib" to 0)).calib, 1e-9)
+        assertEquals(1.3, RpMemoryCore.settingsOf(mapOf("calib" to "1.3")).calib, 1e-9)
+    }
 }
