@@ -20,7 +20,7 @@ object MmCache {
     fun isMiniMaxModel(model: Any?): Boolean = Js.test(Js.re("^~?minimax/", "i"), Js.trim(Js.str(Js.or(model, ""))))
     fun isOpenRouterMiniMax(provider: Any?, model: Any?): Boolean = isMiniMaxModel(model) && CacheCommonImpl.isOpenRouterProvider(provider.o())
     fun supportsCacheControl(): Boolean = false
-    fun sessionIdFor(id: Any?): String = if (id == null || id == "") "" else CacheCommonImpl.sessionIdFor(Js.str(id), ID)
+    fun sessionIdFor(id: Any?): String = if (id == null || id == "") "" else SessionIds.common(Js.str(id), ID)
 
     fun mergeLeadingSystem(msgs: List<Any?>): MutableList<Any?> {
         var n = 0; while (n < msgs.size && msgs[n]["role"] == "system" && msgs[n]["content"] is String) n++
