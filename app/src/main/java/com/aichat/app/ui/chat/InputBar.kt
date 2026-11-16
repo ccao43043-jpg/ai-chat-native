@@ -218,7 +218,7 @@ fun InputBar(
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
-                modifier = Modifier.fillMaxWidth().heightIn(min = minH).testTag("input"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = minH),
             ) {
                 Row(
                     Modifier.padding(start = 4.dp, end = 6.dp, top = topPad, bottom = 4.dp),
@@ -253,7 +253,10 @@ fun InputBar(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = Palette.Fg),
                             cursorBrush = SolidColor(Palette.Accent),
                             maxLines = 6,
+                            // testTag('input') 必须挂在文本框本体上：performTextInput 需要
+                            // RequestFocus 语义动作（容器节点没有，挂外层会让 5 个 UI 测试全挂）
                             modifier = Modifier.fillMaxWidth().heightIn(min = fieldH)
+                                .testTag("input")
                                 .onFocusChanged { focused = it.isFocused },
                         )
                     }

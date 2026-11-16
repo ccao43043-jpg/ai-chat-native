@@ -1,6 +1,7 @@
 package com.aichat.app.ui
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,7 +33,8 @@ class AppRootUiTest {
         rule.onNodeWithTag("drawer-image").performClick()
         rule.onNodeWithTag("image-back").assertIsDisplayed()
         rule.onNodeWithTag("image-back").performClick()
-        rule.onNodeWithText("草稿").assertIsDisplayed()
+        // 草稿保留在输入框里：直接断言输入框的文本内容（onNodeWithText 匹配不到 EditableText 语义）
+        rule.onNodeWithTag("input").assertTextContains("草稿")
     }
 
     @Test fun sendThenStop() {
@@ -64,8 +66,13 @@ class AppRootUiTest {
         rule.onNodeWithText("2/2").assertIsDisplayed()
         rule.onNodeWithTag("ver-prev").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(androidx.compose.ui.test.hasText("1/2")).fetchSemanticsNodes().isNotEmpty() }
-        rule.onAllNodes(androidx.compose.ui.test.hasTestTag("edit"))[0].performClick()
-        rule.onNodeWithText("保存并重新发送").assertIsDisplayed()
+        // reverseLayout 语义序 = 显示序（最新在前）：[0] 是助手行的 edit，用户行的 edit 在最后
+        rule.onAllNodes(androidx.compose.ui.test.hasTestTag("edit"))[
+            rule.onAllNodes(androidx.compose.ui.test.hasTestTag("edit")).fetchSemanticsNodes().size - 1
+        ].performClick()
+        // 全屏编辑器有自己的 testTag（editor-resend =「保存并重新发送」），等它出现再断言显示
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("editor-resend") }
+        rule.onNodeWithTag("editor-resend").assertIsDisplayed()
     }
 
     /** M2：设置 → 联网搜索 / 插件页可打开 */
