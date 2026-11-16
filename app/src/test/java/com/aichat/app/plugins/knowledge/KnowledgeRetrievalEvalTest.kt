@@ -44,8 +44,10 @@ class KnowledgeRetrievalEvalTest {
     }
 
     /** 返回 query 的第一名条目 id（searchBM25 通道，limit 5） */
-    private fun top1(query: String): String {
-        val hits = Knowledge.search(doc(), query, jobj("limit" to 5.0, "mode" to "bm25"))
+    private fun top1(query: String): String = top1WithDoc(doc(), query)
+
+    private fun top1WithDoc(d: JObj, query: String): String {
+        val hits = Knowledge.search(d, query, jobj("limit" to 5.0, "mode" to "bm25"))
         val first = hits.firstOrNull() ?: return ""
         return Js.str((first["entry"] as JObj)["id"])
     }
@@ -75,6 +77,20 @@ class KnowledgeRetrievalEvalTest {
         val hits = Knowledge.search(doc(), "港口什么时候不让船只进出？", jobj("limit" to 5.0, "mode" to "bm25"))
         val ids = hits.map { Js.str(((it as JObj)["entry"] as JObj)["id"]) }
         assertTrue("词表鸿沟哨兵：e3 当前不可达（同义词方案落地后此断言会失败，属预期信号）", "e3" !in ids)
+    }
+
+    @Test
+    fun keywordsBridgeClosesLexicalGap() {
+        // 「检索体检」功能的机制验收（改进方案 §4.5.2 配套）：
+        // 给 e3 补上口语问法关键词（等价于编辑对话框的「存为别名」），闭港例从不可达变 top1。
+        var d = doc()
+        d = Knowledge.updateEntry(d, "world", "e3", jobj("keywords" to "贸易港，闭港，船只进出"))
+        assertEquals("e3", top1WithDoc(d, "港口什么时候不让船只进出？"))
+        // appendKeyword 的 UI 等价路径：存的是整句问法（中文无空格 → 单个别名，bigram 全进 keywords 档）
+        val kw = Knowledge.appendKeyword("贸易港", "港口什么时候不让船只进出？")
+        var d2 = doc()
+        d2 = Knowledge.updateEntry(d2, "world", "e3", jobj("keywords" to kw))
+        assertEquals("e3", top1WithDoc(d2, "港口什么时候不让船只进出？"))
     }
 
     @Test

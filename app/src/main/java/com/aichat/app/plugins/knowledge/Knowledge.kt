@@ -39,6 +39,19 @@ object Knowledge {
     }
     fun normalizeTags(raw: Any?): JArr = if (raw !is List<*>) ArrayList() else raw.map { Js.trim(s(it)) }.filter { it.isNotEmpty() }.toMutableList()
 
+    /**
+     * 把一句提问追加进条目的检索别名（keywords，逗号分隔）：去重、保序——UI「检索体检」
+     * 的「把问法存为关键词」用。分隔符与 [normalizeKeywords] 对齐（逗号/顿号/空白）。
+     * keywords 是检索权重第二高的字段（KB_WEIGHTS：title 4 / keywords 3 / content 1），
+     * 把口语问法补进来 = 手工桥接词表鸿沟（闭港例：存「船只进出」后即可命中）。
+     */
+    fun appendKeyword(existing: String, query: String): String {
+        fun split(s: String) = s.split(',', '，', '、', ';', '；', ' ', '\t', '\n').map { Js.trim(it) }.filter { it.isNotEmpty() }
+        val kept = split(existing)
+        val add = split(query).filter { it !in kept }
+        return (kept + add).joinToString("，")
+    }
+
     fun normalizeEntry(e0: Any?, now: Any? = null): JObj {
         val e = e0 ?: JObj()
         return jobj(
