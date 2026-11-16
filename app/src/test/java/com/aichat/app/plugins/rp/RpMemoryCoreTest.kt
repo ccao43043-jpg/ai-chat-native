@@ -5,7 +5,9 @@ import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -243,5 +245,27 @@ class RpMemoryCoreTest {
         assertEquals(0.5, RpMemoryCore.settingsOf(mapOf("calib" to 0.1)).calib, 1e-9)
         assertEquals(1.0, RpMemoryCore.settingsOf(mapOf("calib" to 0)).calib, 1e-9)
         assertEquals(1.3, RpMemoryCore.settingsOf(mapOf("calib" to "1.3")).calib, 1e-9)
+    }
+
+    @Test
+    fun buildIndexReusesWhenContentUnchanged() {
+        RpMemoryCore.clearIndexCache()
+        val list = listOf(
+            jobj("id" to "m1", "seq" to 1, "text" to "灯塔是红色的", "keywords" to listOf("灯塔")),
+        )
+        val a = RpMemoryCore.buildIndex(list)
+        val b = RpMemoryCore.buildIndex(list)      // 内部 LRU 命中
+        assertSame("内容未变应复用同一索引", a, b)
+        val c = RpMemoryCore.buildIndex(list, a)   // 显式 prev 命中
+        assertSame(a, c)
+    }
+
+    @Test
+    fun buildIndexRebuildsWhenContentChanges() {
+        RpMemoryCore.clearIndexCache()
+        val a = RpMemoryCore.buildIndex(listOf(jobj("id" to "m1", "text" to "灯塔是红色的")))
+        val b = RpMemoryCore.buildIndex(listOf(jobj("id" to "m1", "text" to "灯塔是蓝色的")))
+        assertNotSame("正文变化必须重建", a, b)
+        assertTrue("重建后应能按新词命中", b.df.containsKey("蓝色"))
     }
 }

@@ -4,6 +4,7 @@ import com.aichat.app.data.json.Js
 import com.aichat.app.data.json.Js.arr
 import com.aichat.app.data.json.Js.clone
 import com.aichat.app.data.json.Js.equal
+import com.aichat.app.data.json.Js.semanticEqual
 import com.aichat.app.data.json.Js.int32
 import com.aichat.app.data.json.Js.isArr
 import com.aichat.app.data.json.Js.nullish
@@ -599,7 +600,7 @@ class JsConvLog(
             val keys = LinkedHashSet<String>().apply { addAll(pMeta.keys()); addAll(nMeta.keys()) }
             keys.forEach { k ->
                 if (k == "id") return@forEach
-                if (!equal(pMeta[k], nMeta[k])) patch[k] = if (nMeta[k] === Undef) null else clone(nMeta[k])
+                if (!semanticEqual(pMeta[k], nMeta[k])) patch[k] = if (nMeta[k] === Undef) null else clone(nMeta[k])
             }
             if (patch.size > 0) ops.add(JsObj("op" to "meta.set", "payload" to JsObj("patch" to patch)))
 
@@ -612,13 +613,13 @@ class JsConvLog(
                 if (!truthy(m) || !truthy(prop(m, "id"))) return@forEach
                 val pm = pMsg[toStr(prop(m, "id"))]
                 if (!truthy(pm)) ops.add(JsObj("op" to "msg.add", "payload" to clone(m)))
-                else if (!equal(pm, m)) ops.add(JsObj("op" to "msg.edit", "payload" to clone(m)))
+                else if (!semanticEqual(pm, m)) ops.add(JsObj("op" to "msg.edit", "payload" to clone(m)))
             }
             val pIds = pList.filter { truthy(nMsg[toStr(prop(it, "id"))]) }.mapTo(ArrayList()) { prop(it, "id") }
             val nIds = nList.mapTo(ArrayList()) { prop(it, "id") }
-            if (!equal(pIds, nIds.filterTo(ArrayList()) { truthy(pMsg[toStr(it)]) || truthy(nMsg[toStr(it)]) }) && nIds.isNotEmpty()) {
+            if (!semanticEqual(pIds, nIds.filterTo(ArrayList()) { truthy(pMsg[toStr(it)]) || truthy(nMsg[toStr(it)]) }) && nIds.isNotEmpty()) {
                 val sameSet = pIds.size == nIds.size && pIds.all { Js.includes(nIds, it) }
-                if (!equal(pIds, nIds) && (nIds.size > 1 || sameSet || pIds.isNotEmpty())) {
+                if (!semanticEqual(pIds, nIds) && (nIds.size > 1 || sameSet || pIds.isNotEmpty())) {
                     ops.add(JsObj("op" to "msg.reorder", "payload" to JsObj("ids" to nIds)))
                 }
             }
@@ -632,25 +633,25 @@ class JsConvLog(
             nCh.forEach { c ->
                 val k = chKey(c)
                 if (!truthy(pChMap[k])) ops.add(JsObj("op" to "chapter.commit", "payload" to clone(c)))
-                else if (!equal(pChMap[k], c)) ops.add(JsObj("op" to "chapter.edit", "payload" to clone(c)))
+                else if (!semanticEqual(pChMap[k], c)) ops.add(JsObj("op" to "chapter.edit", "payload" to clone(c)))
             }
 
-            if (!equal(prev["affect"], next["affect"]) && (!nullish(next["affect"]) || !nullish(prev["affect"]))) {
+            if (!semanticEqual(prev["affect"], next["affect"]) && (!nullish(next["affect"]) || !nullish(prev["affect"]))) {
                 ops.add(JsObj("op" to "affect.set", "payload" to JsObj("affect" to (if (!nullish(next["affect"])) clone(next["affect"]) else null))))
             }
             val pBy = or(prev["affectBy"], JsObj()); val nBy = or(next["affectBy"], JsObj())
             if (nBy is JsObj) nBy.keys().forEach { cid ->
-                if (!equal(prop(pBy, cid), nBy[cid])) ops.add(JsObj("op" to "affect.by", "payload" to JsObj("id" to cid, "state" to clone(nBy[cid]))))
+                if (!semanticEqual(prop(pBy, cid), nBy[cid])) ops.add(JsObj("op" to "affect.by", "payload" to JsObj("id" to cid, "state" to clone(nBy[cid]))))
             }
 
             val pLed = extractLedger(prev); val nLed = extractLedger(next)
             val pLedMap = JsObj(); pLed.forEach { f -> pLedMap[ledKeyDiff(f)] = f }
             nLed.forEach { f ->
                 val k = ledKeyDiff(f)
-                if (!equal(pLedMap[k], f)) ops.add(JsObj("op" to "ledger.append", "payload" to JsObj("fact" to clone(f))))
+                if (!semanticEqual(pLedMap[k], f)) ops.add(JsObj("op" to "ledger.append", "payload" to JsObj("fact" to clone(f))))
             }
 
-            if (!equal(prev["worldRef"], next["worldRef"]) || !equal(prev["worldPending"], next["worldPending"])) {
+            if (!semanticEqual(prev["worldRef"], next["worldRef"]) || !semanticEqual(prev["worldPending"], next["worldPending"])) {
                 if (truthy(next["worldRef"]) || truthy(prev["worldRef"])) ops.add(JsObj("op" to "worldRef.set",
                     "payload" to JsObj("worldRef" to or(clone(next["worldRef"]), null), "worldPending" to or(clone(next["worldPending"]), null))))
             }

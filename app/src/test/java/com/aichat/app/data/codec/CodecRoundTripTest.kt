@@ -125,6 +125,23 @@ class CodecRoundTripTest {
         assertEquals(listOf("prompt", "completion", "cost"), enc.keys.toList())
     }
 
+    /** 2.3：`model` 提为一等字段；旧数据没有该键时编码仍省略它（字节不变）。 */
+    @Test fun messageModelIsFirstClassAndLegacyBytesUnchanged() {
+        val withModel = obj("""{"id":"a1","role":"assistant","content":"hi","createdAt":1,"model":"deepseek-chat"}""")
+        val m = MessageCodec.decode(withModel)
+        assertEquals("deepseek-chat", m.model)
+        assertSem(withModel, MessageCodec.encode(m))
+
+        val legacy = obj("""{"id":"a2","role":"assistant","content":"hi","createdAt":1,"futureKey":{"a":1}}""")
+        val m2 = MessageCodec.decode(legacy)
+        assertNull(m2.model)
+        assertSem(legacy, MessageCodec.encode(m2))          // 缺键 → 仍不写 model
+
+        val e = MessageCodec.encode(m2.copy(model = "gpt-4o"))
+        assertEquals(JsonPrimitive("gpt-4o"), e["model"])   // 改字段只动这一处
+        assertEquals(obj("""{"a":1}"""), e["futureKey"])
+    }
+
     @Test fun rpRootKeysStayOutOfExtras() {
         // 这些根键以前会掉进 extras：面板填不进 rpState、lore 冻结与窗口状态在重载后丢失。
         val roots = listOf(

@@ -401,10 +401,56 @@ object RpMemoryCore {
         val tf: MutableMap<String, MutableMap<String, MutableMap<String, Int>>> = HashMap(),
         val len: MutableMap<String, MutableMap<String, Int>> = HashMap(),
         val avgLen: MutableMap<String, Double> = HashMap(),
+        /** 内容签名（id + 正文/关键词哈希）：相同则复用同一份索引 */
+        val sig: String = "",
     )
 
-    fun buildIndex(list: List<JObj>): Index {
-        val idx = Index(list.size)
+    /**
+     * 索引缓存：记忆条目每轮都会走一次 [selectRelevant]，但条目通常几十轮才变一次。
+     * 照 [RetrievalCore.buildIndex] 的 `sig` 短路思路，内容未变时直接复用，避免 O(N × terms) 的固定开销。
+     * 容量按「同时活跃的对话数」估 4；LRU 淘汰最久未用的那份。
+     */
+    private const val INDEX_CACHE_MAX = 4
+    private val indexCache = object : LinkedHashMap<String, Index>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Index>): Boolean =
+            size > INDEX_CACHE_MAX
+    }
+
+    /** 只包含会影响倒排表的字段（正文 / 关键词）+ id；状态、seq 变化不需要重建。 */
+    fun indexSig(list: List<JObj>): String {
+        val sb = StringBuilder(64 + list.size * 24)
+        FIELDS.forEach { sb.append(it).append(',') }
+        sb.append('#')
+        list.forEach { e ->
+            sb.append(Js.str(e["id"])).append(':')
+                .append(Js.str(e["text"]).hashCode()).append(':')
+                .append(((e["keywords"] as? List<*>)?.joinToString(" ") { Js.str(it) } ?: "").hashCode())
+                .append('|')
+        }
+        return sb.toString()
+    }
+
+    /**
+     * 构建索引；`prev`（或内部 LRU 里同签名的索引）命中时直接返回，不重建。
+     * 返回值是只读语义的共享对象，调用方不得修改其中的 map。
+     */
+    fun buildIndex(list: List<JObj>, prev: Index? = null): Index {
+        val sig = indexSig(list)
+        if (prev != null && prev.sig == sig) return prev
+        val cached = synchronized(indexCache) { indexCache[sig] }
+        if (cached != null) return cached
+        val idx = buildIndexUncached(list, sig)
+        synchronized(indexCache) { indexCache[sig] = idx }
+        return idx
+    }
+
+    /** 测试用：清空索引缓存，避免用例之间互相命中。 */
+    fun clearIndexCache() {
+        synchronized(indexCache) { indexCache.clear() }
+    }
+
+    private fun buildIndexUncached(list: List<JObj>, sig: String): Index {
+        val idx = Index(list.size, sig = sig)
         val sum = HashMap<String, Int>()
         val n = HashMap<String, Int>()
         for (e in list) {

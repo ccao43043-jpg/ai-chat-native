@@ -94,3 +94,85 @@
   → files → engine 这条链路在 UI 层是零覆盖
 - `DefaultUsageStats.makeEntry` 丢 `convTitle` / `providerName`，与 JS `recordUsage` 不一致
 - 无 instrumentation 测试：Compose 界面、迁移、备份全部靠手测
+
+## 6. 评审改进进度（2026-11-16 起滚动更新）
+
+基线：`docs/REVIEW-2026-11-16.md`（main @ `88ddbe9` / v1.1.9）。每完成一项就更新本表，不再另开进度文档。
+
+| # | 评审项 | 状态 | 版本 / 证据 |
+|---|---|---|---|
+| 1 | 3.1【P0】rpmemory 中文分词退化成整句匹配 | ✅ | v1.2.0：`terms()` 委托 `RetrievalCore.grams`；用例 `chineseSentenceQueryRetrievesBySubstring` |
+| 2 | 5.2【P1】自动滚底打断阅读 | ✅ | v1.2.0：仅 `switched \|\| atBottom` 时滚（offset < 200） |
+| 3 | 4.2【P1】插件失败静默 | ✅ | v1.2.0：`errors: StateFlow`、`pushErr` 合并计数（上限 50）、顶栏数字角标、`PluginErrorsPanel.kt`（142 行） |
+| 4 | 3.2【P1】两套 token 估算互相打架 | ✅ | v1.2.0：`estTokens` 改用 `RpCacheCore.estimateTokens`，`calib` 由 `RpMemoryPlugin` 传入（夹 0.5–2.5） |
+| 5 | 3.3【P1】BM25 索引每轮重建 | ✅ | 本轮：`Index.sig` + LRU(4) 缓存、`buildIndex(list, prev)`、`clearIndexCache()`；用例 `buildIndexReusesWhenContentUnchanged` / `buildIndexRebuildsWhenContentChanges` |
+| 6 | 2.3【P1】`Message.extras` 兜底关键字段 | ✅ | 本轮：`model` 提为一等字段（Codec 编解码 + 引擎写入 + 两处读取回落旧 `extras.model`）；旧数据缺键仍省略、字节不变；用例 `messageModelIsFirstClassAndLegacyBytesUnchanged`。`providerId` 暂不加（全仓无 `extras.providerId` 写入/读取点，无消费者；真需要按条记服务商时再加） |
+| 7 | 2.2【P1】字节对齐旧 JS 的持久化复杂度 | ◐ | 本轮：方案修正为 4 阶段；**阶段 A 代码已落地**——`JsConvLog.diff()` 内 10 处 `equal` 改为 `semanticEqual`（冲突检测等 2 处保留 `equal`）；新增 `JsSemanticTest`（4 用例）；待 golden 逐条对比验证；B/C/D 未动 |
+| 8 | 5.3【P1】三个 god file | ◐ | 本轮：ChatScreen 713 → 528（`EmptyHero.kt` / `ChatMenus.kt`）；ChatController 793 → 733（`ChatUiState.kt` 拆出 Streaming / FilePatch / Plan / ChatUiState）；JsConvLog 865 未拆——无独立顶层类型，全部耦合在 class 内，纯移动不可行，需按职责重构（建议下轮） |
+| 9 | 2.1【P0】三套 JS 语义层 | ⏳ | 待做：合并到一套（净删 600+ 行） |
+| 10 | 5.1【P0】流式输出整屏重组 | ⏳ | 待做：`ChatUiState.streams` 拆独立 flow |
+| 11 | 6.2 死代码 `net/Sse.kt` | ✅ | 本轮：已删；用例 `sseSplitsAcrossChunks` 迁到真在用的 `StreamParser`（评审写「零引用」不准确，`SkeletonContractTest` 引用过它） |
+
+### 本轮验证
+
+- 代码：`RpMemoryCore.buildIndex` 加签名短路 + LRU 缓存；`RpMemoryCoreTest` 加 2 个用例。
+- 代码：`Message.model` 提为一等字段（Codec / 引擎 / 两处读取）；`CodecRoundTripTest` 加旧数据字节不变用例。
+- 代码：删除 `net/Sse.kt`，`SkeletonContractTest` 的 SSE 用例迁到 `StreamParser`。
+- 代码：拆分 god file——`ChatScreen` 713→523（`EmptyHero.kt` / `ChatMenus.kt`，含删 17 个未使用 import）、`ChatController` 793→733（`ChatUiState.kt`）；新增 `ChatUiStateTest`（3 个用例）。
+- 代码：2.2 阶段 A——`JsConvLog.diff()` 内 10 处 `equal` → `semanticEqual`；新增 `JsSemanticTest`（4 个用例）；B/C/D 未动。
+- 文档：新增 `docs/structured-diff-plan.md`（2.2 四阶段方案：A 判等 → B 去 `KeyOrder` → C 去 `nullRemovedKeys` → D 清理，带开关与回滚）。
+- 本会话内 Gradle 无法复跑：沙盒对 `D:\android-dev\gradle-home` 的 JVM 写权限被拒，缓存复制到工作区后发行包仍不完整（缺 `gradle-workers` 等 jar）。本地请跑
+  `./gradlew --no-daemon :app:testDebugUnitTest`。
+
+## 7. UI / 前端优化（2026-11-16 晚）
+
+- `MessageItem`：气泡圆角统一到 `Radii.Bubble` / `Radii.BubbleTail`（原 4 处硬编码 18/6）；用户气泡加 `pressScale` 按压反馈（长按复制不变）；消息信息行去掉冗余 `fontSize = 11.sp`。
+- `InputBar`：附件删除按钮触控区 28dp（视觉仍是 20dp 圆）；附件缩略图圆角改用 `Radii.Sm`。
+- `RemoteImage`：新增可选 `contentDescription`；聊天图片与待发送图片补无障碍描述。
+- 未动（建议下轮）：设置 / 生图 / 抽屉等页面的间距与圆角仍有硬编码，可逐步收敛到 `Space` / `Radius`；JS 版 `www` 已不参与构建，本轮未改。
+
+### UI 合理性审查（2026-11-16 晚·第二轮）
+
+审查结论（合理，不改）：
+- 删除会话**已有确认**：`ConvRow` 菜单 → `deleting` → `AlertDialog`，不存在误删直通。
+- 「新对话」纯白按钮与旧版 `#drawer-new` 默认样式一致（旧版窄屏才切渐变），保留。
+- 消息列表已有 `key = { it.id }` + `contentType`；状态栏/导航栏已 `SystemBarStyle.dark(TRANSPARENT)`；输入区 IME 感知与显隐动画完整。
+- 设置页已用 `Space` / `Radius` token + `Pressable`，是本项目的规范样板。
+
+已改（可发现性 / 一致性）：
+- 顶栏模型切换：由「12sp 灰字 + 裸 `clickable`」改为胶囊 + `ArrowDropDown` + `pressScale`，明确"可以点"。
+- 顶栏「对话列表 / 更多」两个 40dp 圆按钮：补 `pressScale` 按压反馈。
+- 抽屉功能行（设置/插件/生图/助手/世界/模板/用量/余额）：裸 `clickable` 改为 `Pressable`，与设置页手感一致。
+
+未改（有依据或风险高）：
+- 助手操作行 12sp 文本触控区约 28dp：仿旧版紧凑设计，改动会影响视觉密度。
+- 抽屉功能入口顺序：与旧版一致，不重排。
+- 设置 / 生图页硬编码间距：需逐页替换并逐页回归，留待有编译验证时做。
+
+## 8. 整体评估（2026-11-16 晚）
+
+| 指标 | 数值 |
+|---|---|
+| 生产代码 | 136 文件 / 25,392 行 |
+| 单测 | 49 文件 / 6,589 行（≈26%） |
+| 版本 | v1.2.0（本轮改动未 bump） |
+| 进度 | 11 项：6 完成 / 2 部分 / 3 未开始 |
+
+- **已完成**：3.1 中文分词、5.2 自动滚底、4.2 插件失败可见、3.2 token 估算、2.3 `Message.model`、6.2 删 `Sse.kt`。
+- **部分完成**：5.3（ChatScreen 523 / ChatController 733，JsConvLog 未拆）、2.2（阶段 A 已落地）。
+- **未开始**：2.1 合并三套 `Js`（P0）、5.1 流式状态拆分（P0）、instrumented 测试 + CI。
+
+**风险**
+
+1. 本轮 8 个生产文件 + 3 个测试文件未编译验证（沙盒无法写 `gradle-home`）。
+2. 2.2 阶段 A 改变 oplog 生成路径，必须用 golden 逐条对比确认 ops 不变。
+3. 无 CI 门禁，Compose 层改动基本靠手测。
+4. `JsConvLog` 917 行仍未拆，且耦合 replay/diff/commit/压缩。
+
+**建议**
+
+1. 立即本地跑 `./gradlew --no-daemon :app:testDebugUnitTest`，重点 `JsSemanticTest` / `CodecRoundTripTest` / golden；通过后建议发 v1.2.1。
+2. 下一轮优先 **2.1**（P0，净删 600+ 行），再做 **5.1**。
+3. 并行把 `testDebugUnitTest` 接进 CI。
+4. 2.2 阶段 B 等 golden 结果，不叠加未验证改动。
+> 独立评估与优化建议（不依赖本地文件状态、按 ROI 排序）见 `docs/OPTIMIZATION-ADVISORY.md`。

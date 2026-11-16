@@ -80,11 +80,12 @@ object ImageLoader {
 }
 
 @Composable
-fun RemoteImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop, maxDim: Int = 1024) {
+fun RemoteImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop, maxDim: Int = 1024,
+                contentDescription: String? = null) {
     val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, src) { value = ImageLoader.load(src, maxDim)?.asImageBitmap() }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         val b = bmp
-        if (b != null) Image(b, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
+        if (b != null) Image(b, contentDescription = contentDescription, contentScale = contentScale, modifier = Modifier.fillMaxSize())
         else Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

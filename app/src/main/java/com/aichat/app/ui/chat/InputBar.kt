@@ -159,12 +159,19 @@ fun InputBar(
                 ) {
                     images.forEachIndexed { i, src ->
                         Box {
-                            RemoteImage(src, Modifier.size(60.dp).clip(RoundedCornerShape(10.dp)))
+                            RemoteImage(src, Modifier.size(60.dp).clip(RoundedCornerShape(com.aichat.app.ui.theme.Radii.Sm.dp)),
+                                contentDescription = "待发送图片")
                             Box(
-                                Modifier.align(Alignment.TopEnd).size(20.dp).clip(CircleShape)
-                                    .clickable { onImages(images.filterIndexed { j, _ -> j != i }) },
+                                // 触控区 28dp，视觉仍是 20dp 的圆：小按钮不至于点不准
+                                Modifier.align(Alignment.TopEnd).size(28.dp)
+                                    .clickable { onImages(images.filterIndexed { j, _ -> j != i }) }
+                                    .testTag("remove-image"),
                             ) {
-                                Surface(color = MaterialTheme.colorScheme.inverseSurface, shape = CircleShape) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.inverseSurface,
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(20.dp).align(Alignment.TopEnd),
+                                ) {
                                     Icon(
                                         Icons.Filled.Close, "移除图片",
                                         tint = MaterialTheme.colorScheme.inverseOnSurface,

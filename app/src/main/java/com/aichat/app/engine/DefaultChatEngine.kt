@@ -135,7 +135,9 @@ class DefaultChatEngine(
         var bot = (reuse ?: Message(uid(), Role.ASSISTANT, "")).copy(
             content = prior, reasoning = if (continuing) reuse?.reasoning ?: "" else "", error = null, truncated = false, finishReason = null,
             createdAt = if (continuing) reuse!!.createdAt.takeIf { it > 0 } ?: now() else now(),
-            extras = JsonObject((reuse?.extras ?: JsonObject(emptyMap())) - "stopped" + mapOf("model" to JsonPrimitive(conv0.model))),
+            model = conv0.model,
+            // 旧版把 model 放在 extras；升级后提为一等字段，extras 里若有同名键要清掉（否则会被 modeled 键挡住、编码丢失）
+            extras = JsonObject((reuse?.extras ?: JsonObject(emptyMap())) - "stopped" - "model"),
         )
         var conv = if (reuse == null) conv0.copy(messages = conv0.messages + bot) else conv0.copy(messages = conv0.messages.map { if (it.id == bot.id) bot else it })
         send(StreamEvent.Started(lastUser?.id, bot.id))     // #c：第一个事件；助手消息此时只在内存

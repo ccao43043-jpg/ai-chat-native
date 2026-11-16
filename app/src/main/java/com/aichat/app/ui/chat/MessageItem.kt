@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -53,6 +55,7 @@ import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.Role
 import com.aichat.app.ui.common.MarkdownText
 import com.aichat.app.ui.common.RemoteImage
+import com.aichat.app.ui.common.pressScale
 
 /** 单条消息的操作回调（全部可空：为 null 时不显示对应按钮） */
 data class MessageActions(
@@ -98,13 +101,20 @@ fun MessageItem(
             Column(Modifier.alpha(alpha), horizontalAlignment = Alignment.End) {
                 Images(m.images, onImage)
                 FileChips(m.files)
+                val pressSource = remember { MutableInteractionSource() }
+                val userShape = RoundedCornerShape(
+                    com.aichat.app.ui.theme.Radii.Bubble.dp, com.aichat.app.ui.theme.Radii.Bubble.dp,
+                    com.aichat.app.ui.theme.Radii.BubbleTail.dp, com.aichat.app.ui.theme.Radii.Bubble.dp,
+                )
                 if (m.content.isNotEmpty()) Surface(
                     // 旧版 .msg.user .bubble：16/16/4/16 的「尖角朝下」，实心紫 + 一层紫色投影
                     color = com.aichat.app.ui.theme.Palette.UserBubble,
-                    shape = RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp),
+                    shape = userShape,
                     shadowElevation = 2.dp,
-                    modifier = Modifier.clip(RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp))
-                        .combinedClickable(onClick = {}, onLongClick = copy).testTag("msg-user"),
+                    modifier = Modifier.clip(userShape)
+                        .pressScale(pressSource)
+                        .combinedClickable(interactionSource = pressSource, indication = null, onClick = {}, onLongClick = copy)
+                        .testTag("msg-user"),
                 ) {
                     Text(
                         m.content, style = MaterialTheme.typography.bodyLarge,
@@ -138,12 +148,16 @@ fun MessageItem(
                 }
                 if (!m.reasoning.isNullOrEmpty()) Reasoning(m.reasoning, streaming && m.content.isEmpty())
                 Images(m.images, onImage)
+                val botShape = RoundedCornerShape(
+                    com.aichat.app.ui.theme.Radii.Bubble.dp, com.aichat.app.ui.theme.Radii.Bubble.dp,
+                    com.aichat.app.ui.theme.Radii.Bubble.dp, com.aichat.app.ui.theme.Radii.BubbleTail.dp,
+                )
                 if (m.content.isNotEmpty()) Surface(
                     // 旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
                     color = com.aichat.app.ui.theme.Palette.AssistantBubble,
-                    shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp),
+                    shape = botShape,
                     border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                    modifier = Modifier.clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).testTag("msg-assistant-body"),
+                    modifier = Modifier.clip(botShape).testTag("msg-assistant-body"),
                 ) {
                     SelectionContainer {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -174,7 +188,7 @@ fun MessageItem(
                     info,
                     style = MaterialTheme.typography.labelSmall,
                     color = com.aichat.app.ui.theme.Palette.Fg3,
-                    fontSize = 11.sp,
+
                     maxLines = 1,
                     modifier = Modifier.padding(start = 8.dp),
                 )
@@ -341,7 +355,8 @@ private fun Images(images: List<String>, onImage: (String) -> Unit) {
     if (images.isEmpty()) return
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 4.dp)) {
         images.take(4).forEach { src ->
-            RemoteImage(src, Modifier.size(96.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(src) }.widthIn(max = 96.dp))
+            RemoteImage(src, Modifier.size(96.dp).clip(RoundedCornerShape(com.aichat.app.ui.theme.Radii.Tag.dp)).clickable { onImage(src) }.widthIn(max = 96.dp),
+                contentDescription = "聊天图片")
         }
         if (images.size > 4) Text("+${images.size - 4}", modifier = Modifier.align(Alignment.CenterVertically))
     }
