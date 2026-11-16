@@ -3,6 +3,8 @@ package com.aichat.app.plugins.rp
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
+import com.aichat.app.plugins.knowledge.RetrievalCore
+import kotlin.math.roundToInt
 
 /**
  * 结构化记忆的纯函数层（旧版 `www/rpmemory.js`）。
@@ -28,6 +30,8 @@ object RpMemoryCore {
     data class Settings(
         val interval: Int, val window: Int, val maxInject: Int, val pinBudget: Int,
         val minScore: Double, val retrieval: String, val memTokens: Int, val tau: Int, val mmrLambda: Double,
+        /** rpcache 的 token 校准系数（`calib`）；1.0 = 未校准。只影响预算判断，不写回设置。 */
+        val calib: Double = 1.0,
     ) {
         fun toJs(): JObj = jobj(
             "interval" to interval, "window" to window, "maxInject" to maxInject, "pinBudget" to pinBudget,
@@ -63,6 +67,10 @@ object RpMemoryCore {
             tau = num("tau", 20), mmrLambda = when (val v = o?.get("mmrLambda")) {
                 is Number -> v.toDouble(); is String -> v.toDoubleOrNull() ?: 0.7; else -> 0.7
             },
+            // 与 rpcache 的 calibrate 同口径（夹在 0.5–2.5）；由插件从 conv.rpState.calib 传进来
+            calib = when (val v = o?.get("calib")) {
+                is Number -> v.toDouble(); is String -> v.toDoubleOrNull() ?: 1.0; else -> 1.0
+            }.let { if (it.isNaN() || it <= 0.0) 1.0 else it.coerceIn(0.5, 2.5) },
         )
     }
 
@@ -376,10 +384,15 @@ object RpMemoryCore {
     private const val B = 0.75
     private const val OPEN_BOOST = 1.15
 
-    private val TERM_SPLIT = Regex("[\\s\\p{P}\\p{S}]+")
-
-    fun terms(s: Any?): List<String> =
-        Js.str(s).lowercase().split(TERM_SPLIT).map { it.trim() }.filter { it.isNotEmpty() }
+    /**
+     * BM25F 的 term 切分：委托知识库的 [RetrievalCore.grams]（中文 bigram、英文/数字 `[a-z0-9_]+`）。
+     *
+     * 旧版 `rpmemory.js` 用「空白 + 标点」切词，中文没有空格 → 一个分句就是一个 term，
+     * 查询「灯塔」的 df 恒为 0，而 [bm25f] 第一行 `if (df == 0) return@forEach` 直接跳过，
+     * 于是 **整句查询（普通用户句子的常态）在 BM25 通道里一分都拿不到**，只剩置顶条目生效。
+     * 知识库那套 grams 一直是对的，这里直接复用：两套检索从此共用一把尺子。
+     */
+    fun terms(s: Any?): List<String> = RetrievalCore.grams(s)
 
     data class Index(
         val N: Int,
@@ -453,7 +466,14 @@ object RpMemoryCore {
         return s
     }
 
-    private fun estTokens(e: JObj): Int = kotlin.math.ceil(Js.str(e["text"]).length * 0.7).toInt() + 6
+    /**
+     * 条目 token 估算：与 rpcache 共用 [RpCacheCore.estimateTokens]（逐码点分档，汉字 0.6 / 英文 0.3）。
+     *
+     * 旧版这里是 `text.length * 0.7 + 6`：对英文高估约 133%（0.7 vs 0.3）、对中文高估约 17%，
+     * 结果同一条记忆预算下，英文条目会被提前砍掉一半。`+6` 是条目固定开销（类型标签 + 列表符号）。
+     */
+    private fun estTokens(e: JObj, calib: Double = 1.0): Int =
+        ((RpCacheCore.estimateTokens(Js.str(e["text"])) + 6) * calib).roundToInt()
 
     private fun decay(e: JObj, nowTurn: Int?, tau: Int, maxSeq: Int): Double {
         val turn = (e["turn"] as? Number)?.toInt()
@@ -528,7 +548,7 @@ object RpMemoryCore {
             }
             val b = best ?: break
             left.remove(b)
-            val c = estTokens(b.first)
+            val c = estTokens(b.first, o.calib)
             if (c > budget) continue
             budget -= c
             picked.add(b.first)

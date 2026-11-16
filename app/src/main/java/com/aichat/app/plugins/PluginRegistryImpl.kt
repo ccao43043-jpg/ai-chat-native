@@ -32,6 +32,7 @@ class PluginRegistryImpl(
     override val plugins: List<ChatPlugin> get() = list.toList()
     private val _errors = MutableStateFlow<List<JsonObject>>(emptyList())
     override val errors: StateFlow<List<JsonObject>> = _errors
+    override fun clearErrors() { _errors.value = emptyList() }
 
     /** 对话级插件数据镜像：convId → conv.plugins（JS 值） */
     private val convPlugins = HashMap<String, JObj>()

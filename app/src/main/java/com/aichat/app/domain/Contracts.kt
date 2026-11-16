@@ -210,6 +210,12 @@ interface PluginRegistry : RequestTransformer {
     fun headerBadges(settings: AppSettings, conv: Conversation): List<Badge>
     fun messageState(msg: Message, settings: AppSettings, conv: Conversation): MessageState
     val errors: StateFlow<List<JsonObject>>
+    /**
+     * 清空插件的错误列表（UI 上「知道了」按钮用）。
+     *
+     * 有 default 实现：`errors` 是只读流，实现方不重写这个方法就是「清不掉」，不会编译失败。
+     */
+    fun clearErrors() {}
 }
 
 /*
