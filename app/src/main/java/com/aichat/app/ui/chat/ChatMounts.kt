@@ -70,8 +70,8 @@ fun DefaultUsageChip(conv: Conversation?, settings: AppSettings) {
     val totals = remember(conv.messages, prices, priceMode, calib) {
         conv.messages.fold(UsageReport.Totals()) { acc, m ->
             val u = m.usage ?: return@fold acc
-            // 每条消息用的模型可能在 extras.model（换过模型的长对话），否则跟随对话当前模型
-            val model = (m.extras["model"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: conv.model
+            // 每条消息用的模型优先取一等字段；旧数据在 extras.model，再否则跟随对话当前模型
+            val model = m.model ?: (m.extras["model"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: conv.model
             acc + UsageReport.ofMessage(u, model, m.createdAt, prices, priceMode, calib)
         }
     }

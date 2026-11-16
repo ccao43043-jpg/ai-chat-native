@@ -2,7 +2,8 @@ package com.aichat.app
 
 import com.aichat.app.data.secret.SecretKeyVault
 import com.aichat.app.data.store.JsonFileStore
-import com.aichat.app.net.SseLineParser
+import com.aichat.app.net.StreamDelta
+import com.aichat.app.net.StreamParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -12,10 +13,13 @@ import java.nio.file.Files
 
 class SkeletonContractTest {
     @Test fun sseSplitsAcrossChunks() {
-        val p = SseLineParser()
-        assertEquals(emptyList<String>(), p.feed("data: {\"a\""))
-        assertEquals(listOf("{\"a\":1}"), p.feed(":1}\r\n\r\n: ping\n\n"))
-        assertEquals(listOf("[DONE]"), p.feed("data: [DONE]\n") + p.finish())
+        // 原测 SseLineParser（已删，与 StreamParser 是同一件事的两种写法）；改为直接测真在用的实现。
+        val p = StreamParser("openai")
+        assertTrue(p.push("data: {\"choices\":[{\"delta\":{\"content\":\"a\"").isEmpty())
+        val d = p.push("}}]}\r\n\r\n: ping\n\n")
+        assertEquals(listOf("a"), d.filterIsInstance<StreamDelta.Text>().map { it.text })
+        assertTrue(p.push("data: [DONE]\n\n").isEmpty())
+        assertTrue(p.done)
     }
 
     @Test fun originMatchesLegacyRules() {

@@ -126,6 +126,8 @@ data class Message(
     val routeSlug: String? = null,
     val versions: List<JsonObject?> = emptyList(),
     val vi: Int = 0,
+    /** 生成本条助手消息时使用的模型（长对话里换过模型时按条计价）；旧数据没有该键，读取处从 extras["model"] 回落 */
+    val model: String? = null,
     val extras: JsonObject = EmptyJson,   // pluginStatus/routeView/sources/knowledgeTrace/_conflicts…
 )
 

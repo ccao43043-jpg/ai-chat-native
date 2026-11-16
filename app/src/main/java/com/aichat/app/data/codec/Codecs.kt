@@ -198,13 +198,14 @@ object MessageCodec : Codec<Message> {
     private val usage = F("usage", { (it as? JsonObject)?.let(UsageStoreCodec::decode) }, { v: Usage? -> v?.let(UsageStoreCodec::encode) })
     private val error = Fields.strOrNull("error"); private val truncated = Fields.bool("truncated", false); private val finishReason = Fields.strOrNull("finishReason")
     private val routeSlug = Fields.strOrNull("routeSlug"); private val versions = Fields.nullableObjList("versions"); private val vi = Fields.int("vi")
+    private val model = Fields.strOrNull("model")
     override fun decode(o: JsonObject): Message { val r = Reader(o)
         return Message(r.read(id), r.read(role), r.read(content), r.read(createdAt), r.read(images), r.read(files), r.read(reasoning), r.read(usage), r.read(error),
-            r.read(truncated), r.read(finishReason), r.read(routeSlug), r.read(versions), r.read(vi), r.extras()) }
+            r.read(truncated), r.read(finishReason), r.read(routeSlug), r.read(versions), r.read(vi), r.read(model), r.extras()) }
     override fun encode(e: Message): JsonObject = Writer(e.extras).apply {
         put(id, e.id); put(role, e.role); put(content, e.content); put(createdAt, e.createdAt); put(images, e.images); put(files, e.files)
         put(reasoning, e.reasoning); put(usage, e.usage); put(error, e.error); put(truncated, e.truncated); put(finishReason, e.finishReason)
-        put(routeSlug, e.routeSlug); put(versions, e.versions); put(vi, e.vi) }.build()
+        put(routeSlug, e.routeSlug); put(versions, e.versions); put(vi, e.vi); put(model, e.model) }.build()
 }
 
 /**

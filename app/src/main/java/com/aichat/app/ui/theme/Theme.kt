@@ -47,6 +47,8 @@ object Radii {
     val Sm = 10
     val Bubble = 16
     val BubbleTail = 4
+    /** 小缩略图 / 徽标圆角（消息图片 96dp 缩略图），与旧版 8px 一致 */
+    val Tag = 8
 }
 
 private val Dark = darkColorScheme(

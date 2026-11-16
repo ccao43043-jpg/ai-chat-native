@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aichat.app.R
 import com.aichat.app.domain.model.ConversationMeta
+import com.aichat.app.ui.common.Pressable
 import com.aichat.app.ui.common.pressScale
 import com.aichat.app.ui.theme.Palette
 import java.text.SimpleDateFormat
@@ -357,16 +358,17 @@ private fun DrawerEntry(
     onClick: () -> Unit,
     trailing: String? = null,
 ) {
-    Row(
-        Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onClick)
-            .padding(horizontal = 20.dp).testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(painterResource(icon), null, Modifier.size(18.dp), tint = Palette.Fg2)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
-        if (trailing != null) {
-            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+    Pressable(onClick = onClick, modifier = Modifier.fillMaxWidth().height(42.dp).testTag(tag)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(painterResource(icon), null, Modifier.size(18.dp), tint = Palette.Fg2)
+            Spacer(Modifier.width(14.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
+            if (trailing != null) {
+                Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+            }
         }
     }
 }
@@ -379,16 +381,17 @@ private fun DrawerEntry(
     onClick: () -> Unit,
     trailing: String? = null,
 ) {
-    Row(
-        Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onClick)
-            .padding(horizontal = 20.dp).testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = Palette.Fg2)
-        Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
-        if (trailing != null) {
-            Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+    Pressable(onClick = onClick, modifier = Modifier.fillMaxWidth().height(42.dp).testTag(tag)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, Modifier.size(18.dp), tint = Palette.Fg2)
+            Spacer(Modifier.width(14.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg, modifier = Modifier.weight(1f))
+            if (trailing != null) {
+                Text(trailing, style = MaterialTheme.typography.bodySmall, color = Palette.Fg3, fontSize = 12.sp)
+            }
         }
     }
 }
