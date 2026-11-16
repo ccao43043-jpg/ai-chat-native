@@ -163,6 +163,35 @@ object RpCacheCore {
     /** 每条消息 = 正文 + 4（角色/分隔开销）+ 图片；provider 未知时图片沿用旧口径 1000/张（golden 兼容）。 */
     fun estimateItems(items: List<Any?>): Int = TokenEstimator.messages(items)
 
+    /**
+     * §4.2 摘要时点最优停止：枚举「再等 t 轮（t ∈ 0..H）再摘」的折现总成本 J[t]，取 argmin。
+     * 成本为相对量：每 token 发送 = 1（固定层 + 该轮负载一起发），超预算罚 ×2，
+     * 摘要调用输入 ≈ U（折现 γ^t），摘要改写前缀 → 在 t+1 轮付一次固定层重建（fixed）。
+     *
+     * 返回 t*：0 = 现在摘；>0 = 再等（滚动时域，下一轮重新求解）。模型下 t≥1 的 J 随 t 单调
+     * 不降（等待的收益 (1−γ^t) 与代价同比例增长），故 t* 实际只取 0 或 1——与「等一轮再看」
+     * 的滚动语义一致。质量罚（<0.60×1.15）在摘要产出了才知道，不进时点决策。
+     */
+    fun summaryTiming(U: Int, g: Double, saved: Int, fixed: Int, limit: Int, h: Int = 12, gamma: Double = 0.9): Int {
+        if (U <= 0) return 0
+        fun cost(sent: Double, overLimit: Boolean, rebuild: Boolean): Double {
+            var c = fixed + sent + (if (rebuild) fixed.toDouble() else 0.0)
+            if (overLimit) c *= 2
+            return c
+        }
+        var best = Double.MAX_VALUE; var bestT = 0
+        for (t in 0..h) {
+            var j = Math.pow(gamma, t.toDouble()) * U
+            for (i in 1..h) {
+                val u = U + g * (i - 1)
+                val sent = if (i <= t) u else maxOf(0.0, u - saved)
+                j += Math.pow(gamma, i.toDouble()) * cost(sent, fixed + sent > limit, i == t + 1)
+            }
+            if (j < best - 1e-9) { best = j; bestT = t }
+        }
+        return bestT
+    }
+
     // ---------------- 估算校准（用服务商返回的真实 prompt_tokens 修正估算） ----------------
 
     /** 校准键：provider / model / modality 隔离，避免跨模型互相污染（JS calibKey）。 */
@@ -497,11 +526,23 @@ object RpCacheCore {
         if (summaryOn && batch.isNotEmpty()) {
             if (overBudget) {
                 reason = "budget"
-            } else if (cal(estimateItems(unsummarized)) >= numOf(sum["trigger_tokens"], 30000) &&
-                batchRounds >= maxOf(1, numOf(sum["min_new_turns"], 1)) &&
-                sinceLast >= minGap
-            ) {
-                reason = "trigger"
+            } else {
+                val guardsOk = batchRounds >= maxOf(1, numOf(sum["min_new_turns"], 1)) && sinceLast >= minGap
+                val U = cal(estimateItems(unsummarized))
+                val mode = Js.str(Js.or(sum["mode"], "trigger"))
+                if (mode == "adaptive") {
+                    // §4.2 摘要时点最优停止（开关 summary.mode=adaptive，默认 trigger 保持旧行为）：
+                    // 枚举「再等 t 轮再摘」的折现总成本，t*=0 且满足守卫 → 现在摘（可早于硬触发）。
+                    // 硬超预算在上面已先行；滚动时域——t*>0 只表示本轮不摘，下一轮重新求解。
+                    val g = if (rounds > 0) U.toDouble() / rounds else U.toDouble()
+                    val chapterEst = minOf(numOf(sum["chapter_cap_tokens"], 12000).toInt(), (U * 0.25).roundToInt())
+                    val saved = maxOf(0, U - chapterEst)
+                    val fixed = maxOf(0, Js.toNumber(Js.or(tok["total"], 0.0)).toInt() - Js.toNumber(Js.or(tok["history"], 0.0)).toInt())
+                    val tStar = summaryTiming(U, g, saved, fixed, limit)
+                    if (tStar == 0 && guardsOk && U >= maxOf(1, numOf(sum["adaptive_min_tokens"], 4000))) reason = "adaptive"
+                } else if (U >= numOf(sum["trigger_tokens"], 30000) && guardsOk) {
+                    reason = "trigger"
+                }
             }
         }
 
