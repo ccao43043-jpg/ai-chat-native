@@ -1,5 +1,6 @@
 package com.aichat.app.plugins.rp
 
+import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
@@ -154,36 +155,13 @@ object RpCacheCore {
     }
 
     /**
-     * 本地 Token 估算（DeepSeek 官方换算）：汉字/假名/谚文/全角 0.6、英文字母 0.3、
-     * 数字 0.5、ASCII 标点 0.6、空白 0.1、其它码点 1.5，最后向上取整。
+     * 本地 Token 估算：委托 [TokenEstimator.text]（逐码点分档，DeepSeek 官方换算——
+     * 全仓唯一文本尺子，评审 3.2 / advisory §10.2① 统一，cache 插件也用这套）。
      */
-    fun estimateTokens(text: Any?): Int {
-        val s = Js.str(text)
-        var n = 0.0
-        var i = 0
-        while (i < s.length) {
-            val cp = s.codePointAt(i)
-            i += Character.charCount(cp)
-            n += when {
-                (cp in 0x3000..0x9fff) || (cp in 0xac00..0xd7af) || (cp in 0xff00..0xffef) ||
-                    (cp in 0xf900..0xfaff) || (cp in 0x20000..0x2fa1f) -> 0.6
-                (cp in 65..90) || (cp in 97..122) -> 0.3
-                cp in 48..57 -> 0.5
-                cp == 32 || cp == 9 || cp == 10 || cp == 13 -> 0.1
-                cp < 128 -> 0.6
-                cp < 0x3000 -> 0.6
-                else -> 1.5
-            }
-        }
-        return kotlin.math.ceil(n).toInt()
-    }
+    fun estimateTokens(text: Any?): Int = TokenEstimator.text(Js.str(text))
 
-    /** 每条消息 = 正文 + 4（角色/分隔开销）+ 每张图 1000。 */
-    fun estimateItems(items: List<Any?>): Int = items.sumOf { m ->
-        val o = m as? JObj ?: jobj()
-        val imgN = (o["images"] as? List<*>)?.size ?: 0
-        estimateTokens(o["content"]) + 4 + imgN * 1000
-    }
+    /** 每条消息 = 正文 + 4（角色/分隔开销）+ 图片；provider 未知时图片沿用旧口径 1000/张（golden 兼容）。 */
+    fun estimateItems(items: List<Any?>): Int = TokenEstimator.messages(items)
 
     // ---------------- 估算校准（用服务商返回的真实 prompt_tokens 修正估算） ----------------
 

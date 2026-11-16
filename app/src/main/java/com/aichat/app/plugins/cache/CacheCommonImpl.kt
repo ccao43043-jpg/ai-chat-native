@@ -1,10 +1,10 @@
 package com.aichat.app.plugins.cache
 
 import com.aichat.app.domain.rp.CacheCommon
+import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
-import kotlin.math.ceil
 import kotlin.math.max
 
 /** www/plugins/cache/cache-common.js 的逐函数移植（golden：golden/cache-common 下的 jsonl） */
@@ -24,12 +24,13 @@ object CacheCommonImpl : CacheCommon {
         return h.substring(0, 8) + "-" + h.substring(8, 12) + "-" + h.substring(12, 16) + "-" + h.substring(16, 20) + "-" + h.substring(20, 32)
     }
 
-    /** CJK（\u3000-\u9fff\uff00-\uffef）1 字 ≈ 1 Token，其余 4 字符 ≈ 1 Token */
-    override fun estTokens(s: String): Int {
-        var cjk = 0
-        for (c in s) if (c in '\u3000'..'\u9fff' || c in '\uff00'..'\uffef') cjk++
-        return ceil(cjk + (s.length - cjk) / 4.0).toInt()
-    }
+    /**
+     * 文本 token 估算。**有意偏离 JS**（cache-common.js 原「CJK 1 字 ≈ 1 Token，其余 4 字符 1 Token」）：
+     * 全仓统一为逐码点分档的 [TokenEstimator.text]（评审 3.2 / advisory §10.2①），
+     * 与 RP 插件同尺——同一段文本两处估出差 40% 会让预算判断与命中率诊断口径不一致。
+     * JS 仓库已冻结，本偏离不回灌；cache-common golden 在本仓不存在（JS 版遗留注释）。
+     */
+    override fun estTokens(s: String): Int = TokenEstimator.text(s)
     fun estTokensAny(v: Any?): Int = estTokens(if (Js.truthy(v)) Js.str(v) else "")
 
     fun partsText(c: Any?): String = when (c) {

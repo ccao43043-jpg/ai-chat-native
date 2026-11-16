@@ -10,6 +10,7 @@ import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.Role
 import com.aichat.app.plugins.PluginHost
+import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
@@ -126,9 +127,10 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             "vendor" to cap.vendor,
             "kind" to cap.kind,
             "system" to RpCacheCore.estimateTokens(p.system),
-            "history" to RpCacheCore.estimateItems(p.hist.map { m ->
+            // 检视面板的历史估算：图片按服务商计价（advisory §10.2②），不再是固定 1000/张
+            "history" to TokenEstimator.messages(p.hist.map { m ->
                 jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
-            }),
+            }, ctx.provider.presetId.ifEmpty { ctx.provider.id }),
             "total" to intOf(p.tokens["total"]),
             "limit" to p.limit,
             "dropped" to p.dropped,
