@@ -137,6 +137,8 @@ fun ChatScreen(
     val target = controller.currentTarget(settings)
     val messages = st.messages
     val conv = st.conv
+    // 忙/闲只翻转「流开始 / 结束」两个沿——根部收集它，流式增量 tick 不再触发整屏重组（评审 §5.1）
+    val busy by remember(st.convId) { controller.busyOf(st.convId) }.collectAsStateWithLifecycle(initialValue = false)
 
     // 新消息 / 切对话时回到底部。
     //
@@ -307,13 +309,12 @@ fun ChatScreen(
                         onPick = { input = it },
                     )
                     } else {
-                        // 性能：流式增量只改 live 这一条；stable 列表实例在整个流期间不变，已有条目不重组。
-                        // 插件的 messageState / badges（RP 插件里是 O(n) 扫描）按消息 + 对话缓存，并且异常不外泄。
-                        val stable = remember(st.conv?.messages, st.streaming?.base, st.streaming?.pendingUser) { st.stable }
-                        val rev = remember(stable) { stable.asReversed() }
-                        val liveMsg = st.live
-                        val busy = st.isStreaming
-                        val lastId = liveMsg?.id ?: stable.lastOrNull()?.id
+                        // 性能：流式增量只改 live 气泡（该项内部订阅 controller.streamOf）；st.messages 稳定层
+                        // 在整个流期间实例不变，已有条目不重组。插件的 messageState / badges（RP 插件里是
+                        // O(n) 扫描）按消息 + 对话缓存，并且异常不外泄。
+                        val rev = remember(st.messages) { st.messages.asReversed() }
+                        val liveKey = st.stream?.liveId
+                        val lastId = liveKey ?: st.messages.lastOrNull()?.id
                         val row: @Composable (com.aichat.app.domain.model.Message, Boolean) -> Unit = { m, live ->
                             val isUser = m.role == com.aichat.app.domain.model.Role.USER
                             val ms = remember(m, conv, settings, live) { if (conv != null && !live) runCatching { deps.plugins.messageState(m, settings, conv) }.getOrNull() else null }
@@ -331,7 +332,7 @@ fun ChatScreen(
                                 onRegenerate = if (isUser) null else ({ plan = controller.planRegenerate(m.id) }),
                                 onContinue = if (canCont) ({ controller.continueGeneration(m.id) }) else null,
                                 onVersion = { k -> plan = controller.planSwitch(m.id, k) },
-                                onVersionMenu = { if (controller.state.value.isStreaming) controller.toast("请先停止当前生成") else versionMenu = m.id },
+                                onVersionMenu = { if (controller.isStreaming()) controller.toast("请先停止当前生成") else versionMenu = m.id },
                                 onDelete = { controller.deleteMessage(m.id) },
                                 onShareCard = if (isUser) null else ({
                                                                         ShareCards.shareCard(ctx, conv?.templateName ?: conv?.title.orEmpty(),
@@ -353,7 +354,11 @@ fun ChatScreen(
                         }
                         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("messages"),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)) {
-                            if (liveMsg != null) item(key = liveMsg.id, contentType = "live") { row(liveMsg, true) }
+                            if (liveKey != null) item(key = liveKey, contentType = "live") {
+                                // live 气泡是唯一订阅流式热数据的地方：每次 flush 只重组这一个 item
+                                val s by remember(controller, st.convId) { controller.streamOf(st.convId) }.collectAsStateWithLifecycle(initialValue = null)
+                                s?.toLiveMessage()?.let { row(it, true) }
+                            }
                             items(rev, key = { it.id }, contentType = { it.role }) { m -> row(m, m.id == ChatController.PENDING_USER_ID) }
                         }
                     }
@@ -361,7 +366,7 @@ fun ChatScreen(
                 ChatMounts.headerExtras?.invoke(conv, settings)
                 val tplName = conv?.templateName?.takeIf { it.isNotEmpty() }
                 val tplEmoji = conv?.templateEmoji.orEmpty()
-                InputBar(input, { input = it }, st.draftImages, controller::setDraftImages, st.isStreaming,
+                InputBar(input, { input = it }, st.draftImages, controller::setDraftImages, busy,
                     onSend = { if (controller.send(input, st.draftImages, st.draftFiles)) { input = ""; controller.setDraftImages(emptyList()); controller.setDraftFiles(emptyList()) } },
                     onStop = controller::stop, onToast = controller::toast, modifier = Modifier.imePadding(),
                     files = st.draftFiles, onFiles = controller::setDraftFiles,

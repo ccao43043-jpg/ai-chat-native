@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -47,6 +49,26 @@ class ChatController(
 ) {
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+    /**
+     * 流式热数据：text / reasoning 每 [FLUSH_MS] 合并更新一次。只有 live 气泡订阅它，
+     * 主 [state] 只在流开始 / Started / 结束等结构性时刻变化——增量 tick 不再触发整屏重组（评审 §5.1）。
+     */
+    private val _streams = MutableStateFlow<Map<String, Streaming>>(emptyMap())
+    val streams: StateFlow<Map<String, Streaming>> = _streams.asStateFlow()
+
+    /** 单个对话的流式热流；未在流式时发 null。UI 里 remember(convId) 后 collect */
+    fun streamOf(convId: String?): Flow<Streaming?> = _streams.map { it[convId] }.distinctUntilChanged()
+
+    /** 对话是否在生成（只翻转开始 / 结束两个沿）；根部收集它给输入条 / 操作行用 */
+    fun busyOf(convId: String?): Flow<Boolean> = _streams.map { it.containsKey(convId) }.distinctUntilChanged()
+
+    /** 当前对话是否在生成（非响应式快照；守卫与测试用） */
+    fun isStreaming(): Boolean = _streams.value.containsKey(_state.value.convId)
+
+    /** 当前对话进行中的流（非响应式快照） */
+    fun currentStream(): Streaming? = _streams.value[_state.value.convId]
+
     private val jobs = HashMap<String, Job>()
     @Volatile private var touched = false
 
@@ -77,16 +99,19 @@ class ChatController(
 
     fun select(id: String?) = select(id, restoring = false)
 
+    /** 当前对话的流稳定视图（选会话时随 convId 一起设置，避免切到流式中的会话时丢 live 气泡） */
+    private fun streamViewOf(id: String?): StreamView? = id?.let { sid -> _streams.value[sid]?.let { StreamView(it.base, it.pendingUser, it.liveId) } }
+
     private fun select(id: String?, restoring: Boolean) {
         touched = true
-        if (id == null) { _state.update { it.copy(convId = null, conv = null) }; return }
-        _state.update { it.copy(convId = id) }
+        if (id == null) { _state.update { it.copy(convId = null, conv = null, stream = null) }; return }
+        _state.update { it.copy(convId = id, stream = streamViewOf(id)) }
         scope.launch {
             val c = runCatching { deps.chats.load(id) }.getOrNull()
             // 恢复的对话已不存在（被删 / 数据被替换）→ 退回打开最近的对话
             if (c == null && restoring) {
                 val first = deps.chats.index.value.firstOrNull()
-                _state.update { if (it.convId == id) it.copy(convId = first?.id) else it }
+                _state.update { if (it.convId == id) it.copy(convId = first?.id, stream = null) else it }
                 if (first != null) select(first.id)
                 return@launch
             }
@@ -98,8 +123,8 @@ class ChatController(
     fun newConversation() {
         val cur = _state.value.conv
         touched = true
-        if (cur != null && cur.messages.isEmpty() && !_state.value.isStreaming) return
-        _state.update { it.copy(convId = null, conv = null) }
+        if (cur != null && cur.messages.isEmpty() && !isStreaming()) return
+        _state.update { it.copy(convId = null, conv = null, stream = null) }
     }
 
     fun delete(id: String) {
@@ -107,7 +132,7 @@ class ChatController(
             jobs[id]?.let { deps.engine.stop(id); it.cancel() }
             deps.chats.delete(id)
             if (_state.value.convId == id) {
-                _state.update { it.copy(convId = null, conv = null) }
+                _state.update { it.copy(convId = null, conv = null, stream = null) }
                 deps.chats.index.value.firstOrNull()?.let { select(it.id) }
             }
         }
@@ -283,7 +308,7 @@ class ChatController(
 
     /** app.js startFromPersona：新对话 + 助手的服务商/模型/系统提示词/温度；角色卡世界书 → rpcache；开场白作为首条助手消息 */
     fun startFromPersona(p: com.aichat.app.domain.model.Persona) {
-        if (_state.value.isStreaming) { toast("请先停止当前生成"); return }
+        if (isStreaming()) { toast("请先停止当前生成"); return }
         scope.launch {
             val s = settings.value
             val cur = currentTarget(s)
@@ -311,7 +336,7 @@ class ChatController(
 
     /** 用世界模板开一个新对话：写入 RP 块，空对话时插入开场白。 */
     fun startFromWorld(w: com.aichat.app.domain.model.World) {
-        if (_state.value.isStreaming) { toast("请先停止当前生成"); return }
+        if (isStreaming()) { toast("请先停止当前生成"); return }
         scope.launch {
             val s = settings.value
             val cur = currentTarget(s)
@@ -363,13 +388,13 @@ class ChatController(
     fun send(text: String, images: List<String>, files: List<JsonObject> = emptyList()): Boolean {
         val body = text.trim()
         if (body.isEmpty() && images.isEmpty() && files.isEmpty()) return false
-        if (_state.value.isStreaming) return false
+        if (isStreaming()) return false
         val target = currentTarget()
         if (target == null) { toast("请先在设置里添加服务商和模型"); return false }
         if (searchNotReady()) return false
         scope.launch {
             val conv = _state.value.conv ?: deps.chats.create(target.first.id, target.second).also { c ->
-                _state.update { it.copy(convId = c.id, conv = c) }
+                _state.update { it.copy(convId = c.id, conv = c, stream = null) }
             }
             val pending = Message(PENDING_USER_ID, Role.USER, body, now(), images = images, files = files)
             // 契约 #m：files 交给引擎存进用户消息 files[]，请求时由引擎按 app.js toRequestMsg 展开（扫描版 PDF 提示也在引擎）
@@ -397,7 +422,7 @@ class ChatController(
     /** 重新生成（app.js regenerate）：最后一条直接开始；较早的回复先确认（RP 对话附加提示）；冻结的不能重新生成 */
     fun planRegenerate(assistantId: String): Plan {
         val c = _state.value.conv ?: return Plan.Done
-        if (_state.value.isStreaming) return Plan.Done
+        if (isStreaming()) return Plan.Done
         val i = c.messages.indexOfFirst { it.id == assistantId }
         val m = c.messages.getOrNull(i) ?: return Plan.Done
         if (m.role != Role.ASSISTANT) return Plan.Done
@@ -416,7 +441,7 @@ class ChatController(
 
     fun regenerate(assistantId: String, markKind: String? = null) {
         val c0 = _state.value.conv ?: return
-        if (_state.value.isStreaming) return
+        if (isStreaming()) return
         if (currentTarget() == null) { toast("请先选择服务商和模型"); return }
         if (searchNotReady()) return
         val c = if (markKind != null) markHistory(c0, markKind) else c0
@@ -456,7 +481,7 @@ class ChatController(
 
     fun continueGeneration(assistantId: String) {
         val c = _state.value.conv ?: return
-        if (_state.value.isStreaming) return
+        if (isStreaming()) return
         val i = c.messages.indexOfFirst { it.id == assistantId }
         val m = c.messages.getOrNull(i) ?: return
         if (!canContinue(m)) return
@@ -482,7 +507,7 @@ class ChatController(
     /** 编辑并重新发送：在这条用户消息上开新版本（原内容和之后的对话留在旧版本里），然后生成回复 */
     fun editAndResend(userMsgId: String, text: String): Boolean {
         val c = _state.value.conv ?: return false
-        if (_state.value.isStreaming) { toast("请先停止当前生成"); return false }
+        if (isStreaming()) { toast("请先停止当前生成"); return false }
         val i = c.messages.indexOfFirst { it.id == userMsgId }
         val m = c.messages.getOrNull(i) ?: return false
         if (m.role != Role.USER) return false
@@ -511,7 +536,7 @@ class ChatController(
     /** 切换版本（app.js switchVersion）：生成中 / 冻结时提示；RP 对话改较早历史先确认（VER_RP_WARN） */
     fun planSwitch(msgId: String, k: Int): Plan {
         val c = _state.value.conv ?: return Plan.Done
-        if (_state.value.isStreaming) return Plan.Toast("请先停止当前生成")
+        if (isStreaming()) return Plan.Toast("请先停止当前生成")
         val i = c.messages.indexOfFirst { it.id == msgId }
         val m = c.messages.getOrNull(i) ?: return Plan.Done
         val n = Versions.count(m)
@@ -524,7 +549,7 @@ class ChatController(
 
     fun selectVersion(msgId: String, k: Int, markKind: String? = null) {
         val c0 = _state.value.conv ?: return
-        if (_state.value.isStreaming) return
+        if (isStreaming()) return
         val i = c0.messages.indexOfFirst { it.id == msgId }
         if (i < 0) return
         val c = if (markKind != null) markHistory(c0, markKind) else c0
@@ -541,7 +566,7 @@ class ChatController(
     /** app.js deleteVersion */
     fun planDeleteVersion(msgId: String, k: Int): Plan {
         val c = _state.value.conv ?: return Plan.Done
-        if (_state.value.isStreaming) return Plan.Toast("请先停止当前生成")
+        if (isStreaming()) return Plan.Toast("请先停止当前生成")
         val i = c.messages.indexOfFirst { it.id == msgId }
         val m = c.messages.getOrNull(i) ?: return Plan.Done
         if (frozen(m, c)) return Plan.Toast("这条消息已写入章节摘要，不能修改版本")
@@ -559,7 +584,7 @@ class ChatController(
     /** app.js keepOnlyVersion */
     fun planKeepOnly(msgId: String): Plan {
         val c = _state.value.conv ?: return Plan.Done
-        if (_state.value.isStreaming) return Plan.Toast("请先停止当前生成")
+        if (isStreaming()) return Plan.Toast("请先停止当前生成")
         val m = c.messages.firstOrNull { it.id == msgId } ?: return Plan.Done
         val n = Versions.count(m)
         return Plan.Ask("只保留当前版本？", "其他 ${n - 1} 个版本（以及它们之后的对话分支）会被删除，当前显示的内容不变。", "只保留这个", danger = true) {
@@ -572,7 +597,7 @@ class ChatController(
     /** app.js deleteMsg（不确认，直接删；保存时 touch） */
     fun deleteMessage(msgId: String) {
         val c = _state.value.conv ?: return
-        if (_state.value.isStreaming) return
+        if (isStreaming()) return
         scope.launch {
             val kept = c.messages.filterNot { it.id == msgId }
             // 旧版删消息时会按 sourceMsgId 回滚事实账本（rpmemory.pruneBySourceIds）：
@@ -628,16 +653,19 @@ class ChatController(
     private class DeltaBuffer { val text = StringBuilder(); val reasoning = StringBuilder(); var last = 0L; var timer: Job? = null }
 
     private fun startStream(convId: String, s: Streaming, open: () -> Flow<StreamEvent>) {
-        _state.update { it.copy(streams = it.streams + (convId to s)) }
+        _streams.update { it + (convId to s) }
+        if (_state.value.convId == convId) {
+            _state.update { it.copy(stream = StreamView(s.base, s.pendingUser, s.liveId)) }
+        }
         val buf = DeltaBuffer()
         fun flush() = synchronized(buf) {
             buf.timer?.cancel(); buf.timer = null
             if (buf.text.isEmpty() && buf.reasoning.isEmpty()) return@synchronized
             val t = buf.text.toString(); val r = buf.reasoning.toString()
             buf.text.setLength(0); buf.reasoning.setLength(0); buf.last = clock()
-            _state.update { st ->
-                val cur = st.streams[convId] ?: return@update st
-                st.copy(streams = st.streams + (convId to cur.copy(text = cur.text + t, reasoning = cur.reasoning + r)))
+            _streams.update { cur ->
+                val cs = cur[convId] ?: return@update cur
+                cur + (convId to cs.copy(text = cs.text + t, reasoning = cs.reasoning + r))
             }
         }
         val job = scope.launch {
@@ -671,27 +699,35 @@ class ChatController(
     /** 节流用的单调时钟（与 [now] 的业务时间分开，测试里 now 可以是假的） */
     private fun clock() = System.nanoTime() / 1_000_000
 
-    private fun onEvent(convId: String, ev: StreamEvent) = _state.update { st ->
-        val s = st.streams[convId] ?: return@update st
-        val ns = when (ev) {
-            is StreamEvent.Delta -> s.copy(text = s.text + ev.text)
-            is StreamEvent.Reasoning -> s.copy(reasoning = s.reasoning + ev.text)
-            is StreamEvent.UsageUpdate -> s.copy(usage = ev.usage)
-            is StreamEvent.Error -> s.copy(error = ev.message.ifEmpty { "HTTP ${ev.httpStatus}" })
-            // 契约 #c：第一个事件给出真实 id（用户消息已落盘、助手消息为空占位），替换乐观显示用的临时 id
-            is StreamEvent.Started -> s.copy(pendingUser = s.pendingUser?.copy(id = ev.userMsgId ?: s.pendingUser.id), liveId = ev.assistantMsgId,
-                // 引擎换了助手消息（单版本失败重试时删旧建新）：旧消息的字段（版本 / 续写前缀）不再适用
-                prefix = if (s.prefix != null && s.prefix.id != ev.assistantMsgId && s.liveId != ChatUiState.STREAMING_ID) null else s.prefix)
-            // 契约 #4：给用户的轻提示（如 402 降级重试），不影响正文
-            is StreamEvent.Notice -> return@update st.copy(toast = ev.text)
-            else -> s
+    private fun onEvent(convId: String, ev: StreamEvent) {
+        // 契约 #4：给用户的轻提示（如 402 降级重试），不影响正文
+        if (ev is StreamEvent.Notice) { _state.update { it.copy(toast = ev.text) }; return }
+        _streams.update { cur ->
+            val s = cur[convId] ?: return@update cur
+            val ns = when (ev) {
+                is StreamEvent.Delta -> s.copy(text = s.text + ev.text)
+                is StreamEvent.Reasoning -> s.copy(reasoning = s.reasoning + ev.text)
+                is StreamEvent.UsageUpdate -> s.copy(usage = ev.usage)
+                is StreamEvent.Error -> s.copy(error = ev.message.ifEmpty { "HTTP ${ev.httpStatus}" })
+                // 契约 #c：第一个事件给出真实 id（用户消息已落盘、助手消息为空占位），替换乐观显示用的临时 id
+                is StreamEvent.Started -> s.copy(pendingUser = s.pendingUser?.copy(id = ev.userMsgId ?: s.pendingUser.id), liveId = ev.assistantMsgId,
+                    // 引擎换了助手消息（单版本失败重试时删旧建新）：旧消息的字段（版本 / 续写前缀）不再适用
+                    prefix = if (s.prefix != null && s.prefix.id != ev.assistantMsgId && s.liveId != ChatUiState.STREAMING_ID) null else s.prefix)
+                else -> s
+            }
+            cur + (convId to ns)
         }
-        st.copy(streams = st.streams + (convId to ns))
+        // Started 同时修主 state 的稳定视图（乐观用户 id / live id）——结构性变化，允许一次重组
+        if (ev is StreamEvent.Started && _state.value.convId == convId) {
+            val s = _streams.value[convId]
+            _state.update { st -> if (st.convId != convId || s == null) st else st.copy(stream = StreamView(s.base, s.pendingUser, s.liveId)) }
+        }
     }
 
     private suspend fun finish(convId: String) {
         jobs.remove(convId)
-        val s = _state.value.streams[convId]
+        val s = _streams.value[convId]
+        _streams.update { it - convId }
         var reloaded = deps.chats.load(convId)
         // 带文件发送：把用户消息改回原文 + files（引擎存的是拼接后的文字）
         val fp = s?.filePatch
@@ -707,7 +743,7 @@ class ChatController(
         }
         // 出错时引擎已把 error 写进助手消息（契约），这里不再重复提示
         _state.update { st ->
-            st.copy(streams = st.streams - convId, conv = if (st.convId == convId) reloaded ?: st.conv else st.conv)
+            if (st.convId == convId) st.copy(stream = null, conv = reloaded ?: st.conv) else st
         }
     }
 
