@@ -5,11 +5,10 @@ import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.Role
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** `ChatUiState` 的三个派生属性（messages / stable / live）：流式与非流式两态。 */
+/** `ChatUiState` 的稳定层（messages）与 `Streaming.toLiveMessage()`：流式与非流式两态。 */
 class ChatUiStateTest {
 
     private fun msg(id: String, role: Role = Role.ASSISTANT, content: String = id) =
@@ -24,13 +23,11 @@ class ChatUiStateTest {
     fun idleStateFallsBackToPersistedMessages() {
         val st = ChatUiState(convId = "c", conv = conv(msg("a"), msg("b", Role.USER)))
         assertFalse(st.isStreaming)
-        assertNull(st.live)
         assertEquals(listOf("a", "b"), st.messages.map { it.id })
-        assertEquals(st.messages, st.stable)
     }
 
     @Test
-    fun streamingStateAppendsPendingUserAndLive() {
+    fun streamingStateAppendsPendingUser() {
         val s = Streaming(
             convId = "c",
             base = listOf(msg("a")),
@@ -38,12 +35,13 @@ class ChatUiStateTest {
             text = "答案",
             startedAt = 2,
         )
-        val st = ChatUiState(convId = "c", streams = mapOf("c" to s))
+        val st = ChatUiState(convId = "c", stream = StreamView(s.base, s.pendingUser, s.liveId))
         assertTrue(st.isStreaming)
-        assertEquals(listOf("a", "u"), st.stable.map { it.id })
-        assertEquals(listOf("a", "u", ChatUiState.STREAMING_ID), st.messages.map { it.id })
-        assertEquals("答案", st.live?.content)
-        assertEquals(ChatUiState.STREAMING_ID, st.live?.id)
+        // 稳定层只有 base + 乐观用户消息；live 助手气泡单独由 Streaming 计算
+        assertEquals(listOf("a", "u"), st.messages.map { it.id })
+        val live = s.toLiveMessage()
+        assertEquals("答案", live.content)
+        assertEquals(ChatUiState.STREAMING_ID, live.id)
     }
 
     @Test
@@ -58,12 +56,11 @@ class ChatUiStateTest {
             error = "e",
             startedAt = 3,
         )
-        val st = ChatUiState(convId = "c", streams = mapOf("c" to s))
-        val live = st.live!!
+        val st = ChatUiState(convId = "c", stream = StreamView(s.base, s.pendingUser, s.liveId))
+        val live = s.toLiveMessage()
         assertEquals("前文续写", live.content)
         assertEquals("想", live.reasoning)
         assertEquals("e", live.error)
-        assertTrue(st.stable.isEmpty())
-        assertEquals(listOf(ChatUiState.STREAMING_ID), st.messages.map { it.id })
+        assertTrue(st.messages.isEmpty())
     }
 }

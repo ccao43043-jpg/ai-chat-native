@@ -63,26 +63,27 @@ class ChatControllerTest {
             delay(10)
         }
     }
-    private suspend fun ChatController.idle() { delay(20); until("生成结束") { !state.value.isStreaming }; delay(30) }
+    private suspend fun ChatController.idle() { delay(20); until("生成结束") { !isStreaming() }; delay(30) }
     private suspend fun ChatController.sendAndWait(t: String, files: List<JsonObject> = emptyList()) {
-        assertTrue(send(t, emptyList(), files)); until("开始") { state.value.isStreaming || state.value.conv?.messages?.isNotEmpty() == true }; idle()
+        assertTrue(send(t, emptyList(), files)); until("开始") { isStreaming() || state.value.conv?.messages?.isNotEmpty() == true }; idle()
     }
 
     @Test fun sendStreamsThenPersistsWithStartedIds() = runBlocking {
         val (c, repo) = make(delayMs = 15)
         assertTrue(c.send("你好", emptyList()))
-        until("流式中且有正文") { c.state.value.streaming?.text?.isNotEmpty() == true }
+        until("流式中且有正文") { c.currentStream()?.text?.isNotEmpty() == true }
         val mid = c.state.value
-        assertEquals(listOf(Role.USER, Role.ASSISTANT), mid.messages.map { it.role })
+        val midLiveId = c.currentStream()!!.liveId
+        assertEquals(listOf(Role.USER), mid.messages.map { it.role })
         // Started 已把临时 id 换成引擎的真实 id
-        assertNotEquals(ChatUiState.STREAMING_ID, mid.streaming!!.liveId)
+        assertNotEquals(ChatUiState.STREAMING_ID, midLiveId)
         assertNotEquals(ChatController.PENDING_USER_ID, mid.messages.first().id)
         assertFalse("流式中不能再发", c.send("再来", emptyList()))
         c.idle()
         val end = c.state.value
         val conv = repo.load(end.convId!!)!!
         assertEquals(2, conv.messages.size)
-        assertEquals(mid.streaming!!.liveId, conv.messages[1].id)
+        assertEquals(midLiveId, conv.messages[1].id)
         assertEquals(mid.messages.first().id, conv.messages[0].id)
         assertEquals("你好", conv.title)
         assertFalse(conv.messages[1].truncated)
@@ -93,15 +94,15 @@ class ChatControllerTest {
     @Test fun stopKeepsPartialTextAndMarksTruncated() = runBlocking {
         val (c, repo) = make(delayMs = 30)
         c.send("写长文", emptyList())
-        until { (c.state.value.streaming?.text?.length ?: 0) > 3 }
-        val partial = c.state.value.streaming!!.text
+        until { (c.currentStream()?.text?.length ?: 0) > 3 }
+        val partial = c.currentStream()!!.text
         c.stop(); c.idle()
         val bot = repo.load(c.state.value.convId!!)!!.messages.last()
         assertEquals(Role.ASSISTANT, bot.role)
         assertTrue(bot.truncated)
         assertTrue(bot.content.startsWith(partial))
         assertTrue(c.canContinue(bot))
-        assertNull(c.state.value.streaming)
+        assertNull(c.currentStream())
     }
 
     @Test fun errorIsWrittenByEngineNotDuplicated() = runBlocking {
@@ -159,7 +160,7 @@ class ChatControllerTest {
         val plan = c.planRegenerate(a1) as com.aichat.app.ui.chat.Plan.Ask
         assertEquals("从这里重新生成？", plan.title)
         assertFalse(plan.body!!.contains("RP"))
-        plan.run(); until { c.state.value.isStreaming }; c.idle()
+        plan.run(); until { c.isStreaming() }; c.idle()
         assertEquals(2, repo.load(conv.id)!!.messages.size)   // 之后的对话留在旧版本
         c.selectVersion(a1, 0); until { c.state.value.conv!!.messages.size == 4 }
         assertEquals("二", c.state.value.conv!!.messages[2].content)
@@ -172,7 +173,7 @@ class ChatControllerTest {
         val uid = conv.messages[0].id; val aid = conv.messages[1].id
         assertTrue(c.editMessage(aid, "手改的回答")); until { c.state.value.conv!!.messages[1].content == "手改的回答" }
         assertEquals(JsonPrimitive(true), repo.load(conv.id)!!.messages[1].extras["edited"])
-        assertTrue(c.editAndResend(uid, "新问题")); until { c.state.value.isStreaming }; c.idle()
+        assertTrue(c.editAndResend(uid, "新问题")); until { c.isStreaming() }; c.idle()
         val after = repo.load(conv.id)!!.messages
         assertEquals(2, after.size)
         assertEquals("新问题", after[0].content); assertEquals(2, Versions.count(after[0]))
@@ -183,10 +184,10 @@ class ChatControllerTest {
 
     @Test fun continueAppends() = runBlocking {
         val (c, repo) = make(delayMs = 30)
-        c.send("长", emptyList()); until { (c.state.value.streaming?.text?.length ?: 0) > 3 }
+        c.send("长", emptyList()); until { (c.currentStream()?.text?.length ?: 0) > 3 }
         c.stop(); c.idle()
         val m0 = c.state.value.conv!!.messages[1]
-        c.continueGeneration(m0.id); until { c.state.value.isStreaming }; c.idle()
+        c.continueGeneration(m0.id); until { c.isStreaming() }; c.idle()
         val m1 = repo.load(c.state.value.convId!!)!!.messages[1]
         assertEquals(m0.id, m1.id)
         assertTrue(m1.content.startsWith(m0.content)); assertTrue(m1.content.contains("（续写）"))
@@ -267,7 +268,7 @@ class ChatControllerTest {
             // 较早回复重新生成：RP 提示 + 记录 regen
             val ask = c.planRegenerate(a1) as com.aichat.app.ui.chat.Plan.Ask
             assertTrue(ask.body!!.contains("本对话开启了 RP 缓存优化：从较早的回复重新生成会改变对话历史"))
-            ask.run(); until { c.state.value.isStreaming }; c.idle()
+            ask.run(); until { c.isStreaming() }; c.idle()
             assertEquals(listOf("regen"), marks)
             // 切回旧版本（后面有对话吗？此时 a1 是最后一条 → 不弹窗）
             assertEquals(com.aichat.app.ui.chat.Plan.Done, c.planSwitch(a1, 0)); until { c.state.value.conv!!.messages.size == 4 }
@@ -297,8 +298,8 @@ class ChatControllerTest {
         val (c, repo) = make()
         c.sendAndWait("问")
         val aid = c.state.value.conv!!.messages[1].id
-        c.planRegenerate(aid); until { c.state.value.isStreaming }; c.idle()
-        c.planRegenerate(aid); until { c.state.value.isStreaming }; c.idle()
+        c.planRegenerate(aid); until { c.isStreaming() }; c.idle()
+        c.planRegenerate(aid); until { c.isStreaming() }; c.idle()
         assertEquals(3, Versions.count(c.state.value.conv!!.messages[1]))
         val del = c.planDeleteVersion(aid, 2) as com.aichat.app.ui.chat.Plan.Ask
         assertEquals("删除第 3 个版本？", del.title); assertEquals("删除后无法恢复。", del.body)
@@ -347,18 +348,19 @@ class ChatControllerTest {
         val seenOldWhileStreaming = java.util.concurrent.atomic.AtomicBoolean(false)
         val liveIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
         val watch = CoroutineScope(Dispatchers.Default + Job().also { jobs += it }).launch {
-            c.state.collect { st -> st.streaming?.let { s ->
+            c.streams.collect { sm -> sm[conv.id]?.let { s ->
                 liveIds.add(s.liveId)
-                if (s.liveId != "a-fail" && st.messages.any { it.id == "a-fail" }) seenOldWhileStreaming.set(true)
+                if (s.liveId != "a-fail" && c.state.value.messages.any { it.id == "a-fail" }) seenOldWhileStreaming.set(true)
             } }
         }
         assertEquals(com.aichat.app.ui.chat.Plan.Done, c.planRegenerate("a-fail"))
-        until { c.state.value.isStreaming }
-        until("收到 Started 的新 id") { c.state.value.streaming?.liveId?.let { it != "a-fail" } ?: true }
+        until { c.isStreaming() }
+        until("收到 Started 的新 id") { c.currentStream()?.liveId?.let { it != "a-fail" } ?: true }
         val mid = c.state.value
         if (mid.isStreaming) {
-            assertEquals(listOf("u-fail", mid.streaming!!.liveId), mid.messages.map { it.id })
-            assertNull("旧消息的字段不能带进新消息", mid.messages.last().error)
+            // 稳定层只有乐观用户消息；live 助手气泡由 Streaming 计算，不携带旧消息字段
+            assertEquals(listOf("u-fail"), mid.messages.map { it.id })
+            assertNull("旧消息的字段不能带进新消息", c.currentStream()?.toLiveMessage()?.error)
         }
         c.idle(); watch.cancel()
         val saved = repo.load(conv.id)!!.messages
@@ -377,11 +379,15 @@ class ChatControllerTest {
         val texts = java.util.Collections.synchronizedList(mutableListOf<String>())
         val bases = java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>()))
         val watch = CoroutineScope(Dispatchers.Default + Job().also { jobs += it }).launch {
-            c.state.collect { st -> st.streaming?.let { s -> if (texts.lastOrNull() != s.text) texts += s.text; if (s.liveId != ChatUiState.STREAMING_ID) bases.add(s.base) } }
+            // 热流（增量）与稳定层分开收集：state 在流式期间不该发增量，bases 去重验证 base 实例不变
+            c.streams.collect { sm -> sm.values.forEach { s ->
+                if (texts.lastOrNull() != s.text) texts += s.text
+                if (s.liveId != ChatUiState.STREAMING_ID) bases.add(s.base)
+            } }
         }
         val t0 = System.currentTimeMillis()
         assertTrue(c.send("写一段长一点的", emptyList()))
-        until { c.state.value.isStreaming }; c.idle(); watch.cancel()
+        until { c.isStreaming() }; c.idle(); watch.cancel()
         val elapsed = System.currentTimeMillis() - t0
         val final = c.state.value.conv!!.messages.last().content
         assertTrue(final.isNotEmpty())

@@ -20,7 +20,16 @@ data class Streaming(
     val startedAt: Long = System.currentTimeMillis(),
     /** 带文件附件发送时：流结束后把用户消息改回「原文 + files」（见 [ChatController.send]） */
     val filePatch: FilePatch? = null,
-)
+) {
+    /** 正在生成的助手消息（prefix + 增量）。热数据随 [ChatController.streams] 每 tick 变化，只在 live 气泡内使用 */
+    fun toLiveMessage(): Message {
+        val p = prefix
+        return (p ?: Message(liveId, Role.ASSISTANT, "", startedAt)).copy(
+            id = liveId, content = (p?.content ?: "") + text,
+            reasoning = ((p?.reasoning ?: "") + reasoning).ifEmpty { null },
+            error = error, usage = usage ?: p?.usage, truncated = false)
+    }
+}
 
 data class FilePatch(val sentText: String, val rawText: String, val files: List<JsonObject>)
 
@@ -31,10 +40,18 @@ sealed interface Plan {
     data object Done : Plan
 }
 
+/**
+ * 当前对话进行中流的「稳定视图」：只在流开始 / Started / 结束这些结构性时刻变化。
+ * 增量（text / reasoning）在 [ChatController.streams] 里，不进主 state——否则每次 flush 都会
+ * 触发整屏重组（评审 §5.1）。
+ */
+data class StreamView(val base: List<Message>, val pendingUser: Message?, val liveId: String)
+
 data class ChatUiState(
     val convId: String? = null,
     val conv: Conversation? = null,
-    val streams: Map<String, Streaming> = emptyMap(),
+    /** 当前对话的流式稳定层；非流式为 null。热数据见 [ChatController.streams] */
+    val stream: StreamView? = null,
     val toast: String? = null,
     /** 输入区待发送的图片（data URL）/ 文件（已抽取文字）。放在这里而不是 rememberSaveable：体积大，不能进 Bundle */
     val draftImages: List<String> = emptyList(),
@@ -42,27 +59,15 @@ data class ChatUiState(
     /** 开着联网搜索但没配置好：UI 弹 app.js askSearchSetup 的对话框 */
     val askSearchSetup: Boolean = false,
 ) {
-    val streaming: Streaming? get() = convId?.let { streams[it] }
-    val isStreaming: Boolean get() = streaming != null
+    val isStreaming: Boolean get() = stream != null
 
-    /** 消息列表 = 已落盘消息；流式中 = 目标之前的消息 + 乐观用户消息 + 正在生成的助手消息 */
-    val messages: List<Message> get() = live?.let { stable + it } ?: stable
-
-    /** 不随流式增量变化的部分（流式中 = base + 乐观用户消息）。UI 据此 remember，增量到来时这些条目不重组 */
-    val stable: List<Message> get() {
-        val s = streaming ?: return conv?.messages.orEmpty()
-        return s.pendingUser?.let { s.base + it } ?: s.base
-    }
-
-    /** 正在生成的助手消息；不在流式中为 null */
-    val live: Message? get() {
-        val s = streaming ?: return null
-        val p = s.prefix
-        return (p ?: Message(s.liveId, Role.ASSISTANT, "", s.startedAt)).copy(
-            id = s.liveId, content = (p?.content ?: "") + s.text,
-            reasoning = ((p?.reasoning ?: "") + s.reasoning).ifEmpty { null },
-            error = s.error, usage = s.usage ?: p?.usage, truncated = false)
-    }
+    /**
+     * 消息列表（稳定层，实例在整个流期间不变）：流式中 = base + 乐观用户消息；
+     * 空闲 = conv.messages。正在生成的助手消息由列表末尾单独的 item 渲染，
+     * 该 item 内部订阅 [ChatController.streamOf]——增量 tick 只重组那一个气泡。
+     */
+    val messages: List<Message>
+        get() = stream?.let { (it.pendingUser?.let { u -> it.base + u } ?: it.base) } ?: conv?.messages.orEmpty()
 
     companion object { const val STREAMING_ID = "__streaming__" }
 }
