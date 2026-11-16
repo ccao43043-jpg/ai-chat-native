@@ -126,3 +126,9 @@
 3. **知识库检索升级（§4.5.2）先补评测**：MRR 0.60 的 golden 集偏简单（方案承认评测盲区），先补"同义改写/指代/跨条目"困难用例，指标可信后再谈 PRF/RRF。
 
 修正后"核心完成"口径 ≈ **8–10 个工作日**，达成时以方案 §7 验收指标为准（totalPromptTokens 回放不劣化、选择集翻转 ↓80%、oplog 写放大 ≈1、文件问答后半段命中），而非逐项打卡。
+
+### 5.3 夜间执行发现（2026-11-17 03:30，阻塞项与范围修正）
+
+1. **§4.3 精确背包 + 粘滞：被结构阻塞，需产品决策。** 原生 memory 层是整块文本（`blockText(st,"memory")`，无可选条目），summary 层按设计不允许中间丢章，history 已有二分裁剪——JS lagrange 操作的「条目级选择结构」原生有意没移植（advisory §10.2③ 证实）。实施背包需要先把 memory 块结构化为条目（产品决策：是否值得、与 rpmemory 插件的条目召回如何分工），不是纯算法工作。挂起，待决策。
+2. **三套 Js 收敛：范围上修。** `net.Js`（JsonElement 值模型）实际消费方 7 个文件——cost 域 5 个（CostCoreJs / UsageStatsCore / Balance / FloorPrices / UsageReport）+ engine 2 个，远超评审估的 2 处。cost 域深度绑定 JsonElement，收敛 = 值模型迁移 = 3–5 天（原估 2–3 天），且 net-golden 与 secure-golden 双侧锁定。建议拆两步：先共享纯 JS 语义核心（numberToString / localeCompare / round / i32 的算法层），值模型迁移单独立项。
+3. **已完成 ✅（本夜）**：阶段 C/D（#76）、sessionId 收口 + 骤降告警（#77）、§4.2 摘要最优停止开关灰度（#78）、完成度盘点（#75）。
