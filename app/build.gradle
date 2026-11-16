@@ -19,8 +19,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 119                  // 原生 v1.1.9：世界模板可直接开聊
-        versionName '1.1.9'
+        versionCode 120                  // 原生 v1.2.0：评审快速修复四连（记忆中文分词 / 滚动 / 插件错误可见 / token 估算）
+        versionName '1.2.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
