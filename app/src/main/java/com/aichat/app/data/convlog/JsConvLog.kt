@@ -613,7 +613,17 @@ class JsConvLog(
                 if (!truthy(m) || !truthy(prop(m, "id"))) return@forEach
                 val pm = pMsg[toStr(prop(m, "id"))]
                 if (!truthy(pm)) ops.add(JsObj("op" to "msg.add", "payload" to clone(m)))
-                else if (!semanticEqual(pm, m)) ops.add(JsObj("op" to "msg.edit", "payload" to clone(m)))
+                else if (!msgEqual(pm, m)) {
+                    val payload = clone(m) as JsObj
+                    // structured-diff 阶段 C（D5 根修）：上次有非 null 值、这次缺键的消息顶层键，payload 显式写 null——
+                    // Object.assign 合并下 JS 回放等价（真值判断 / vi|0 ≡ 缺键），Kotlin 解码为默认值。
+                    // 原 nullRemovedMessageKeys 在 encode 层做同一件事，现移到 diff 层显式表达（oplog 格式不变）。
+                    val pmo = pm as? JsObj; val mo = m as? JsObj
+                    if (pmo != null && mo != null) pmo.keys().forEach { k ->
+                        if (!mo.has(k) && pmo[k] != null && pmo[k] !== Undef) payload[k] = null
+                    }
+                    ops.add(JsObj("op" to "msg.edit", "payload" to payload))
+                }
             }
             val pIds = pList.filter { truthy(nMsg[toStr(prop(it, "id"))]) }.mapTo(ArrayList()) { prop(it, "id") }
             val nIds = nList.mapTo(ArrayList()) { prop(it, "id") }
@@ -670,6 +680,21 @@ class JsConvLog(
                 if (messageText(m).lowercase().contains(q) || toStr(or(prop(m, "role"), "")).lowercase() == q) hits.add(JsObj("type" to "message", "id" to prop(m, "id"), "index" to i.toDouble()))
             }
             return hits
+        }
+
+        /**
+         * 消息级判等（structured-diff 阶段 C）：顶层 **null ≡ 缺键**——Object.assign 合并语义下
+         * 两者都表示「无值」，否则回放物化的 null（payload 显式 null）会与下一次编码产出的缺键
+         * 互相制造幻影 msg.edit。嵌套对象（versions / usage / files…）整体比较，不在放宽范围。
+         * golden convlog 语料不含 null（已核实），此放宽不影响 JS 基准对照。
+         */
+        private fun msgEqual(a: Any?, b: Any?): Boolean {
+            val ao = a as? JsObj; val bo = b as? JsObj
+            if (ao == null || bo == null) return semanticEqual(a, b)
+            fun liveKeys(o: JsObj) = o.keys().filter { o[it] != null && o[it] !== Undef }
+            val ka = liveKeys(ao); val kb = liveKeys(bo)
+            if (ka.toSet() != kb.toSet()) return false
+            return ka.all { semanticEqual(ao[it], bo[it]) }
         }
     }
 
