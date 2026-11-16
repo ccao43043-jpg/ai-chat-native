@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.aichat.app.ui.theme.Palette
@@ -46,6 +47,9 @@ fun AppRoot(deps: UiDeps) {
         val chatVm: ChatViewModel = viewModel(factory = ChatViewModel.Factory(deps))
         var showImage by rememberSaveable { mutableStateOf(false) }
         var settings by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
+        // 屏幕 swap 时保留各屏的 rememberSaveable 状态（输入草稿、滚动位置等）——
+        // 纯 if/else 切换会在组合移除时注销 saveable 注册表项，回来就丢（踩过：去生图页再回，输入草稿丢失）
+        val screenHolder = rememberSaveableStateHolder()
 
         BackHandler(enabled = settings == null && showImage) { showImage = false }
         // 退出动画期间还要拿得到目的地，否则内容先被卸掉会闪一帧
@@ -56,14 +60,18 @@ fun AppRoot(deps: UiDeps) {
             Scaffold(containerColor = Palette.Bg) {
                 Box(Modifier.fillMaxSize().padding(it).consumeWindowInsets(it)) {
                     if (showImage) {
-                        ImageScreen(onBack = { showImage = false })
+                        screenHolder.SaveableStateProvider("image") {
+                            ImageScreen(onBack = { showImage = false })
+                        }
                     } else {
-                        ChatScreen(
-                            chatVm.controller,
-                            onOpenSettings = { settings = it },
-                            onOpenImage = { p -> ImageDraft.pending = p; showImage = true },
-                            onOpenImageTab = { ImageDraft.pending = null; showImage = true },
-                        )
+                        screenHolder.SaveableStateProvider("chat") {
+                            ChatScreen(
+                                chatVm.controller,
+                                onOpenSettings = { settings = it },
+                                onOpenImage = { p -> ImageDraft.pending = p; showImage = true },
+                                onOpenImageTab = { ImageDraft.pending = null; showImage = true },
+                            )
+                        }
                     }
                 }
             }
