@@ -49,7 +49,7 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
     var worldId by remember { mutableStateOf(worlds.firstOrNull()?.id) }
     var doc by remember { mutableStateOf<JObj?>(null) }
     var catIdx by remember { mutableStateOf(0) }
-    var editing by remember { mutableStateOf<Triple<String, String, String>?>(null) } // (entryId, title, content)
+    var editing by remember { mutableStateOf<EditState?>(null) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     var pendingImport by remember { mutableStateOf<String?>(null) }
@@ -118,7 +118,7 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                 modifier = Modifier.testTag("kn-export"),
             ) { Text("导出") }
             if (cat != null) {
-                TextButton(onClick = { editing = Triple("", "", "") }) { Text("新建") }
+                TextButton(onClick = { editing = EditState("", "", "", "") }) { Text("新建") }
             }
         },
     ) {
@@ -167,7 +167,12 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                     title = Js.str(e["title"]),
                     content = Js.str(e["content"]),
                     keywords = (e["keywords"] as? List<*>)?.joinToString(" ") { Js.str(it) }.orEmpty(),
-                    onEdit = { editing = Triple(Js.str(e["id"]), Js.str(e["title"]), Js.str(e["content"])) },
+                    onEdit = {
+                        editing = EditState(
+                            Js.str(e["id"]), Js.str(e["title"]), Js.str(e["content"]),
+                            (e["keywords"] as? List<*>)?.joinToString("，") { Js.str(it) } ?: "",
+                        )
+                    },
                     onDelete = {
                         runCatching { Knowledge.removeEntry(doc!!, cat!!["id"], e["id"]) }
                             .onSuccess { save(it) }
@@ -196,17 +201,17 @@ fun KnowledgeScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         )
     }
     if (edit != null && doc != null && cat != null) {
-        val (entryId, t0, c0) = edit
         KnowledgeEditorDialog(
-            title0 = t0, content0 = c0,
+            doc = doc, entryId = edit.entryId,
+            title0 = edit.title, content0 = edit.content, keywords0 = edit.keywords,
             onDismiss = { editing = null },
-            onSave = { title, content ->
+            onSave = { title, content, keywords ->
                 editing = null
                 if (title.isBlank() && content.isBlank()) { toast("标题和正文至少填一个"); return@KnowledgeEditorDialog }
-                val patch = jobj("title" to title, "content" to content)
+                val patch = jobj("title" to title, "content" to content, "keywords" to keywords)
                 runCatching {
-                    if (entryId.isEmpty()) Knowledge.addEntry(doc!!, cat["id"], patch)
-                    else Knowledge.updateEntry(doc!!, cat["id"], entryId, patch)
+                    if (edit.entryId.isEmpty()) Knowledge.addEntry(doc!!, cat["id"], patch)
+                    else Knowledge.updateEntry(doc!!, cat["id"], edit.entryId, patch)
                 }.onSuccess { save(it); toast("已保存") }
                     .onFailure { toast("保存失败：" + (it.message ?: "")) }
             },
@@ -245,23 +250,79 @@ private fun KnowledgeRow(
     }
 }
 
+/** 条目编辑对话框状态：id 为空 = 新建 */
+private data class EditState(val entryId: String, val title: String, val content: String, val keywords: String)
+
 @Composable
 private fun KnowledgeEditorDialog(
-    title0: String, content0: String,
+    doc: JObj?, entryId: String,
+    title0: String, content0: String, keywords0: String,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, String) -> Unit,
 ) {
     var title by remember { mutableStateOf(title0) }
     var content by remember { mutableStateOf(content0) }
+    var keywords by remember { mutableStateOf(keywords0) }
+    // 检索体检（§4.5.2 配套）：输入模拟提问，看这条会不会被检索到——没命中就把问法存为检索别名
+    var testQ by remember { mutableStateOf("") }
+    var testOut by remember { mutableStateOf<List<Pair<String, Boolean>>>(emptyList()) }
+
+    fun runSearch() {
+        if (testQ.isBlank()) return
+        val hits = Knowledge.search(doc, testQ, jobj("limit" to 5.0, "mode" to "bm25"))
+        testOut = hits.map { h ->
+            val en = h["entry"] as JObj
+            Js.str(en["title"]) to (Js.str(en["id"]) == entryId)
+        }
+    }
+
     com.aichat.app.ui.common.BottomForm(
         onDismiss = onDismiss,
         title = if (title0.isEmpty() && content0.isEmpty()) "新建条目" else "编辑条目",
         actions = {
             TextButton(onClick = onDismiss) { Text("取消", color = com.aichat.app.ui.theme.Palette.Fg2) }
-            TextButton(onClick = { onSave(title.trim(), content.trim()) }) { Text("保存") }
+            TextButton(onClick = { onSave(title.trim(), content.trim(), keywords.trim()) }) { Text("保存") }
         },
     ) {
         com.aichat.app.ui.common.SoftField(title, { title = it }, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         com.aichat.app.ui.common.SoftField(content, { content = it }, label = { Text("内容") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+        com.aichat.app.ui.common.SoftField(
+            keywords, { keywords = it },
+            label = { Text("检索别名（逗号分隔，可把可能被问到的说法写在这里）") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Text(
+            "检索体检：模拟一次提问，看这条能不能被检索到",
+            style = MaterialTheme.typography.labelMedium,
+            color = com.aichat.app.ui.theme.Palette.Fg2,
+            modifier = Modifier.padding(top = 6.dp).testTag("kn-search-test"),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.aichat.app.ui.common.SoftField(
+                testQ, { testQ = it }, label = { Text("模拟提问") }, singleLine = true,
+                modifier = Modifier.weight(1f).testTag("kn-search-q"),
+            )
+            TextButton(onClick = { runSearch() }) { Text("测试") }
+            TextButton(
+                onClick = { keywords = Knowledge.appendKeyword(keywords, testQ); runSearch() },
+                enabled = testQ.isNotBlank(),
+                modifier = Modifier.testTag("kn-add-kw"),
+            ) { Text("存为别名") }
+        }
+        if (testOut.isNotEmpty()) {
+            Text(
+                "检索 Top${testOut.size}：" + if (testOut.none { it.second }) "⚠️ 本条未进前五——把问法「存为别名」后即可命中" else "",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error.takeIf { testOut.none { it.second } } ?: com.aichat.app.ui.theme.Palette.Fg2,
+            )
+            testOut.forEachIndexed { i, (t, hit) ->
+                Text(
+                    "${i + 1}. $t ${if (hit) "✅ 本条会被命中" else ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hit) com.aichat.app.ui.theme.Palette.Accent else com.aichat.app.ui.theme.Palette.Fg2,
+                )
+            }
+        }
     }
 }
