@@ -35,8 +35,12 @@ jobs:
           api-level: 34
           arch: x86_64
           target: default
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
-          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 3072
+          # 无头模拟器偶发安装中断（Broken pipe）：失败自动重试一次
+          script: |
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest || \
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest
 
       - name: 上传测试报告
         if: failure()
