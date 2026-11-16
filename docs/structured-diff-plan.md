@@ -56,11 +56,11 @@ codec.commitJs(fs, Js.fromJson(json) as JsObj)
 - 验收：golden 回归产出的 ops 与改动前**逐条一致**；oplog 体积不增；`Undef` vs `null` 语义单独用例确认
 - 性能：每次比较多一次键排序，对话对象为 O(消息数 × 字段数)，开销可忽略
 
-### 阶段 B：去掉 `KeyOrder.align`（低风险，依赖阶段 A）
+### 阶段 B：去掉 `KeyOrder.align`（低风险，依赖阶段 A）— 代码已完成（2026-11-17）
 
 - 在 `ConversationCodec.encode` 里按**固定字段顺序**输出（与 `MessageCodec`/`ConversationCodec` 声明顺序一致）
 - `saveLocked` 删除 `KeyOrder.align` 调用
-- `KeyOrder` 类暂留（`ConvMetaCodec` 等仍在用）
+- `KeyOrder` 类已无调用方（原计划假设 ConvMetaCodec 在用，实际没有），@Deprecated 留一个版本周期，阶段 D 删除
 - 验收：`CodecRoundTripTest`（语义相等）+ `RepositoryTest` + golden 回归；真机编辑消息后重启，oplog 不出现成对的 `msg.edit` 抖动
 
 ### 阶段 C：去掉 `nullRemovedMessageKeys`（中风险）
