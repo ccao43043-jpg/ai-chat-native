@@ -118,19 +118,34 @@ object RetrievalCore {
     fun mmr(cands: List<JObj>?, lambda: Double?, sim: ((JObj, JObj) -> Double)?, maxN: Int?, seed: List<JObj>?): MutableList<JObj> {
         val lam = lambda ?: 0.7
         val simFn = sim ?: { a, b -> jaccard3(Js.or(a["text"], ""), Js.or(b["text"], "")) }
-        val limit = maxN ?: (cands?.size ?: 0)
-        val left = ArrayList(cands ?: emptyList()); val S = ArrayList<JObj>(); val out = ArrayList<JObj>()
-        if (seed != null) S.addAll(seed)
+        val list = cands ?: emptyList()
+        val limit = maxN ?: list.size
+        // 增量实现（D1）：maxSim[i] 维护候选 i 与已选集（seed + 已入选）的最大相似度，
+        // 每轮只对新入选者各算一次 sim，复杂度 O(k·n)（原逐轮对全部已选重算为 O(k²·n)）。
+        // sim 对称时输出顺序与逐轮重算完全一致；平局时同取先出现者（严格大于），差分测试见 RetrievalCoreMmrTest。
+        val seedL = seed ?: emptyList()
+        val maxSim = DoubleArray(list.size); val used = BooleanArray(list.size)
+        for (i in list.indices) {
+            var m = if (seedL.isEmpty()) 0.0 else Double.NEGATIVE_INFINITY
+            for (y in seedL) { val s = simFn(list[i], y); if (s > m) m = s }
+            maxSim[i] = m
+        }
+        val out = ArrayList<JObj>()
         var picked = 0
-        while (left.isNotEmpty() && picked < limit) {
-            var best: JObj? = null; var bv = Double.NEGATIVE_INFINITY
-            for (x in left) {
-                val red = if (S.isNotEmpty()) S.maxOf { y -> simFn(x, y) } else 0.0
-                val v = lam * Js.toNumber(Js.or(x["score"], 0.0)) - (1 - lam) * red
-                if (v > bv) { bv = v; best = x }
+        while (picked < limit) {
+            var bi = -1; var bv = Double.NEGATIVE_INFINITY
+            for (i in list.indices) {
+                if (used[i]) continue
+                val v = lam * Js.toNumber(Js.or(list[i]["score"], 0.0)) - (1 - lam) * maxSim[i]
+                if (v > bv) { bv = v; bi = i }
             }
-            if (best == null) break
-            left.removeAt(left.indexOfFirst { it === best }); S += best; out += best; picked++
+            if (bi < 0) break
+            used[bi] = true; out += list[bi]; picked++
+            for (i in list.indices) {
+                if (used[i]) continue
+                val s = simFn(list[i], list[bi])
+                if (s > maxSim[i]) maxSim[i] = s
+            }
         }
         return out
     }
