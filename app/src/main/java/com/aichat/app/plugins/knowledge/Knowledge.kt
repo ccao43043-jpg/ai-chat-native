@@ -242,13 +242,54 @@ object Knowledge {
             if (Js.truthy(ex["scene"])) RetrievalCore.addQuery(q, ex["scene"], 0.3)
             if (Js.truthy(ex["l1"])) RetrievalCore.addQuery(q, ex["l1"], 0.2)
         }
-        val scored = docs.map { d ->
+        // 第一遍：原始查询打分（供 PRF 选扩展词 + RRF 的 BM25 排名）
+        val pass1 = docs.map { d ->
             var sc = RetrievalCore.bm25f(idx, q, d, KB_WEIGHTS)
             if (Js.truthy(d["pinned"])) sc += 1e6
             jobj("categoryId" to d["categoryId"], "categoryName" to d["categoryName"], "entry" to d["entry"], "score" to sc, "_doc" to d)
-        }.filter { it["score"].d() > 0 || Js.truthy(it["entry"]["pinned"]) }.toMutableList()
+        }.filter { it["score"].d() > 0 || Js.truthy(it["entry"]["pinned"]) }
+
+        // PRF（§4.5.2-1，Rocchio 式）：取首轮 top3 的高 IDF 词（β=0.3、最多 8 个、排除原查询词）
+        // 并入查询重打分——同义改写的 query 与相关条目共享的正是这些「回答性词汇」。
+        val q2 = RetrievalCore.Query(); q2.putAll(q)
+        val qTerms = q.keys.toSet()
+        val termW = HashMap<String, Double>()
+        pass1.filter { it["score"].d() < 1e5 }.sortedByDescending { it["score"].d() }.take(3).forEach { s ->
+            val dId = Js.str((s["_doc"] as JObj)["id"])
+            (idx.tf[dId] as? HashMap<String, HashMap<String, Int>>)?.forEach { (f, tm) ->
+                val wf = KB_WEIGHTS[f] ?: 1.0
+                tm.forEach { (t, tf) -> if (t !in qTerms) termW[t] = (termW[t] ?: 0.0) + wf * tf * RetrievalCore.idf(idx, t) }
+            }
+        }
+        termW.entries.sortedByDescending { it.value }.take(8).forEach { q2[it.key] = (q2[it.key] ?: 0.0) + 0.3 }
+
+        val rescored = docs.map { d ->
+            var sc = RetrievalCore.bm25f(idx, q2, d, KB_WEIGHTS)
+            if (Js.truthy(d["pinned"])) sc += 1e6
+            jobj("categoryId" to d["categoryId"], "categoryName" to d["categoryName"], "entry" to d["entry"], "score" to sc, "_doc" to d)
+        }.filter { it["score"].d() > 0 || Js.truthy(it["entry"]["pinned"]) }
+
+        // RRF（§4.5.2-2）：BM25(扩查询) / 关键词精确命中 / 标题命中 三路排名倒数融合（k=60）——
+        // 同义改写时字面信号弱，标题/关键词命中提供第二、三票，避免单一 BM25 排序失手。
+        val byBm25 = rescored.sortedByDescending { it["score"].d() }
+        val qGrams = RetrievalCore.grams(Js.or(query, "")).toSet()
+        fun overlapOf(d: JObj, field: String): Int {
+            val terms = RetrievalCore.grams(Js.str(Js.or((d["entry"] as JObj)[field], ""))).toSet()
+            return qGrams.intersect(terms).size
+        }
+        val byKw = rescored.sortedByDescending { overlapOf(it["_doc"] as JObj, "keywords") }
+        val byTitle = rescored.sortedByDescending { overlapOf(it["_doc"] as JObj, "title") }
+        val rrf = HashMap<String, Double>()
+        listOf(byBm25, byKw, byTitle).forEach { ranked ->
+            ranked.forEachIndexed { i, s ->
+                val key = Js.stringify(s["entry"])
+                rrf[key] = (rrf[key] ?: 0.0) + 1.0 / (60 + i)
+            }
+        }
+        val scored = rescored.toMutableList()
         scored.sortWith { a, b ->
-            var c = cmpNum(b["score"].d() - a["score"].d())
+            var c = cmpNum((rrf[Js.stringify(b["entry"])] ?: 0.0) - (rrf[Js.stringify(a["entry"])] ?: 0.0))
+            if (c == 0) c = cmpNum(b["score"].d() - a["score"].d())
             if (c == 0) c = cmpNum(a["_doc"]["categoryOrder"].d() - b["_doc"]["categoryOrder"].d())
             if (c == 0) c = cmpNum(Js.toNumber(Js.or(b["entry"]["updatedAt"], 0.0)) - Js.toNumber(Js.or(a["entry"]["updatedAt"], 0.0)))
             c
