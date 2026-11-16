@@ -185,12 +185,8 @@ object GCache {
     }
 
     // ───────── OpenRouterAdapter ─────────
-    /** gcache 自己的 session_id（带 aichat- 前缀与 UUIDv4 形状，与 cache-common.sessionIdFor 不同） */
-    fun sessionIdFor(convId: Any?): String {
-        if (convId == null || convId == "") return ""
-        val s = Js.str(convId); val h = hash(s) + hash("a$s") + hash("b$s") + hash("c$s")
-        return "aichat-" + h.substring(0, 8) + "-" + h.substring(8, 12) + "-4" + h.substring(13, 16) + "-8" + h.substring(17, 20) + "-" + h.substring(20, 32)
-    }
+    /** gcache 自己的 session_id（带 aichat- 前缀与 UUIDv4 形状，与 cache-common.sessionIdFor 不同）——实现收口到 [SessionIds.gcache] */
+    fun sessionIdFor(convId: Any?): String = SessionIds.gcache(convId)
     fun applySession(body: JObj, sid: String): JObj { if (sid.isNotEmpty() && body["session_id"] == null) body["session_id"] = sid; return body }
     fun routeOf(body: JObj): JObj = jobj("model" to Js.or(body["model"], ""), "provider" to if (body["provider"].truthy()) Js.stringify(body["provider"]) else "")
 
@@ -425,12 +421,33 @@ object GCache {
         val p = k.sumOf { it["prompt"].d() }; val h = k.sumOf { it["hit"].d() }
         return if (p != 0.0 && !p.isNaN()) Js.round(h / p * 100) else null
     }
+    /**
+     * advisory §10.3：连续 ≥3 轮命中率不足前值一半（且前值 ≥20%）→ 骤降告警。
+     * 只看带 known 的样本；返回告警文案或 null。
+     */
+    fun dropWarning(h: List<Any?>): String? {
+        val rates = h.filter { it.truthy() && it["known"].truthy() && it["prompt"].d() > 0 }
+            .map { it["hit"].d() / it["prompt"].d() * 100 }
+        if (rates.size < 4) return null
+        var run = 0
+        for (i in 1 until rates.size) {
+            // 地板（≥20%）只约束链的起点：骤降链会自然跌破 20%，链中断开才重置
+            run = if (rates[i] < rates[i - 1] / 2 && (run > 0 || rates[i - 1] >= 20)) run + 1 else 0
+            if (run >= 3) return "命中率骤降：连续 3 轮不足前值一半（" + Js.round(rates[i - 3]) + "% → " + Js.round(rates[i]) +
+                "%），多为前缀失效或上游切换"
+        }
+        return null
+    }
+
     fun diagnose(stat: Any?): JObj {
         val rate = rollingRate(stat["roll"].a()); val issues = mutableListOf<Any?>()
+        val hist = stat["hist"].a() ?: mutableListOf()
+        // 骤降告警在 good / ok 档也检查（issues 挂在对应档位上，面板会展示）
+        dropWarning(hist)?.let { issues += it }
         if (rate == null) return jobj("level" to "unknown", "rate" to null, "issues" to mutableListOf<Any?>("尚无带缓存字段的 usage，命中率未知（服务商未返回 cached_tokens）"))
         if (rate >= DIAG_GOOD) return jobj("level" to "good", "rate" to rate, "issues" to issues)
         if (rate >= DIAG_LOW) return jobj("level" to "ok", "rate" to rate, "issues" to issues)
-        val h = stat["hist"].a() ?: mutableListOf()
+        val h = hist
         fun ch(key: String): Boolean { val v = h.map { it[key] }; return v.indices.any { i -> i != 0 && !jsStrictEq(v[i], v[i - 1]) } }
         if (ch("static_hash")) issues += "固定层 static_hash 发生过变化：设定里有随机/时间/频繁修改的内容，应移到动态层（【当前状态】等）"
         if (ch("prefix_hash") && !ch("static_hash")) issues += "前缀哈希变化（合并后的 system 有改动）"
