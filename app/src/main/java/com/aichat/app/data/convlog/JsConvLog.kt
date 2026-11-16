@@ -906,7 +906,6 @@ class JsConvLog(
         s.lastDirty = false
         val ops = diff(s.last, conv)
         if (ops.isNotEmpty()) {
-            val existing = readOps(store, id)
             val applied = ArrayList<Any?>()
             ops.forEach { partial ->
                 s.state["clock"] = (int32(s.state["clock"]) + 1).toDouble()
@@ -914,7 +913,11 @@ class JsConvLog(
                 applyOp(s.state, op)
                 applied.add(op)
             }
-            store.writeJsonl(logKey(id), existing + applied)
+            // D6（改进方案 §4.8）：真追加——不再 readOps + 整文件重写（写放大从 O(全日志) 降到 O(本次 op)）。
+            // 注意：绝不能用 store.get() 判空——get 对 JSONL 做 Js.parse 必失败并触发 .corrupt 改名！
+            // 用 exists() 判存在性；崩溃一致性：JSONL 坏行由 parseJsonl 逐行容错跳过，快照仍走原子写。
+            if (!store.exists(logKey(id))) store.writeJsonl(logKey(id), emptyList())
+            applied.forEach { store.append(logKey(id), it) }
             applied.forEach { op -> s.logCount += 1; s.logBytes += (Js.stringify(op)?.length ?: 0) + 1 }
         }
         maybeCompact(s)
