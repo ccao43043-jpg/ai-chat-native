@@ -217,6 +217,7 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 | B0 | 缓存策略选择（每会话唯一 owner）· 缓存体检账本与 6 类 miss 归因 · 前缀稳定化与成本模型 | 0.5 天 | ✅ 已完成（438 单测）→ v1.5.3 |
 | B1 | 图片 token 接入预算路径 · `Retry-After` · 过期注释清理 | 0.75 天 | ✅ 已完成（PR #98，413 单测）→ v1.5.3 |
 | B2 | 预算系数能力表（默认 legacy）· `plan()` 单轮估算 memo | 1.5 天 | v1.5.4 |
+| B5 | 上下文管线结构性整顿（槽位契约 / 召回总线 / 单一缓存 owner / 角色生成分档 / 记忆四层 / 缓存插件骨架），见 [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) §8 | 已实施 M1–M7 | **v1.6.0** |
 | B3 | D7 文件分块检索（替代前缀截断） | 2–3 天 | v1.6.0 |
 | B4 | 路由埋点 → 观察两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | v1.6.x |
 

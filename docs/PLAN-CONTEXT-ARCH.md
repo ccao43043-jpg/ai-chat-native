@@ -1,6 +1,6 @@
 # 上下文管线与插件边界（结构性整顿方案）
 
-> **状态**：📝 方案 · 待审阅 · 2026-11-18
+> **状态**：✅ 已实施（M1–M7 代码完成 2026-11-18；M8 发版见文末 §8）
 > **目标**：把「缓存 / 世界 / 本地资料库 / 结构化记忆 / 心情」这几块的**职责边界**定死，消除「多个插件干同一件事」。
 > **不写代码**，本文只定结构。
 
@@ -263,3 +263,24 @@ World(root)  { id, name, emoji, blocks[7], lore, knowledgeRef, updatedAt }
 **把「请求」当成一个有明确分段的文档来管：S1 稳定前缀、S2 低频摘要、S3 每轮召回、S4 状态行、S5 协议标记；每段只有一个所有者，第二个来抢就红。**
 
 缓存、世界、资料库、记忆、心情这五件事，全部落在这五段里，各自有位置，不再互相踩。
+
+---
+
+## 8 实施记录（2026-11-18，M1–M7）
+
+集成在一个分支上（`feat/ctx-pipeline-1.6`），每步单测全绿才继续；全程未改版本号、未发版，最后统一发 1.6.0。
+
+| 阶段 | 内容 | 落地 | 单测 |
+|---|---|---|---|
+| M1 | 槽位契约 `Slot`/`Fragment`/`TurnFragments`/`ContextTrace` + `SlotRegistry`（一槽一主，冲突只记账不抛）+ 上下文体检面板 | `domain/ContextSlots.kt`、`plugins/SlotRegistry.kt`、`ui/chat/ContextInspectorDialog.kt` | 438 → 449 |
+| M2 | 缓存徽章收口到 cachemeter；插件页改说「本会话真实状态」（运行中 / 未运行+原因 / 已关闭）+ 缓存策略行 | `plugins/PluginActivation.kt`、`ui/settings/PluginsScreen.kt` | 449 → 452 |
+| M3 | `AutoChar` 作用域：有世界只写角色卡，世界块逐字节不动 | `AutoChar.WorldContext/Scope/filterFields/applyToState` | 452 → 465 |
+| M4 | `RecallBus`（去重/优先级/预算/渲染）+ `ContextAssembler.assembleLastUser` 单点装配 + `CacheMarkers`（千问显式断点）；knowledge/rpmemory/affect 改交片段 | `domain/RecallBus.kt`、`domain/ContextAssembler.kt`、`plugins/cache/CacheMarkers.kt` | 465 → 492 |
+| M5 | 角色生成接线（`AutoCharService` + 提示条）：修两个真 bug（存储形状≠运行时形状、`normalizeState` 静默返回空状态） | `plugins/rp/AutoCharService.kt`、`ui/chat/AutoCharOfferBar.kt` | 492 → 499 |
+| M6 | 记忆四层：事实账本进 system 静态段末尾（`[ESTABLISHED_FACTS]`，400 token 封顶、按行丢）；世界读法收敛到 `WorldResolver`（绑定优先于内容） | `plugins/rp/WorldResolver.kt`、`RpCacheCore.factsText/plan(facts=…)` | 499 → 511 |
+| M7 | `gcache`/`mmcache` 抽出公共骨架 `CachePluginBase`（只并「一字不差的共同部分」，协议差异留子类） | `plugins/cache/CachePluginBase.kt` | 511 → 517 |
+
+**没做的（明确记账）**：
+- `CachePolicy` 仍返回「owner 插件 id」（gcache/mmcache），没有降级成「adapter」——因为两个 id 已被 `settings.plugins.gcache/mmcache.enabled` 与面板引用，改名要迁移数据，收益不抵风险。
+- 插件页仍是「gcache 一行、mmcache 一行」，靠三态文案说清哪个在本会话跑；没合并成单行（合并要动 tag 与面板结构，留到 1.7）。
+- `recall.unified` 开关默认 **false**：新装配路径已可用，但默认仍走旧路径逐字节兼容，观察一两个版本再翻。
