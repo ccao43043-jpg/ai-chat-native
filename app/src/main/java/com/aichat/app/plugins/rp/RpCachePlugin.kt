@@ -40,6 +40,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     override val defaultEnabled: Boolean get() = true
     override val perConversation: Boolean get() = true
 
+    override fun inactiveReason(conv: Conversation, settings: com.aichat.app.domain.model.AppSettings): String =
+        "本对话没有 RP 分层设定，也没有世界书条目"
     /** system 前段（模板/角色卡/世界设定）与中段（章节摘要）的唯一所有者 */
     override fun slots(): List<Slot> = listOf(Slot.S1_STABLE, Slot.S2_DELTA, Slot.S3_RECALL)
 

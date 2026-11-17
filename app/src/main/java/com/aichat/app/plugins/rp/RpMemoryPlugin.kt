@@ -46,6 +46,8 @@ class RpMemoryPlugin(
     override val defaultEnabled: Boolean = false
     override val perConversation: Boolean = false
 
+    override fun inactiveReason(conv: Conversation, settings: com.aichat.app.domain.model.AppSettings): String =
+        "本对话还没有抽取过记忆（默认每 20 轮抽一次，可在记忆面板手动提取）"
     /** 结构化记忆只往末条 user 尾部追加召回（S3） */
     override fun slots(): List<Slot> = listOf(Slot.S3_RECALL)
 

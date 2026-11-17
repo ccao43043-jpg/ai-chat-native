@@ -82,6 +82,17 @@ class PluginRegistryImpl(
     }
     fun active(settings: AppSettings, conv: Conversation?): List<ChatPlugin> = list.filter { isActive(it.id, settings, conv) }
 
+    /** 给插件页用：本会话为什么没跑（优先问插件自己，答不上来给兜底文案） */
+    internal fun inactiveReason(p: ChatPlugin, conv: Conversation, settings: AppSettings): String {
+        if (!isGloballyEnabled(p.id, settings)) return "全局开关已关闭"
+        val en = (convPluginState(conv, p.id)?.get("enabled") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
+        if (en == false) return "本对话已关闭"
+        if (p.perConversation) {
+            val r = safe(p, "inactiveReason") { p.inactiveReason(conv, settings) }.orEmpty()
+            return r.ifEmpty { "本对话不满足自动条件" }
+        }
+        return "已关闭"
+    }
     override suspend fun runBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         convPlugins[ctx.conv.id] = (Js.fromJson(ctx.conv.extras["plugins"]) as? JObj) ?: JObj()
         val act = active(ctx.settings, ctx.conv)
@@ -102,6 +113,13 @@ class PluginRegistryImpl(
             recordStep(before, cur, p)
         }
         finishTrace(cur)
+        // 给插件页留一份「本会话谁真跑了」的快照（进程内，不落盘）
+        runCatching {
+            val plan = (cur.meta["cachePlan"] as? JsonObject)
+            val owner = (plan?.get("owner") as? JsonPrimitive)?.content ?: ""
+            val reason = (plan?.get("reason") as? JsonPrimitive)?.content ?: ""
+            PluginActivation.record(ctx.conv, ctx.model, ctx.settings, this, System.currentTimeMillis(), owner, reason)
+        }
         return cur
     }
 

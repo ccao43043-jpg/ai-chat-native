@@ -39,6 +39,10 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
     // 也没法在会话级关掉它。
     override val perConversation = true
 
+    override fun inactiveReason(conv: Conversation, settings: AppSettings): String {
+        val p = CachePolicy.providerOf(settings, conv)
+        return CachePolicy.pick(p, conv.model, settings, conv).reason
+    }
     /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
     override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
     /** 仅运行时：convId → 上一轮 system 前缀 / 完整请求体 */
@@ -182,6 +186,10 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
     override val defaultEnabled = true
     override val perConversation = true
 
+    override fun inactiveReason(conv: Conversation, settings: AppSettings): String {
+        val p = CachePolicy.providerOf(settings, conv)
+        return CachePolicy.pick(p, conv.model, settings, conv).reason
+    }
     /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
     override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
     private val lastPrefix = HashMap<String, String>()

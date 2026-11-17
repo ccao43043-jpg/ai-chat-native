@@ -195,6 +195,12 @@ interface ChatPlugin {
     val perConversation: Boolean
     fun autoActive(conv: Conversation, settings: AppSettings): Boolean = false
     /**
+     * 全局开着、但**本会话**没运行的原因（一句话，给人看）。
+     * 只在「插件页要解释为什么这个开关亮着却没跑」时被调用，不影响执行。
+     */
+    fun inactiveReason(conv: Conversation, settings: AppSettings): String = ""
+
+    /**
      * 本插件声称拥有请求的哪些槽位（PLAN-CONTEXT-ARCH §3.1）。
      * 只用于「一槽一主」检查与体检面板展示，**不影响**执行顺序；默认空 = 不改请求。
      */
