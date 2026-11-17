@@ -30,21 +30,11 @@ internal fun withBotInfo(conv: Conversation, botId: String, key: String, info: A
     conv.copy(messages = conv.messages.map { m -> if (m.id == botId) m.copy(extras = m.extras.plus(key, info)) else m })
 
 /** www/plugins/cache/gcache.js 插件部分（hooks + transformRequest） */
-class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
+class GCachePluginImpl(host: PluginHost) : CachePluginBase(host), GCachePlugin {
     override val id = GCache.ID
     override val name = "Gemini 提示缓存（OpenRouter）"
     override val defaultEnabled = true
-    // 改成「按会话生效」：由 CachePolicy 判断这个会话该不该走 gcache。
-    // 之前是常开 + onBeforeRequest 里自查，导致「插件在跑但什么都没做」的假象，
-    // 也没法在会话级关掉它。
-    override val perConversation = true
 
-    override fun inactiveReason(conv: Conversation, settings: AppSettings): String {
-        val p = CachePolicy.providerOf(settings, conv)
-        return CachePolicy.pick(p, conv.model, settings, conv).reason
-    }
-    /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
-    override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
     /** 仅运行时：convId → 上一轮 system 前缀 / 完整请求体 */
     private val lastPrefix = HashMap<String, String>()
     private val lastReqBody = HashMap<String, String>()
@@ -92,7 +82,7 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
             "idleSec" to idleSec, "ttlEff" to ttlEff, "segments" to segs, "cacheStats" to cacheStats))
         s["hybridInfo"] = r["hybrid"] ?: jobj("off" to if (o["hybrid"] == false) "setting" else "rpcache")
         s["requests"] = s["requests"].d() + 1
-        if (s["lastT"].truthy()) s["gaps"] = Js.slice((s["gaps"].a() ?: jarr()) + listOf<Any?>(Js.round((now - s["lastT"].d()) / 100) / 10), -50)
+        if (s["lastT"].truthy()) pushGap(s, Js.round((now - s["lastT"].d()) / 100) / 10)
         val outReq = r["req"].o()!!
         val curBody = outReq["body"]?.let { Js.str(it) } ?: ""
         val prevBody = lastReqBody[conv.id]
@@ -138,7 +128,7 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
         if (i != null) {
             if (i["known"] == false) s["unknown"] = s["unknown"].d() + 1
             else { s["prompt"] = s["prompt"].d() + i["prompt"].d(); s["cached"] = s["cached"].d() + i["hit"].d(); s["write"] = s["write"].d() + i["write"].d(); if (i["hit"].truthy()) s["hits"] = s["hits"].d() + 1 }
-            s["roll"] = Js.slice((s["roll"].a() ?: jarr()) + listOf<Any?>(jobj("prompt" to i["prompt"], "hit" to i["hit"], "known" to (i["known"] != false))), -GCache.ROLL_N)
+            pushRoll(s, i["prompt"], i["hit"], i["known"] != false, GCache.ROLL_N)
             conv = withBotInfo(conv, result.assistant.id, "gcache", i)
             val prev = s["diag"]["level"]
             s["diag"] = GCache.diagnose(s)
@@ -175,25 +165,13 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
         val pct = i["pct"].d()
         return listOf(Badge(id, "💎 缓存 " + Js.str(i["pct"]), if (pct >= GCache.DIAG_GOOD) "ok" else if (i["hit"].truthy()) "warn" else "info", GCache.usageText(i), action = id).let { it.copy(text = it.text + "%") })
     }
-    /** 徽章收口到 cachemeter（见 PLAN-CONTEXT-ARCH §3.3）：本插件仍写 stat/滚动率，但不再自己出徽章 */
-    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 }
 
 /** www/plugins/cache/mmcache.js 插件部分 */
-class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
+class MmCachePluginImpl(host: PluginHost) : CachePluginBase(host), MmCachePlugin {
     override val id = MmCache.ID
     override val name = "MiniMax 提示缓存（OpenRouter）"
     override val defaultEnabled = true
-    override val perConversation = true
-
-    override fun inactiveReason(conv: Conversation, settings: AppSettings): String {
-        val p = CachePolicy.providerOf(settings, conv)
-        return CachePolicy.pick(p, conv.model, settings, conv).reason
-    }
-    /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
-    override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
-    private val lastPrefix = HashMap<String, String>()
-    private val lastBody = HashMap<String, String>()
 
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
         CachePolicy.pick(CachePolicy.providerOf(settings, conv), conv.model, settings, conv).owner == CachePolicy.OWNER_MMCACHE
@@ -216,15 +194,14 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
         val s = statOf(conv); val now = host.now().toDouble()
         val r = MmCache.applyToRequest(req.toJs(), o, jobj("sessionId" to MmCache.sessionIdFor(conv.id)))
         s["requests"] = s["requests"].d() + 1
-        if (s["lastT"].truthy()) s["gaps"] = Js.slice((s["gaps"].a() ?: jarr()) + listOf<Any?>(Js.round((now - s["lastT"].d()) / 100) / 10), -50)
+        if (s["lastT"].truthy()) pushGap(s, Js.round((now - s["lastT"].d()) / 100) / 10)
         s["lastT"] = now; s["session_id"] = Js.or(r["session_id"], ""); s["routeOrder"] = r["route"].truthy() && r["route"]["order"].truthy()
-        val prefix = r["prefix"].jstr(); val ph = CacheCommonImpl.hash(prefix); val prevP = lastPrefix[conv.id]
-        if (if (prevP != null) prevP != prefix else (s["prefix_hash"].truthy() && s["prefix_hash"] != ph)) { s["prefixChanges"] = s["prefixChanges"].d() + 1; if (prevP != null) s["lastDiff"] = CacheCommonImpl.firstDiff(prevP, prefix) }
+        val prefix = r["prefix"].jstr()
+        trackPrefix(conv.id, prefix, s, CacheCommonImpl::hash) { a, b -> CacheCommonImpl.firstDiff(a, b) }
         val outReq = r["req"].o()!!
-        val body = outReq["body"]?.let { Js.str(it) } ?: ""; val pb = lastBody[conv.id]
-        s["lastLcp"] = pb?.let { CacheCommonImpl.lcpRatio(it, body) }
-        lastPrefix[conv.id] = prefix; lastBody[conv.id] = body
-        s["prefix_hash"] = ph; s["prefixLen"] = prefix.length; s["prefixTokens"] = r["prefixTokens"]
+        val body = outReq["body"]?.let { Js.str(it) } ?: ""
+        trackBody(conv.id, body, s, CacheCommonImpl::lcpRatio)
+        s["prefixTokens"] = r["prefixTokens"]
         return outReq.toBuilt()
     }
     override fun onAfterResponse(result: TurnResult, ctx: RequestContext): Conversation? {
@@ -233,7 +210,7 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
         val i = CacheCommonImpl.usageInfo(usageJs(result.usage)) ?: return null
         val s = statOf(ctx.conv)
         if (i["known"] == false) s["unknown"] = s["unknown"].d() + 1 else { s["prompt"] = s["prompt"].d() + i["prompt"].d(); s["cached"] = s["cached"].d() + i["hit"].d(); if (i["hit"].truthy()) s["hits"] = s["hits"].d() + 1 }
-        s["roll"] = Js.slice((s["roll"].a() ?: jarr()) + listOf<Any?>(jobj("prompt" to i["prompt"], "hit" to i["hit"], "known" to (i["known"] != false))), -MmCache.ROLL_N)
+        pushRoll(s, i["prompt"], i["hit"], i["known"] != false, MmCache.ROLL_N)
         s["lastPromptEst"] = i["prompt"]
         val conv = withBotInfo(ctx.conv, result.assistant.id, "mmcache", i)
         val prev = s["diag"]["level"]; s["diag"] = MmCache.diagnose(s)
@@ -247,6 +224,4 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
         if (i["known"] == false) return listOf(Badge(id, "🧊 缓存 ?", "info", MmCache.usageText(i)))
         return listOf(Badge(id, "🧊 缓存 " + Js.str(i["pct"]) + "%", if (i["pct"].d() >= MmCache.DIAG_GOOD) "ok" else if (i["hit"].truthy()) "warn" else "info", MmCache.usageText(i)))
     }
-    /** 徽章收口到 cachemeter（见 PLAN-CONTEXT-ARCH §3.3）：本插件仍写 stat/滚动率，但不再自己出徽章 */
-    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 }
