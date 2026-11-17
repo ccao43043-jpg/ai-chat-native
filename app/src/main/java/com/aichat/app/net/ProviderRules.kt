@@ -77,7 +77,29 @@ object ProviderRules {
 
     // ---------------- max_tokens ----------------
     const val SAFE_DEFAULT_MAX_TOKENS = 8192
+    /**
+     * 推理型模型的默认输出上限。它们先「思考」再作答，而思考 token 与正文**共用** maxOutputTokens
+     * （Gemini 2.5/3.x 的 thoughtsTokenCount、o 系列的 reasoning tokens 都计入 completion），
+     * 用 8192 会在几轮对话后把正文挤成半截，还看不出被截断。
+     */
+    const val REASONING_DEFAULT_MAX_TOKENS = 32768
     const val MIN_DOWNGRADE_MAX_TOKENS = 256
+
+    /** 模型名里能认出「会先思考」的：gemini-2.5+ / gemini-3+、o1/o3/o4、*-reasoner、deepseek-r1、qwq 等 */
+    private val REASONING_MODEL = Regex(
+        "(?i)(^|[/:])(" +
+            "gemini-2\\.[5-9]|gemini-[3-9]|" +          // google/gemini-2.5-pro、gemini-3.8-flash
+            "o[134]([-_.]|$)|" +                         // o1、o3-mini、o4-mini
+            "deepseek-r1|qwq|" +
+            "[^/]*reasoner|" +                           // deepseek-reasoner
+            "[^/]*thinking" +
+            ")"
+    )
+
+    fun isReasoningModel(model: String?): Boolean {
+        val m = model?.trim() ?: return false
+        return m.isNotEmpty() && REASONING_MODEL.containsMatchIn(m)
+    }
 
     /** resolveMaxTokens(provider, model, userMax)；userMax 允许 JS 原值（''、数字串、数字、null） */
     fun resolveMaxTokens(modelMeta: JsonObject?, model: String?, userMax: JsonElement?): Double {
@@ -93,9 +115,26 @@ object ProviderRules {
         if (modelCap > 0) return minOf(modelCap, SAFE_DEFAULT_MAX_TOKENS.toDouble())
         return SAFE_DEFAULT_MAX_TOKENS.toDouble()
     }
-    /** 设置里的 maxTokens（Int? / 未设）→ 发出的 max_tokens */
-    fun resolveMaxTokens(provider: ProviderConfig?, model: String?, userMax: Int?): Int =
-        resolveMaxTokens(provider?.modelMeta, model, userMax?.let { JsonPrimitive(it) }).let { if (it >= Int.MAX_VALUE) Int.MAX_VALUE else it.toInt() }
+    /**
+     * 设置里的 maxTokens（Int? / 未设）→ 发出的 max_tokens。
+     *
+     * 用户没填时**不再一律用 8192**：推理型模型给 [REASONING_DEFAULT_MAX_TOKENS]，其余仍 8192
+     * （8192 是当年为绕开 OpenRouter「按 max_tokens 预扣额度 → 402」定的全局常量，仍适用于普通模型；
+     * 真撞 402 时有 `parseAffordTokens` / `downgradeMaxTokens` 自动降级兜底）。
+     * 两种情况都仍受模型自报的 maxOutput 钳制。**不要改上面那个 JsonElement 重载**——它按 JS 逐字对齐、有 golden 卡着。
+     */
+    fun resolveMaxTokens(provider: ProviderConfig?, model: String?, userMax: Int?): Int {
+        if (userMax != null && userMax > 0) {
+            return resolveMaxTokens(provider?.modelMeta, model, JsonPrimitive(userMax))
+                .let { if (it >= Int.MAX_VALUE) Int.MAX_VALUE else it.toInt() }
+        }
+        val meta = if (provider?.modelMeta != null && !model.isNullOrEmpty()) provider.modelMeta!![model] as? JsonObject else null
+        val capNum = if (meta == null) Double.NaN else Js.toNumber(meta["maxOutput"])
+        val modelCap = if (capNum > 0) capNum else 0.0
+        val base = (if (isReasoningModel(model)) REASONING_DEFAULT_MAX_TOKENS else SAFE_DEFAULT_MAX_TOKENS).toDouble()
+        val out = if (modelCap > 0) minOf(modelCap, base) else base
+        return if (out >= Int.MAX_VALUE) Int.MAX_VALUE else out.toInt()
+    }
 
     /** JS 正则的 \s（含 NBSP、全角空格、U+2028/2029、BOM 等 Unicode 空白；Java 的 \s 只有 ASCII） */
     private const val JS_SPACE = "[\\t\\n\\u000B\\u000C\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]"

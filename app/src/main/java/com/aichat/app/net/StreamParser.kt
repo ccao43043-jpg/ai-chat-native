@@ -28,6 +28,39 @@ sealed interface StreamDelta {
     val countsAsContent: Boolean get() = this is Text || this is Reasoning || this is Error
 }
 
+/**
+ * 结束原因（finish reason）的统一口径。
+ *
+ * 旧 JS 版有两个洞（`providers.js:617-628` / `:690`）：
+ * ① gemini 分支根本不读 `candidates[0].finishReason`，于是 Gemini 永远没有结束原因 → 引擎判不出
+ *    `truncated` → 界面既不出「已中断」也不给「继续生成」，用户被截断后无路可走；
+ * ② 各家叫法不一（`MAX_TOKENS` / `length` / `STOP` / `end_turn` / `eos`），引擎只认 `length`。
+ * 这里做归一 + 提供「什么算正常结束」，是**有意偏离旧版**（见 docs/NATIVE_REWRITE_SPEC.md §3.5）。
+ */
+object FinishReasons {
+    /** 客户端补发：上游既没给 finish_reason 也没有 [DONE]，直接把连接关了 */
+    const val INCOMPLETE = "incomplete"
+
+    /** 正常结束。其余一律视为「没写完」（截断） */
+    private val NORMAL = setOf("stop", "end_turn", "eos", "stop_sequence", "tool_calls", "function_call")
+
+    fun isNormal(reason: String?): Boolean {
+        val r = reason?.trim()?.lowercase() ?: return true
+        return r.isEmpty() || r in NORMAL
+    }
+
+    /** 各家 → 统一口径：MAX_TOKENS/length/max_output_tokens → length；STOP/END_TURN/eos → stop；其余小写透传 */
+    fun normalize(raw: String?): String? {
+        val r = raw?.trim()?.lowercase() ?: return null
+        if (r.isEmpty()) return null
+        return when (r) {
+            "max_tokens", "length", "max_output_tokens", "model_context_window_exceeded" -> "length"
+            "stop", "end_turn", "eos", "stop_sequence" -> "stop"
+            else -> r
+        }
+    }
+}
+
 object Deltas {
     private fun o(e: JsonElement?) = e as? JsonObject
     private fun s(e: JsonElement?): String? = (e as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -51,6 +84,10 @@ object Deltas {
                         "text_delta" -> out += StreamDelta.Text(textOr(delta?.get("text")))
                         "thinking_delta" -> out += StreamDelta.Reasoning(textOr(delta?.get("thinking")))
                     }
+                } else if (t == "message_delta" && Js.truthy(delta?.get("stop_reason"))) {
+                    // 有意偏离旧版：Anthropic 把结束原因放在 message_delta.delta.stop_reason，
+                    // 旧版不读 → max_tokens 截断永远看不出来。归一后交给引擎判 truncated。
+                    FinishReasons.normalize(s(delta?.get("stop_reason")))?.let { out += StreamDelta.Finish(it) }
                 } else if (t == "error") {
                     val m = o(ob["error"])?.get("message")
                     out += StreamDelta.Error(if (Js.truthy(ob["error"]) && Js.truthy(m)) Js.str(m) else Js.stringify(ob))
@@ -73,16 +110,22 @@ object Deltas {
                     val po = o(p); val txt = s(po?.get("text"))
                     if (txt != null) out += if (Js.truthy(po?.get("thought"))) StreamDelta.Reasoning(txt) else StreamDelta.Text(txt)
                 }
+                // 有意偏离旧版（providers.js:617-628 不读 finishReason）：不读它，Gemini 的 MAX_TOKENS
+                // 就永远传不到引擎，界面既不出「已中断」也不给「继续生成」。
+                if (Js.truthy(c0?.get("finishReason"))) FinishReasons.normalize(Js.str(c0?.get("finishReason")))?.let { out += StreamDelta.Finish(it) }
             }
             else -> {
                 if (Js.truthy(ob["error"])) { out += StreamDelta.Error(errText(ob["error"]!!)); return out }
                 val ch = o((ob["choices"] as? JsonArray)?.firstOrNull())
+                // OpenRouter 流中途报错时把 error 嵌在 choices[0] 里（顶层没有 error）：
+                // 旧版只认顶层，于是错误被吞掉、只剩一个 Finish("error")，用户看到「莫名其妙断在半句」。
+                if (Js.truthy(ch?.get("error"))) { out += StreamDelta.Error(errText(ch!!["error"]!!)); return out }
                 if (ch != null) {
                     val d = o(if (Js.truthy(ch["delta"])) ch["delta"] else if (Js.truthy(ch["message"])) ch["message"] else null) ?: JsonObject(emptyMap())
                     val r = if (Js.truthy(d["reasoning_content"])) d["reasoning_content"] else d["reasoning"]
                     s(r)?.takeIf { it.isNotEmpty() }?.let { out += StreamDelta.Reasoning(it) }
                     s(d["content"])?.takeIf { it.isNotEmpty() }?.let { out += StreamDelta.Text(it) }
-                    if (Js.truthy(ch["finish_reason"])) out += StreamDelta.Finish(Js.str(ch["finish_reason"]))
+                    if (Js.truthy(ch["finish_reason"])) FinishReasons.normalize(Js.str(ch["finish_reason"]))?.let { out += StreamDelta.Finish(it) }
                 }
                 UsageCodec.normalizeUsage("openai", ob["usage"])?.let { out += StreamDelta.UsageDelta(it, ob["usage"] as? JsonObject) }
             }
@@ -142,12 +185,21 @@ class StreamParser(private val type: String) {
     var done = false
         private set
 
+    /**
+     * 这轮流是否**明确宣告过结束**（[DONE]、finish_reason、Anthropic message_stop 任一）。
+     * 客户端靠它区分「正常收尾但服务商不发结束原因」和「上游半路把连接掐了」。
+     */
+    var terminal = false
+        private set
+
     private fun flushEvent(out: MutableList<StreamDelta>) {
         if (dataLines.isEmpty()) return
         val data = dataLines.joinToString("\n"); dataLines.clear()
-        if (Js.trim(data) == "[DONE]") { done = true; return }
+        if (Js.trim(data) == "[DONE]") { done = true; terminal = true; return }
         val obj = try { Js.parse(data) } catch (e: Exception) { return }
+        if (type == "anthropic" && (obj as? JsonObject)?.let { (it["type"] as? JsonPrimitive)?.content } == "message_stop") terminal = true
         out += Deltas.extract(type, obj)
+        if (out.any { it is StreamDelta.Finish }) terminal = true
     }
     private fun processLine(raw: String, out: MutableList<StreamDelta>) {
         val line = if (raw.endsWith("\r")) raw.dropLast(1) else raw

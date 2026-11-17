@@ -190,6 +190,10 @@ com.aichat.app
 | D6 | 字符串排序：JS `localeCompare` 在 Kotlin 侧用 `String.compareTo`（码点序）。conv-log 的 op 名排序两者结果相同（全是小写 ASCII + 同位 `.`，已核对 13 个 op 名），不影响回放；**用户可见**的是 knowledge.js 的分类名 / 条目标题 `localeCompare(…, 'zh')`（拼音序）与 providers.js 模型 id 排序——这些若在原生 UI 里重做，应使用 `java.text.Collator.getInstance(Locale.CHINESE)`，不要用码点序 | ICU 与码点序在中文、大小写上不同 | A/C（UI 排序）；D 无落盘排序 |
 | D3 | conv-log 在 JS 会抛 TypeError 的畸形数据上（如快照缺 tombstones.msg；C：RP 对话状态缺 `blocks` 时读设定块，JS 抛错、Kotlin 返回空块），Kotlin 按「缺失 = 空对象」继续 | 不让坏数据阻塞启动；正常数据行为一致 | D 同上 |
 | D7 | 错误文案：角色卡非法 base64（atob）与 zTXt 解压失败（fflate inflate，不校验 Adler-32）的报错**原文**不要求与 JS 逐字一致，只要求同一位置报错；golden 里归一化为 `<atob>` / `<inflate>` | 原文随 WebView 引擎和 fflate 版本变化 | C `domain/rp` 角色卡解析 |
+| D8 | 结束原因（finish reason）统一归一：`MAX_TOKENS`/`length`/`max_output_tokens`/`model_context_window_exceeded` → `length`，`stop`/`end_turn`/`eos`/`stop_sequence` → `stop`；**Gemini 从 `candidates[0].finishReason`、Anthropic 从 `message_delta.delta.stop_reason` 读取**（旧版两处都不读）；引擎判 `truncated` 的判据从「reason == length」改成「reason 不属于正常集合」 | 旧版读不到结束原因 → `truncated` 恒 false → 界面既不出「已中断」也不给「继续生成」，用户被截断后无路可走（Gemini 尤其明显：思考 token 与正文共用 `maxOutputTokens`） | B `net/StreamParser.kt`、`engine/DefaultChatEngine.kt` |
+| D9 | 流式响应既无结束原因、也无 `[DONE]`/`message_stop`、又没报错，却已产出正文时，客户端补发 `Finish("incomplete")`（归入「非正常」，界面出「已中断」+「继续生成」）；只有 `[DONE]` 而无 finish_reason 视为正常收尾，不补发 | 上游中途断流（网关超时 / 中转掐断）旧版当成完整回复静默保存 | B `net/DefaultProviderClient.kt` |
+| D10 | `max_tokens` 默认值按模型分层：推理型（`gemini-2.5+`/`gemini-3+`、`o1/o3/o4`、`*-reasoner`、带 `thinking` 的）默认 32768，其余仍 8192；用户显式设置优先，仍受模型 `maxOutput` 钳制；OpenRouter 余额不足继续走既有的 402 自动降级 | 旧版全局 8192 是为绕 OpenRouter 预扣额度（`providers.js:894`）留的常量，把 65k 上限的思考型模型锁死在 8192，正文被思考挤掉提前截断 | B `net/ProviderRules.kt` |
+| D11 | OpenRouter 流中途把错误放在 `choices[0].error`（顶层无 `error`）时上报为错误 | 旧版只认顶层 `error`，错误被吞掉、只剩一个 `Finish("error")`，用户看到「莫名其妙断在半句」 | B `net/StreamParser.kt` |
 
 **v1 之后再议（不在 v1.0.0 做）**：① 续写时【续写】后缀从 system 末尾移到追加的 user 消息（保住缓存前缀，属于行为变更）；② OpenRouter `provider.order` 钉住上游与 session_id 粘滞的冲突诊断（mmcache 诊断降级或缓存插件生效时不钉住）。
 

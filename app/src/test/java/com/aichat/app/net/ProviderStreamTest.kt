@@ -178,7 +178,7 @@ class ProviderStreamTest {
         val c = DefaultProviderClient(AuthInjector(FakeVault(mapOf("cl" to "k"), AuthType.ANTHROPIC).withReg { server.baseUrl }), http)
         val p = ProviderConfig("cl", "anthropic", "Claude", ProviderType.ANTHROPIC, server.baseUrl, listOf("m"))
         server.handlers += TinySseServer.Handler { _, ex -> ex.head(402, "application/json"); ex.text("""{"error":{"message":"can only afford 1000"}}""") }
-        server.handlers += TinySseServer.Handler { _, ex -> ex.head(200); ex.text("data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n") }
+        server.handlers += TinySseServer.Handler { _, ex -> ex.head(200); ex.text("data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n") }
         val r = c.buildChatRequest(p, "m", listOf(WireMessage(Role.USER, "hi")), "s", ChatOptions(maxTokens = 4096, temperature = 0.5))
         val ev = runBlocking { c.stream(p, r).toList() }
         assertEquals(StreamEvent.Delta("ok"), ev.last())
@@ -314,6 +314,39 @@ class ProviderStreamTest {
         val ev = runBlocking { withTimeout(10_000) { client.stream(dead, client.buildChatRequest(dead, "m", listOf(WireMessage(Role.USER, "hi")), "", ChatOptions())).toList() } }
         val e = ev.single() as StreamEvent.Error
         assertTrue(e.message, e.message.startsWith("网络错误：") && e.message.endsWith("\n请检查网络连接和 Base URL。"))
+    }
+
+    /** 上游既没给 finish_reason、也没发 [DONE] 就关连接（网关超时 / 中转截断）→ 补结束原因，界面才知「已中断」 */
+    @Test fun streamCutWithoutFinishNorDoneIsReportedIncomplete() {
+        server.handlers += TinySseServer.Handler { _, ex ->
+            ex.head(200)
+            ex.text("data: {\"choices\":[{\"delta\":{\"content\":\"写到一半\"}}]}\n\n")
+        }
+        val ev = collect(req()).filter { it is StreamEvent.Delta || it is StreamEvent.Finish }
+        assertEquals(listOf(StreamEvent.Delta("写到一半"), StreamEvent.Finish(FinishReasons.INCOMPLETE)), ev)
+    }
+
+    /** 已收到正文后连接被掐断（socket 直接断，读循环抛 IOException）→ 按截断处理，不报「网络错误」 */
+    @Test fun connectionDroppedAfterDeltasIsReportedIncompleteNotNetworkError() {
+        server.handlers += TinySseServer.Handler { _, ex ->
+            ex.head(200)
+            ex.text("data: {\"choices\":[{\"delta\":{\"content\":\"写到一半\"}}]}\n\n")
+            throw RuntimeException("模拟上游掐断（不写终止分块，直接关 socket）")
+        }
+        val ev = collect(req())
+        assertTrue("不应再出现「网络错误」", ev.none { it is StreamEvent.Error })
+        assertEquals(listOf(StreamEvent.Status(200), StreamEvent.Delta("写到一半"), StreamEvent.Finish(FinishReasons.INCOMPLETE)),
+            ev.filter { it is StreamEvent.Status || it is StreamEvent.Delta || it is StreamEvent.Finish })
+    }
+
+    /** 只有 [DONE]、没有 finish_reason 的中转：算正常结束，别误报截断（也不该凭空造一个 finish） */
+    @Test fun doneWithoutFinishReasonIsNotTreatedAsCut() {
+        server.handlers += TinySseServer.Handler { _, ex ->
+            ex.head(200)
+            ex.text("data: {\"choices\":[{\"delta\":{\"content\":\"整段\"}}]}\n\ndata: [DONE]\n\n")
+        }
+        val ev = collect(req()).filter { it is StreamEvent.Delta || it is StreamEvent.Finish }
+        assertEquals(listOf(StreamEvent.Delta("整段")), ev)
     }
 
     class FakeVault(private val keys: Map<String, String>, private val type: AuthType = AuthType.BEARER) : KeyVault {
