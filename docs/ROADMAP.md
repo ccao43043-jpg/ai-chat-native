@@ -80,12 +80,14 @@
 
 ## 4. 发版门
 
-- `versionName 1.0.0`、`versionCode 100`（不可回退）
-- **签名：已确认接受「一次性卸载迁移」**（2026-11-14）。本机 `~/.android/debug.keystore` 与盒子上那张不同，
-  所以从旧版覆盖安装到原生版会因签名不一致失败。约定如下：
-  - 迁移路径：旧版「设置 › 数据与备份 › 导出整库 zip」→ 卸载旧版 → 安装原生版 → 「数据与备份 › 导入整库 zip」。
-  - Key 不在 zip 里（设计如此），导入后需要在「服务商」里重填 Key。
-  - 此后所有构建都用**同一台机器、同一张 debug keystore**；换机器构建前必须先备份 `~/.android/debug.keystore`。
+- 版本：当前 `versionName 1.5.1` / `versionCode 124`（只增不减）
+- **签名：已改为固定证书**（2026-11-17，见 [`SIGNING.md`](SIGNING.md)）。`debug` 与 `release` 共用
+  `signingConfigs.stable`（证书 SHA-256 `A2:28:0D:C1…2F:52`），因此**从 1.5.1 起所有版本都能直接覆盖安装、数据保留**。
+  - 私钥在本机 `D:\android-dev\keystore\ai-chat-release.jks`，不进 Git，必须备份；丢了就再也无法覆盖升级。
+  - 没有 `keystore.properties` 的机器构建出来的包**不能**给用户装（会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
+  - 历史包袱：1.3.0 / 1.4.0 / 1.5.0 三版是三张不同的 debug 证书，所以 1.5.0 → 1.5.1 仍需**最后一次**卸载
+    （走「导出整库 zip → 卸载 → 安装 → 导入」，Key 不在 zip 里需重填）。
+- 打 release 包前 `lint { checkReleaseBuilds false }`（离线环境拉不到 lint-gradle 依赖，会直接 BUILD FAILED）
 - Release 前必须在模拟器上跑一遍：发送 / 流式 / 停止 / 重生成 / 编辑重发 / 版本 / 附件 / 旧对话迁移 / 备份导出导入
 
 ## 5. 测试覆盖的空白

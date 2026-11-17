@@ -6,10 +6,22 @@ plugins {
 }
 
 // 签名：根目录 keystore.properties（不提交 Git，见 .gitignore）存在时用它；否则回退 debug 证书。
-// 覆盖安装要求证书 SHA-256 = 6054f9df…a360（~/.android/debug.keystore / androiddebugkey）。
+//
+// 为什么必须有这个文件：Android 只允许「证书完全相同 + versionCode 不小于已装版本」的 APK
+// 覆盖安装。此前每次发版都由不同机器/CI 临时环境构建，各自用本机 ~/.android/debug.keystore，
+// 结果 v1.3.0 / v1.4.0 / v1.5.0 三份 APK 是三张不同证书（43bed124… / c3831930… / c40e3511…），
+// 用户每次升级都必须先卸载（数据全丢）。
+//
+// 现在 fixed key（SHA-256 A2:28:0D:C1…2F:52）同时用于 debug 与 release，
+// 保证「任何一次构建都能覆盖装上一次的构建」。私钥在 D:\android-dev\keystore\ai-chat-release.jks，
+// 必须长期保留；丢了就再也无法覆盖升级。
 def ksPropsFile = rootProject.file('keystore.properties')
 def ksProps = new Properties()
 if (ksPropsFile.exists()) { ksPropsFile.withInputStream { ksProps.load(it) } }
+def hasKs = ksPropsFile.exists() && ksProps['storeFile']
+if (!hasKs) {
+    logger.warn('[签名] 未找到 keystore.properties：本次产物用本机 debug 证书，**不能**覆盖安装到用户设备（见 docs/SIGNING.md）')
+}
 
 android {
     namespace 'com.aichat.app'
@@ -19,14 +31,15 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 123                  // 原生 v1.5.0：摘要时点自适应（开关）+ op-log 真追加 + 删除字段根修 + 缓存骤降告警
-        versionName '1.5.0'
+        versionCode 124                  // 原生 v1.5.1：固定签名（此后可覆盖升级）+ 知识库检索升级 + 草稿丢失修复
+        versionName '1.5.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     signingConfigs {
-        release {
-            if (ksPropsFile.exists()) {
+        // 固定签名（见文件顶部说明）：debug 与 release 共用，保证跨次构建可覆盖安装
+        stable {
+            if (hasKs) {
                 storeFile file(ksProps['storeFile'])
                 storePassword ksProps['storePassword']
                 keyAlias ksProps['keyAlias']
@@ -36,9 +49,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (hasKs) signingConfig signingConfigs.stable
+        }
         release {
             minifyEnabled false
-            signingConfig ksPropsFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig hasKs ? signingConfigs.stable : signingConfigs.debug
         }
     }
 
@@ -48,6 +64,9 @@ android {
     }
     kotlinOptions { jvmTarget = '17' }
     buildFeatures { compose true; buildConfig true }
+    // release 默认会跑 lintVitalRelease，它要联网拉 lint-gradle 的传递依赖；
+    // 离线/代理不稳的环境下会让「只是打个包」直接失败。lint 不在本项目的门禁里（门禁是单测 + instrumented）。
+    lint { checkReleaseBuilds false; abortOnError false }
     packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
     testOptions {
         unitTests.returnDefaultValues = true
