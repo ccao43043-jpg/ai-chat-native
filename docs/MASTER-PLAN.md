@@ -1,5 +1,8 @@
 # 统一路线图（Master Plan）
 
+> **状态**：✅ 活跃 · 唯一优先级来源 · 最后核实 2026-11-17（`main @ d4ebd1c` / v1.5.2）
+> 文档索引见 [README.md](README.md)；算法与缓存两条线的细化见 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md)。
+
 > **本文是唯一的执行优先级来源。** 它合并了五份文档的口径，冲突时以本文为准：
 > - `REVIEW-2026-11-16.md`（工程评审 + §6 滚动进度表）
 > - `ROADMAP.md`（功能缺口）

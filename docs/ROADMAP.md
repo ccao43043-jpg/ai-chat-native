@@ -1,5 +1,9 @@
 # Roadmap
 
+> **状态**：🗄 **已归档，不再更新**（内容截至 2026-11-17）。
+> 「某项功能到底做没做」「下一步做什么」一律以 [MASTER-PLAN.md](MASTER-PLAN.md) §2/§5 与 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) 为准。
+> 本文保留作「当时怎么一步步做过来的」记录；下面标了 ~~删除线~~ 的「没做」条目都在本文件之后补齐了，已在原行就地改写。
+
 从旧仓库 `native/i2` 的起点继续。已完成的部分（CI、`recordUsage` 收口、`plugins` 单实例、
 引擎接联网搜索 + `NetRetry`）不再重复。
 
@@ -59,7 +63,7 @@
 遗留：`ChatController.setSearchOn` 的提示仍是猜测文案；若要「点开关时立刻告知 Key 缺失」，
 得让它同步查 `KeyVault`（现在是启动时已对账，所以实际不会误报）。
 
-## 3. 未做的页面
+## 3. 页面（当年「未做」清单 + 后续补齐情况）
 
 - 生图页 ✅ 已完成（`net/ImageGen.kt` + `net/DefaultImageClient.kt` + `ui/image/ImageScreen.kt`）
   - 协议照 `providers.js:721–823` 分三支：OpenRouter → `POST /images` + `resolution`/`aspect_ratio`；
@@ -68,15 +72,15 @@
   - 响应解析兼容 `data[]` / `images[]`、`url` 与 `b64_json`（带 `media_type`/`mime_type`），
     既无 url 又无 b64 的项跳过；非 JSON 响应不抛异常
   - 图片渲染不引 Coil：`ui/common/RemoteImage.kt` 用 OkHttp + `BitmapFactory`，带 24 条 LRU
-  - 没做：参考图上传、历史落盘（现在只在内存里，最多 10 条）、保存到相册、聊天里「据此生图」
+  - ~~没做~~ **已全部补齐**：参考图上传（PR #27，上限按服务商 10/16）、保存到相册（`ui/image/ImageSaver.kt`）、聊天里「据此生图」（PR #31）；生图历史仍只在内存（旧版 `imagegen.js` 同样不落盘，非缺口）
 - 用量页 ✅ 已完成（`ui/settings/UsageScreen.kt` + `domain/cost/UsageReport.kt`）
   - 区间切换（今天 / 7 天 / 30 天 / 全部）、汇总卡、按模型、最近 14 天
   - 费用是**展示时**按 `usage-stats-meta.json` 的价目实时算的（`CostCoreJs.costOfEntry`），
     不是写入时算的 —— 换价目表后历史费用会跟着变，与旧 JS 一致
   - 已知边界：`peak` 折扣会让「auto」模式下的费用是标价的 0.5 倍（非高峰），
     所以数字比"单价×用量"低一半是正常的
-  - 没做：自定义区间、按服务商/对话分组、CSV 导出（`UsageStatsCore.toCSV` 已就绪）
-- 成本与余额（`CostCoreJs` / `Balance` 已移植，未接入界面；顶栏 chip 仍只显示 token）
+  - ~~没做~~ **已补齐**：自定义区间（日期选择）、CSV 导出（PR #30，`ui/settings/CsvExport.kt`，UTF-8 BOM 兼容 Excel）；按服务商/对话分组仍只有按模型
+- ~~未接入界面~~ **已完成**：余额页（PR #21，`ui/settings/BalanceScreen.kt`）、顶栏费用 chip（PR #8，`domain/cost/UsageReport.ofMessage`）
 
 ## 4. 发版门
 
@@ -123,8 +127,7 @@
 - 代码：拆分 god file——`ChatScreen` 713→523（`EmptyHero.kt` / `ChatMenus.kt`，含删 17 个未使用 import）、`ChatController` 793→733（`ChatUiState.kt`）；新增 `ChatUiStateTest`（3 个用例）。
 - 代码：2.2 阶段 A——`JsConvLog.diff()` 内 10 处 `equal` → `semanticEqual`；新增 `JsSemanticTest`（4 个用例）；B/C/D 未动。
 - 文档：新增 `docs/structured-diff-plan.md`（2.2 四阶段方案：A 判等 → B 去 `KeyOrder` → C 去 `nullRemovedKeys` → D 清理，带开关与回滚）。
-- 本会话内 Gradle 无法复跑：沙盒对 `D:\android-dev\gradle-home` 的 JVM 写权限被拒，缓存复制到工作区后发行包仍不完整（缺 `gradle-workers` 等 jar）。本地请跑
-  `./gradlew --no-daemon :app:testDebugUnitTest`。
+- ~~本会话 Gradle 无法复跑~~：该问题已解决，现在本机可正常构建（`gradle -p <repo> --no-daemon --offline --console=plain :app:testDebugUnitTest` 约 1 分钟、`:app:assembleDebug` 约 15 秒），CI 亦为绿。
 
 ## 7. UI / 前端优化（2026-11-16 晚）
 
