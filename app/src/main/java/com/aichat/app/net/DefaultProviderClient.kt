@@ -73,6 +73,8 @@ class DefaultProviderClient(
                 val call = client.newCall(toOkHttp(authed)); current.set(call)
                 if (!isActive) { call.cancel(); break }
                 var gotDelta = false
+                var finishSeen = false
+                var errorSeen = false
                 var status = 0
                 val raw = StringBuilder()
                 var retry = false
@@ -82,8 +84,8 @@ class DefaultProviderClient(
                         when (d) {
                             is StreamDelta.Text -> send(StreamEvent.Delta(d.text))
                             is StreamDelta.Reasoning -> send(StreamEvent.Reasoning(d.text))
-                            is StreamDelta.Error -> send(StreamEvent.Error(status, d.text, ""))
-                            is StreamDelta.Finish -> send(StreamEvent.Finish(d.reason))
+                            is StreamDelta.Error -> { errorSeen = true; send(StreamEvent.Error(status, d.text, "")) }
+                            is StreamDelta.Finish -> { finishSeen = true; send(StreamEvent.Finish(d.reason)) }
                             is StreamDelta.UsageDelta -> {
                                 usage = UsageCodec.mergeUsage(usage, d.usage)
                                 d.raw?.let { r -> rawUsage = JsonObject(LinkedHashMap<String, JsonElement>(rawUsage ?: emptyMap()).apply { putAll(r) }) }
@@ -128,6 +130,13 @@ class DefaultProviderClient(
                             send(StreamEvent.Error(status, msg, rawS))
                         } else if (streaming) {
                             apply(parser.end())
+                            // 整轮既没给结束原因、也没有任何「宣告结束」的标记（[DONE] / message_stop）、
+                            // 又没有报过错，却已经吐了正文 → 连接被中途掐断（网关超时 / 上游崩 / 中转截断）。
+                            // 补一个 INCOMPLETE，让引擎判截断、界面出「已中断」+「继续生成」，
+                            // 而不是静默当成完整回复保存（旧版就是静默的）。
+                            if (!finishSeen && !errorSeen && !parser.terminal && gotDelta) {
+                                apply(listOf(StreamDelta.Finish(FinishReasons.INCOMPLETE)))
+                            }
                             if (!gotDelta && Js.trim(raw.toString()).isNotEmpty()) apply(Deltas.parseFullResponse(type, raw.toString()))
                         } else {
                             apply(Deltas.parseFullResponse(type, raw.toString()))
@@ -135,8 +144,15 @@ class DefaultProviderClient(
                     }
                 } catch (e: IOException) {
                     if (!isActive || call.isCanceled()) break
-                    val m = e.javaClass.simpleName + (if (e.message != null) ": " + e.message else "")
-                    send(StreamEvent.Error(status, "网络错误：$m\n请检查网络连接和 Base URL。", raw.toString()))
+                    if (gotDelta) {
+                        // 已经吐了正文再断：这多半是上游/中转把连接掐了（网关超时、上游崩、代理重置），
+                        // 报「网络错误：请检查 Base URL」会把人引到错误的排查方向。按「截断」处理，
+                        // 界面出「已中断」+「继续生成」，用户可以直接接着写。
+                        send(StreamEvent.Finish(FinishReasons.INCOMPLETE))
+                    } else {
+                        val m = e.javaClass.simpleName + (if (e.message != null) ": " + e.message else "")
+                        send(StreamEvent.Error(status, "网络错误：$m\n请检查网络连接和 Base URL。", raw.toString()))
+                    }
                 }
                 if (!retry) break
             }

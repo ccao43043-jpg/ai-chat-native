@@ -19,6 +19,7 @@ import com.aichat.app.domain.model.Role
 import com.aichat.app.domain.model.Usage
 import com.aichat.app.net.AffinityRouter
 import com.aichat.app.net.DefaultProviderClient
+import com.aichat.app.net.FinishReasons
 import com.aichat.app.net.ProviderRules
 import com.aichat.app.net.Js
 import com.aichat.app.net.NetRetry
@@ -221,7 +222,9 @@ class DefaultChatEngine(
                         is StreamEvent.Status -> status = ev.httpStatus
                         is StreamEvent.Delta -> { gotDelta = true; bot = bot.copy(content = bot.content + ev.text) }
                         is StreamEvent.Reasoning -> { gotDelta = true; bot = bot.copy(reasoning = (bot.reasoning ?: "") + ev.text) }
-                        is StreamEvent.Finish -> bot = bot.copy(finishReason = ev.reason, truncated = bot.truncated || ev.reason == "length")
+                        // 只有「正常结束」不算截断：旧版只认 reason=="length"，于是 sub-agent 类的
+                        // error / incomplete / MAX_TOKENS(未归一) / SAFETY 等一律被当成完整回复。
+                        is StreamEvent.Finish -> bot = bot.copy(finishReason = ev.reason, truncated = bot.truncated || !FinishReasons.isNormal(ev.reason))
                         is StreamEvent.UsageUpdate -> bot = bot.copy(usage = ev.usage)
                         is StreamEvent.RouteChosen -> bot = bot.copy(routeSlug = ev.slug)
                         is StreamEvent.Error -> {
