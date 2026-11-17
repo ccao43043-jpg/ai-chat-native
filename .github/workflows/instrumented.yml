@@ -41,11 +41,13 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: default
+          # AOSP(default) 镜像实测两次都在装 APK 时掉 package service（Broken pipe / Can't find service: package），
+          # 换 google_apis 镜像 + 加内存/核数，配合脚本里的 wait_for_pm。
+          target: google_apis
           disable-animations: true
           # 无头软件渲染首启实测 411s，默认 600s 余量偏小
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 3072
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 4096 -cores 4
           # 单行调用，逻辑在脚本里（失败落盘 logcat 后重试一次）
           script: bash scripts/ci/instrumented.sh
 
