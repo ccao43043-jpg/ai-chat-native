@@ -1,6 +1,11 @@
 name: instrumented
 # instrumented 测试（模拟器）：仅在 main 推送与手动触发时跑——PR 循环保持 ~3 分钟（评审 §6.1）。
 # 本地已验证：dsh34 模拟器（API 34 / x86_64）10/10 全绿（PR #86）。
+#
+# 2026-11-17 加固（见 MASTER-PLAN §5.4）：
+#  - 重试/日志逻辑搬到 scripts/ci/instrumented.sh：inline 多行 `|| { ... }` 会被
+#    android-emulator-runner 拼成一行，报 `Syntax error: end of file unexpected (expecting "}")`
+#  - 无头模拟器首启实测 411 秒，emulator-boot-timeout 提到 900s、job 提到 60 分钟
 on:
   push:
     branches: [main]
@@ -16,8 +21,8 @@ permissions:
 jobs:
   emu:
     runs-on: ubuntu-latest
-    # 单次实测 ~16 分钟（软件渲染）；失败会重试一次，留够余量
-    timeout-minutes: 45
+    # 首启 ~7 分钟 + 两轮测试各 ~6 分钟，留足余量
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -38,18 +43,11 @@ jobs:
           arch: x86_64
           target: default
           disable-animations: true
+          # 无头软件渲染首启实测 411s，默认 600s 余量偏小
+          emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 3072
-          # 无头模拟器偶发安装中断（Broken pipe）：失败自动重试一次。
-          # 第一次失败先把 logcat 落盘——UI 测试失败时 AppRootUiTest 会把语义树打进 logcat（tag=UITEST），
-          # 没有这份日志就只能在本地复现猜原因（2026-11-17 前 4 次全红就是这么耗掉的）。
-          script: |
-            adb logcat -c || true
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest || {
-              echo "::warning::第一次 instrumented 失败，收集 logcat 后重试"
-              adb logcat -d > logcat-first-failure.txt || true
-              adb logcat -d -s UITEST:V > uitest-tree.txt || true
-              ./gradlew --no-daemon :app:connectedDebugAndroidTest
-            }
+          # 单行调用，逻辑在脚本里（失败落盘 logcat 后重试一次）
+          script: bash scripts/ci/instrumented.sh
 
       - name: 上传测试报告与日志
         if: always()
@@ -61,4 +59,6 @@ jobs:
             app/build/reports/androidTests/
             logcat-first-failure.txt
             uitest-tree.txt
+            logcat-second-failure.txt
+            uitest-tree-second.txt
           if-no-files-found: ignore
