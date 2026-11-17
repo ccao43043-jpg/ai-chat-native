@@ -167,3 +167,15 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 - `TestWatcher` 在失败时把语义树打进 logcat（tag `UITEST`），workflow 第一次失败先落盘 `logcat-first-failure.txt` / `uitest-tree.txt` 再重试，并 `always()` 上传
 
 **教训（值得写进任何 UI 测试）：`assertIsDisplayed` 不是「出现了」的断言，它是「此刻可见」的断言。在屏幕尺寸/键盘状态不确定的环境里，它只会制造假红。**
+
+**4. instrumented 一直红的第二层真因：runner 没有 KVM。** 改完测试稳定性后 CI 仍然红，三次 dispatch 才挖到底（2026-11-17 下午）：
+
+| 次数 | run | 现象 | 结论 |
+|---|---|---|---|
+| 1 | 44026412656 | `/usr/bin/sh: Syntax error: end of file unexpected (expecting "}")` | inline 多行 `\|\| { … }` 被 android-emulator-runner 拼成一行 → 逻辑搬进 `scripts/ci/instrumented.sh` |
+| 2 | 44029807873 | `Finished 0 tests`；装 APK `Broken pipe (32)` / `Can't find service: package` | `boot_completed=1` 早于 package manager 就绪 → 脚本加 `wait_for_pm()`（要求 `pm path android` 成功） |
+| 3 | 44032387166 | 42 分钟未结束（已取消）；日志 `ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)` + `Disabling Linux hardware acceleration.` | **真因**：模拟器一直在做纯软件 x86_64 模拟，首启 411 秒，system_server 起不来 |
+
+修法：workflow 加「开启 KVM 加速」步骤（写 `99-kvm4all.rules` + `udevadm control --reload-rules` + `udevadm trigger`），镜像回到启动更快的 AOSP `default`，`cores`/`ram-size` 改用 action 自带输入而非塞进 `emulator-options`。
+
+**教训：UI 测试的 flake 必须先区分「测试写错」和「环境根本没跑起来」。** 前两次失败的日志全在装 APK，跟测试代码毫无关系；`Finished 0 tests` 是最关键的信号——看到它就不要再改断言了，去查设备。

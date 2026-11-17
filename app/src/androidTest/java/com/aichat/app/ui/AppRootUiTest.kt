@@ -5,6 +5,9 @@ import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -39,19 +42,29 @@ class AppRootUiTest {
     /** 失败时把语义树打进 logcat，避免「CI 红了但看不到界面」只能靠猜。 */
     private val dumpOnFailure = object : TestWatcher() {
         override fun failed(e: Throwable, description: Description) {
+            // 打开 Dialog 时会有 2 个 root（主窗口 + Dialog 窗口），逐个 dump：
+            // 只 dump 第一个会把真正要看的那棵树漏掉（2026-11-17 CI 上就是这么丢的）
             try {
-                rule.onRoot().printToLog(TAG)
+                val roots = rule.onAllNodes(isRoot()).fetchSemanticsNodes().size
+                Log.d(TAG, "dump ${description.methodName}: roots=$roots")
+                for (i in 0 until roots) rule.onAllNodes(isRoot())[i].printToLog(TAG)
             } catch (t: Throwable) {
-                // 有 Dialog 时会出现 2 个 root，onRoot 抛异常——退化成只记下失败信息
                 Log.d(TAG, "dump failed (${description.methodName}): ${t.message}")
             }
         }
     }
 
+    // dumpOnFailure 必须在 rule **内层**：放在外层时，内层 rule 的 after()（销毁 Compose 环境）
+    // 会先于 failed() 执行，dump 只会得到 "Test not setup properly"（2026-11-17 实测两次都是这句）。
     @get:Rule
-    val chain: RuleChain = RuleChain.outerRule(dumpOnFailure).around(rule)
+    val chain: RuleChain = RuleChain.outerRule(rule).around(dumpOnFailure)
 
-    private fun launch() = rule.setContent { AiChatTheme { AppRoot(FakeDeps.create()) } }
+    /**
+     * @param engineDelayMs 假引擎每块的延迟。默认 35ms；测「停止」这类依赖「流还在跑」的用例要调大，
+     *   否则点下去时回复可能已经结束、stop 按钮已经消失（2026-11-17 本地就这么红过一次）。
+     */
+    private fun launch(engineDelayMs: Long = 35) =
+        rule.setContent { AiChatTheme { AppRoot(FakeDeps.create(engineDelayMs = engineDelayMs)) } }
 
     /** 收软键盘：键盘占掉半屏会让后续点击落到别处（CI 无头模拟器尤其明显）。不用 Espresso，避免多一个依赖。 */
     private fun closeKeyboard() {
@@ -82,7 +95,8 @@ class AppRootUiTest {
 
     @Test
     fun sendThenStop() {
-        launch()
+        // 200ms/块：回复要几秒才流完，保证点「停止」时流确实还在跑
+        launch(engineDelayMs = 200)
         rule.onNodeWithTag("input").performTextInput("你好")
         closeKeyboard()
         rule.onNodeWithTag("send").performClick()
@@ -117,9 +131,11 @@ class AppRootUiTest {
         rule.waitUntilExists(text = "2/2")
         rule.onNodeWithTag("ver-prev").performScrollTo().performClick()
         rule.waitUntilExists(text = "1/2")
-        // reverseLayout 语义序 = 显示序（最新在前）：[0] 是助手行的 edit，用户行的 edit 在最后
-        val editCount = rule.onAllNodesWithTag("edit").fetchSemanticsNodes().size
-        rule.onAllNodesWithTag("edit")[editCount - 1].performScrollTo().performClick()
+        // 用户行与助手行各有一个 edit（同一个 tag）。助手行的编辑器只有「保存」，
+        // 只有用户行才有「保存并重新发送」——所以必须按祖先 actions-user 精确定位，
+        // 直接用下标取（[0] / [n-1]）会点到助手那条，然后等不到 editor-resend 超时。
+        val userEdit = hasTestTag("edit") and hasAnyAncestor(hasTestTag("actions-user"))
+        rule.onNode(userEdit).performScrollTo().performClick()
         // 全屏编辑器有自己的 testTag（editor-resend =「保存并重新发送」）
         rule.waitUntilExists("editor-resend")
     }
