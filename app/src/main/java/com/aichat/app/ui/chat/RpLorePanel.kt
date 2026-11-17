@@ -53,8 +53,14 @@ fun RpLoreDialog(
         onSaveState(Js.toJson(next) as? JsonObject ?: conv.rpState)
         val entries = RpLoreCore.loreOf(next).size
         onToast(
-            if (rebuild) "已保存并重建：$entries 条，冻结已清空"
-            else "已保存：$entries 条" + if (frozen > 0 && text != original) "（点「重建冻结」让新文本生效）" else ""
+            when {
+                rebuild -> "已保存并重建：$entries 条，冻结已清空"
+                // 解析失败必须说出来：以前这里报「已保存：0 条」，用户以为世界书生效了，
+                // 实际上一轮都没注入过（最常见的成因是行首多打了空格）。
+                text.isNotBlank() && entries == 0 ->
+                    "已保存文本，但没解析出条目：每条要有正文，标题行下面紧接着写内容（只有标题会被丢弃）"
+                else -> "已保存文本：$entries 条，下一轮按触发词生效"
+            }
         )
     }
 
@@ -67,8 +73,9 @@ fun RpLoreDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "每条形如「## 名字 | 触发词1, 触发词2 | 属性」：触发词写 * 或留空表示常驻（每轮都进 system），" +
-                        "否则按关键词触发；属性用分号分隔，如 priority=7; depth=2; prob=60; sticky=3; cooldown=4; group=g1。",
+                    "每条形如「## 名字 | 触发词1, 触发词2 | 属性」，**标题下一行起写正文**（只有标题没有正文的条目会被丢弃）：" +
+                        "触发词写 * 或留空表示常驻（每轮都进 system），否则按关键词触发；" +
+                        "属性用分号分隔，如 priority=7; depth=2; prob=60; sticky=3; cooldown=4; group=g1。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -88,7 +95,7 @@ fun RpLoreDialog(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { apply(rebuild = false) }, modifier = Modifier.testTag("rp-lore-save")) {
-                        Text("保存")
+                        Text("保存文本")
                     }
                     TextButton(
                         onClick = { apply(rebuild = true) },

@@ -82,6 +82,12 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
         d["lastTrace"] = traceJs(ctx.trace)
         d["segments"] = Js.toJson(PrefixStabilizer.summary(segs, stability))
 
+        // 千问/RP 的显式断点由 rpcache 去打，这里只记「打了没有、系统提示词多大」——
+        // 没有这份记录，用户只能看到「开了千问显式缓存却毫无变化」，无从判断是没生效还是设定太短。
+        val marks = (ctx.meta["rpcacheMarks"] as? JsonObject)?.let { Js.fromJson(it) as? JObj }
+        d["marks"] = marks ?: jobj("applied" to false, "count" to 0)
+        d["marksSys"] = RpCacheCore.estimateTokens(ctx.systemPrompt)
+
         return ctx.copy(meta = JsonObject(LinkedHashMap(ctx.meta).also { it["cachePlan"] = Js.toJson(plan.toJs()) }))
     }
 
@@ -132,6 +138,12 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
             if (top != null) append("；主要失分：").append(top.second).append(" ×").append(top.third)
             val plan = CachePlan.of(m["plan"] as? JObj)
             if (plan != null) append("；路线：").append(plan.owner).append("（").append(plan.reason).append("）")
+            if (plan != null && plan.owner == CachePolicy.OWNER_RPCACHE) {
+                val count = ((m["marks"] as? JObj)?.get("count") as? Number)?.toInt() ?: 0
+                if (count > 0) append("；断点 ").append(count).append(" 处")
+                else append("；断点未打出：system 只有 ").append((m["marksSys"] as? Number)?.toInt() ?: 0)
+                    .append(" token（门槛 ").append(CacheMarkers.DEFAULT_MIN_TOKENS).append("）")
+            }
         }
         return listOf(Badge(id, "缓存 $pct%", tone, detail, action = ID))
     }

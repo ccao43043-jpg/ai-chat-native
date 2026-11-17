@@ -15,6 +15,7 @@ import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.cache.CacheMarkers
+import com.aichat.app.plugins.cache.CachePolicy
 import com.aichat.app.plugins.js.jobj
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -71,7 +72,12 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
      */
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))
-        return hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
+        if (hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()) return true
+        // 千问显式缓存的 cache_control 断点由本插件打：CachePolicy 判 owner=rpcache 时，
+        // 哪怕一个 RP 块都没有也要跑起来把断点打出去 —— 否则策略层说「交给 rpcache」，
+        // 实际没有任何插件执行，纯聊天里千问一个断点都拿不到。
+        val p = CachePolicy.providerOf(settings, conv) ?: return false
+        return CachePolicy.pick(p, conv.model, settings, conv).owner == CachePolicy.OWNER_RPCACHE
     }
 
     /**
