@@ -94,6 +94,15 @@ class RpMemoryPlugin(
         val inj = RpMemoryCore.renderInjection(sel)
         if (inj.isEmpty()) return ctx
 
+        if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+            ctx.fragments.add(com.aichat.app.domain.Slot.S3_RECALL, "rpmemory", inj,
+                com.aichat.app.plugins.TokenEstimator.text(inj), com.aichat.app.domain.RecallBus.P_MEMORY)
+            val meta0 = JsonObject(ctx.meta.toMutableMap().also {
+                it["rpmemory"] = Js.toJson(jobj("ids" to sel.map { e -> e["id"] }))
+            })
+            return ctx.copy(meta = meta0)
+        }
+
         val msgs = ctx.messages.toMutableList()
         val m = msgs[idx]
         msgs[idx] = m.copy(content = RpMemoryCore.appendToContent(m.content, inj))

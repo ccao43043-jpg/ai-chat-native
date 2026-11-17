@@ -14,6 +14,7 @@ import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.cache.CacheMarkers
 import com.aichat.app.plugins.js.jobj
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -151,9 +152,44 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             "summaryFail" to summaryFail,
             "chapters" to RpCacheCore.chaptersOf(st2).size,
         )
+        // 显式缓存断点（旧版 v0.21.3 P6 placeMarkers 的移植）。
+        // 只有服务商真支持显式标记才动手；其余情况 opts 与 messages **逐字节不变** ——
+        // 缓存前缀一旦被无关插件改动，命中率就归零，而且界面上完全看不出来。
+        val histTok = TokenEstimator.messages(p.hist.map { m ->
+            jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
+        }, provId)
+        val stableTok = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base) + RpCacheCore.summaryText(st2))
+        val markers = CacheMarkers.plan(
+            sysTokens = RpCacheCore.estimateTokens(p.system),
+            staticTokens = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base)),
+            memoryTokens = RpCacheCore.estimateTokens(RpCacheCore.memoryText(st2)),
+            summaryTokens = RpCacheCore.estimateTokens(RpCacheCore.summaryText(st2)),
+            historyTokens = histTok,
+            historyCount = p.hist.size,
+            stablePrefixLen = stableTok,
+            systemLen = p.system.length,
+        )
+        val useMarks = CacheMarkers.needsExplicitMarkers(cap.vendor, cap.kind)
+        val marked = if (useMarks && markers.historyIndex >= 0) {
+            val at = msgs.indexOfLast { it.role.wire == "user" }
+            if (at >= 0) msgs.toMutableList().also { list -> list[at] = list[at].copy(cacheMark = true) } else msgs
+        } else {
+            msgs
+        }
+        val outOpts = if (useMarks) ctx.opts.copy(cacheControl = markers.system, cacheSystemSplit = markers.systemSplit) else ctx.opts
+
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
-        return ctx.copy(systemPrompt = p.system, messages = msgs, meta = JsonObject(meta))
+        meta["rpcacheMarks"] = Js.toJson(jobj(
+            "vendor" to cap.vendor,
+            "kind" to cap.kind,
+            "applied" to useMarks,
+            "system" to markers.system,
+            "split" to markers.systemSplit,
+            "history" to (markers.historyIndex >= 0),
+            "count" to markers.count,
+        ))
+        return ctx.copy(systemPrompt = p.system, messages = marked, opts = outOpts, meta = JsonObject(meta))
     }
 
     /**

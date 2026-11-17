@@ -79,6 +79,13 @@ class KnowledgePlugin(
 
         val inj = Knowledge.renderInjection(sel["hits"] as? List<Any?>)
         if (inj.isEmpty()) return out
+        // 统一装配（PLAN-CONTEXT-ARCH M4）：只登记片段，由注册表在末尾拼一次，
+        // 避免与前后的 [AFFECT] / [MEMORY_RECALL] 互相覆盖。
+        if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+            ctx.fragments.add(com.aichat.app.domain.Slot.S3_RECALL, ID, inj,
+                com.aichat.app.plugins.TokenEstimator.text(inj), com.aichat.app.domain.RecallBus.P_KNOWLEDGE)
+            return out
+        }
         val spliced = Knowledge.spliceIntoUserContent(user0, inj) ?: return out
         val next = msgs.toMutableList()
         next[idx] = msgs[idx].copy(content = textOf(spliced))

@@ -112,6 +112,7 @@ class PluginRegistryImpl(
             cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); cur }
             recordStep(before, cur, p)
         }
+        cur = assembleRecall(cur)
         finishTrace(cur)
         // 给插件页留一份「本会话谁真跑了」的快照（进程内，不落盘）
         runCatching {
@@ -137,6 +138,29 @@ class PluginRegistryImpl(
     private fun lastUserContent(c: RequestContext): String =
         c.messages.lastOrNull { it.role.wire == "user" }?.content ?: ""
 
+    /**
+     * 末条用户消息的**单点装配**（PLAN-CONTEXT-ARCH M4）。
+     *
+     * 开关关着时原样返回；开着时把各插件交上来的片段拼一次：
+     * `[状态行]` + 原文 + `[召回]`。召回由 RecallBus 统一去重与预算。
+     */
+    private fun assembleRecall(ctx: RequestContext): RequestContext {
+        if (!com.aichat.app.domain.recallUnified(ctx.settings)) return ctx
+        val idx = ctx.messages.indexOfLast { it.role.wire == "user" }
+        if (idx < 0) return ctx
+        val tag = ctx.fragments.of(com.aichat.app.domain.Slot.S4_TAG).joinToString("\n") { it.text.trim() }.trim()
+        val recallItems = ctx.fragments.of(com.aichat.app.domain.Slot.S3_RECALL)
+        val recall = if (recallItems.isEmpty()) "" else {
+            val bus = com.aichat.app.domain.RecallBus()
+            recallItems.forEach { bus.offer(com.aichat.app.domain.RecallItem(it.src, it.text, it.priority, it.tokens)) }
+            bus.render()
+        }
+        if (tag.isEmpty() && recall.isEmpty()) return ctx
+        val msgs = ctx.messages.toMutableList()
+        val m = msgs[idx]
+        msgs[idx] = m.copy(content = com.aichat.app.domain.ContextAssembler.assembleLastUser(m.content, tag, recall))
+        return ctx.copy(messages = msgs)
+    }
     private fun finishTrace(ctx: RequestContext) {
         val t = ctx.trace
         t.systemTokens = TokenEstimator.text(ctx.systemPrompt)

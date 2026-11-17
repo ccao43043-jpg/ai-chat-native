@@ -106,7 +106,15 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
                     }
                     out[i] = m.copy(content = text)
                 }
-                m.role == Role.USER && i == lastIdx -> out[i] = m.copy(content = tag + "\n" + m.content)
+                m.role == Role.USER && i == lastIdx -> {
+                    // 统一装配时不自己拼：只登记 S4 片段，由注册表按「状态行 → 原文 → 召回」拼一次
+                    if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+                        ctx.fragments.add(com.aichat.app.domain.Slot.S4_TAG, "affect", tag,
+                            com.aichat.app.plugins.TokenEstimator.text(tag), 50)
+                    } else {
+                        out[i] = m.copy(content = tag + "\n" + m.content)
+                    }
+                }
                 m.role == Role.USER -> {
                     // 历史 user：只回放当轮冻结的短 tag（P0-3）
                     val inj = injOf(ctx.conv, m.srcId)

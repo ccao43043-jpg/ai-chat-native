@@ -1,5 +1,9 @@
 package com.aichat.app.domain
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+
 /**
  * 请求的五个槽位（PLAN-CONTEXT-ARCH §3.1）。
  *
@@ -96,4 +100,15 @@ class ContextTrace {
     /** 哪些插件声称拥有这段（用于面板「谁改的」一栏） */
     fun ownersOf(slot: Slot): List<String> =
         steps.filter { slot in it.slots }.map { it.plugin }.distinct()
+}
+/**
+ * 召回统一装配的开关（PLAN-CONTEXT-ARCH M4）。
+ *
+ * 默认 **关**：新旧两条路并存，先把新的跑一轮对比，确认「只改召回时 system 逐字节不变」
+ * 再默认打开。开关位置 `settings.plugins.recall.unified`。
+ */
+fun recallUnified(settings: com.aichat.app.domain.model.AppSettings): Boolean {
+    val o = settings.plugins["recall"] as? JsonObject ?: return false
+    val v = o["unified"] as? JsonPrimitive ?: return false
+    return v.booleanOrNull ?: false
 }

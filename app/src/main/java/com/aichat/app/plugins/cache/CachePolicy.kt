@@ -7,6 +7,7 @@ import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.plugins.PluginRegistryImpl
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.rp.RpCacheCore
 
 /**
  * 一个会话这轮该走哪条缓存路线。
@@ -30,7 +31,7 @@ data class CachePlan(
     val reason: String,
 ) {
     val monitored: Boolean get() = owner != CachePolicy.OWNER_NONE
-    val mutates: Boolean get() = owner == CachePolicy.OWNER_GCACHE || owner == CachePolicy.OWNER_MMCACHE
+    val mutates: Boolean get() = owner == CachePolicy.OWNER_GCACHE || owner == CachePolicy.OWNER_MMCACHE || owner == CachePolicy.OWNER_RPCACHE
 
     fun toJs(): JObj = JObj().also {
         it["owner"] = owner
@@ -60,6 +61,8 @@ object CachePolicy {
 
     const val OWNER_GCACHE = "gcache"
     const val OWNER_MMCACHE = "mmcache"
+    /** 千问显式缓存断点由 RP 缓存优化器自己打（旧版 placeMarkers 的归属） */
+    const val OWNER_RPCACHE = "rpcache"
     const val OWNER_PREFIX = "prefix"
     const val OWNER_NONE = "none"
 
@@ -128,6 +131,13 @@ object CachePolicy {
         if (GCache.isOpenRouterGemini(p, m)) {
             val where = if (adapter == "openrouter") "OpenRouter" else "OpenAI 兼容"
             return CachePlan(OWNER_GCACHE, MODE_FULL, 240L, MIN_CACHE_TOKENS, "$where 的 Gemini 显式缓存")
+        }
+
+        // 原生千问：显式 cache_control 断点，打点是 RP 缓存优化器自己的活（旧版 rp-plugin.js placeMarkers）。
+        // 移植后这条一直没接上，只有隐式缓存在命中 —— 所以它也必须是「能改请求」的 owner 之一。
+        val cap = RpCacheCore.capability(provider.presetId, provider.baseUrl, provider.type.wire, m)
+        if (CacheMarkers.needsExplicitMarkers(cap.vendor, cap.kind)) {
+            return CachePlan(OWNER_RPCACHE, MODE_BREAKPOINTS, cap.ttl * 1000L, MIN_CACHE_TOKENS, "千问显式缓存（RP 缓存优化器打点）")
         }
 
         // 原生 Anthropic：显式 cache_control 断点，服务端按断点缓存
