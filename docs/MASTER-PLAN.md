@@ -1,6 +1,7 @@
 # 统一路线图（Master Plan）
 
-> **状态**：✅ 活跃 · 唯一优先级来源 · 最后核实 2026-11-17（`main @ d4ebd1c` / v1.5.2）
+> **状态**：✅ 活跃 · 唯一优先级来源 · 最后核实 **2026-11-17 22:20（`main @ 37590e7` / v1.5.2）**
+> 最近一次全面核对：[ASSESS-2026-11-17.md](ASSESS-2026-11-17.md)（修正 11 处过期状态 + 新增批次 A/B/C）
 > 文档索引见 [README.md](README.md)；算法与缓存两条线的细化见 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md)。
 
 > **本文是唯一的执行优先级来源。** 它合并了五份文档的口径，冲突时以本文为准：
@@ -16,19 +17,22 @@
 
 ## 1. 项目评估（2026-11-16，main @ `be6688c` / v1.3.0）
 
+> **本节是 11-16 的历史快照，数值已过期**（单测 348→413、golden 53→121、instrumented 3 坏→12 全绿）。
+> 最新状态只看 §5；口径细节见 [ASSESS-2026-11-17.md](ASSESS-2026-11-17.md) §1。
+
 ### 1.1 一句话
 
 **技术底盘是工厂级，产品层是实验室级**：协议、流式、oplog 持久化、成本核算、缓存分层、RP 记忆检索都成熟且有 golden 锁定；短板在 UI/集成测试、状态粒度、以及"逐字节对齐旧 JS"遗留的架构利息。下一阶段的主旋律是**降每次改动的单位成本 + 提用户可感知的体验**，不是加功能。
 
 ### 1.2 质量基线
 
-| 维度 | 现状 | 判断 |
+| 维度 | 现状（11-16 快照） | 判断 |
 |---|---|---|
-| 单测 | 348 例全绿（今日 +8） | 良好 |
-| CI | android.yml：每次 PR + main push 跑单测 + 编译（今日 10+ 次运行） | 良好；缺 lint/detekt 与 instrumented 接入 |
-| golden | 53 个 jsonl + 覆盖安装夹具，双实现防漂移 | 强项 |
-| UI/集成测试 | Compose 全靠手测，3 个 instrumented 用例已坏且不在 CI | **短板** |
-| 架构 | 三套 Js 语义层、两个 700+ 行 god file、KeyOrder 三层补丁 | **主要技术债** |
+| 单测 | ~~348~~ → **413 例全绿**（11-17 实测） | 良好 |
+| CI | android.yml 单测+编译；instrumented.yml 已接入且**已转绿**（KVM 真因修复，PR #92） | 良好；仍缺 lint/detekt 与 release 变体验证 |
+| golden | ~~53~~ → **82 jsonl + 39 json**（11-17 实测） | 强项 |
+| UI/集成测试 | ~~3 个用例已坏且不在 CI~~ → **12 例全绿并进 CI**；仍缺页面级测试 | 已从短板转为「基本可用」 |
+| 架构 | 三套 Js 语义层、四个 600+ 行 god file；~~KeyOrder 三层补丁~~ **已删**（阶段 B/C 完成） | 仍有技术债 |
 
 ### 1.3 对 OPTIMIZATION-ADVISORY 的勘误（2026-11-16）
 
@@ -54,14 +58,14 @@
 | 1 | 〔悬案〕PR #39（世界书编辑面板）rebase 到 main、重测、合并 | 0.5 天 | ✅ 已合并（2026-11-16 16:40） |
 | 2 | 〔工程〕structured-diff **阶段 A 验收**：golden 逐条对比（ops 逐条一致 + oplog 体积不增） | 0.5 天 | ✅ PR #70 |
 | 3 | 〔工程〕评审 #10：流式状态拆独立 flow，消除整屏重组 | 1 天 | ✅ PR #71 |
-| 4 | 〔工程〕instrumented CI 从接入起 4 次全红，门禁形同虚设 | 0.5 天 | 🔄 PR 见 §5.4（超时/滚动/收键盘 + 失败留语义树） |
+| 4 | 〔工程〕instrumented CI 从接入起 4 次全红，门禁形同虚设 | 0.5 天 | ✅ **PR #92**（KVM 真因修复 + 脚本外移 + 30s 超时 + 失败留语义树）；run 44088895019 `emu: success` |
 
 ### P1 · 1–2 周
 
 | # | 事项 | 量 | 说明 |
 |---|---|---|---|
 | 4 | 〔算法〕统一 `TokenEstimator`（含按 provider 的图片公式） | 1 天 | ✅ **已完成**（PR #72 统一尺子 + PR #98 P1 把 provider 接进预算路径：`estimateItems`/`itemTokens`/`computeTrimWindow`/`applyTempTrim` 全透传，不传时仍 1000/张保 golden） |
-| 5 | 〔工程〕structured-diff 阶段 **B → C → D**：去 `KeyOrder.align` → 去键删除补丁 → 清理 | 2.5 天 | 按 `structured-diff-plan.md` §4 执行，带 `structuralDiff` 开关灰度；⚠️ 碰数据兼容，验收清单 §7 必须全过 |
+| 5 | 〔工程〕structured-diff 阶段 **B → C → D**：去 `KeyOrder.align` → 去键删除补丁 → 清理 | ✅ 0 天 | **已完成**（阶段 B `#74`、阶段 C+D `#76`）：`Repositories.saveLocked` 已无 `KeyOrder.align` / `nullRemovedMessageKeys`，判等切 `semanticEqual` |
 | 6 | 〔工程〕评审 #9：三套 Js 收敛为 1 核心 + 2 薄适配 | 2–3 天 | 净删 600+ 行，消灭 `"null"/"undefined"` 一类 bug 的土壤 |
 | 7 | 〔算法〕摘要最优停止（§4.2） | ✅ 0 天 | **已实现**：`RpCacheCore.summaryTiming`（PR #78），枚举 t∈0..H 的折现总成本取 argmin |
 | 7b | 〔算法〕分层预算精确背包 + 选择集粘滞（§4.3） | ⛔ 不做 | 用户已拍板关闭（§5.3 第 1 条：架构演进取代） |
@@ -71,12 +75,23 @@
 
 | # | 事项 | 量 | 说明 |
 |---|---|---|---|
-| 8 | 〔算法〕op-log 真追加 + 脏标记（D6） | 1 天 | `Store.append` 已就绪；commit 从 O(会话) 降到 O(变更)，写放大消失 |
+| 8 | 〔算法〕op-log 真追加 + 脏标记（D6） | ✅ 0 天 | **已完成**（PR #80）：`JsConvLog.kt:920` 逐 op `store.append`，注释明确「不再 `readOps` + 整文件重写」，写放大 O(全日志)→O(本次) |
 | 9 | 〔算法〕路由折扣 Beta + 受控探索（D2/D3） | 1–2 天 | 改进方案 §4.1 有完整算法与验收用例；**先埋点验证 D2/D3 真实发生率**再开（方案 Phase 0 原则），带开关默认关 |
 | 10 | 〔工程〕ChatController 按职责拆 4 个（SendFlow/VersionOps/FilesOps/RpOps） | 1 天 | 纯移动 + 接口隔离 |
 | 11 | 〔工程〕JsConvLog 按职责重构（Replay/Diff/Commit/Compact） | 2 天 | 917 行 god file；配 golden |
 | 12 | 〔算法〕重试 Retry-After（Full Jitter 已有：`NetRetry.backoff` 带 ×(0.8+0.4·rnd)） | 0.25 天 | ✅ **已完成**（PR #98 P4）：`NetRetry.parseRetryAfterValue`/`delayFor` 封顶 60s，`Error.retryAfterMs` 透传到引擎。见 PLAN-ALGO-CACHE P4 |
 | 13 | 〔工程〕detekt/ktlint + 3 个 Compose smoke test（空态/发送/流式） | 1 天 | 一次配置长期收益；instrumented 修 3 例后接 CI（仅 main + 手动） |
+
+### P1.5 · 2026-11-17 核对新增（发布工程与数据安全）
+
+> 来源：[ASSESS-2026-11-17.md](ASSESS-2026-11-17.md) §2/§4。这四项在旧计划里完全没有，但都属于「不修就会在关键时刻出事」的类型。
+
+| # | 事项 | 量 | 说明 |
+|---|---|---|---|
+| 14 | 〔发布〕**release 变体从未验证**：`minifyEnabled false`、无 `proguard-rules.pro`、CI 只跑 `assembleDebug`、`lint { abortOnError false }` | 0.5 天 | 开 R8 + `shrinkResources` + keep 规则；CI 加一次 `assembleRelease`；lint 只拦 error。预期 APK 11.7 → 7–8 MB |
+| 15 | 〔数据〕**关键路径零测试**：`data/files` 595 行 / `data/backup` 75 行 / `data/secret` 118 行，`@Test` 均为 0 | 0.5 天 | 补 `capText` 边界、备份导出→清空→导入往返、关掉 `unitTests.returnDefaultValues` |
+| 16 | 〔数据〕**图片以 base64 内联进 oplog**：`Message.images: List<String>` 存 `data:image/jpeg;base64,…`，一轮 10 图 ≈ 1.4–2.7 MB 写进 `conv_*.log.jsonl` | 1–2 天 | 改存 `img_<sha1>.jpg` + 消息只留键，读路径懒迁移旧 `data:` 值；需幂等 + 向后兼容 |
+| 17 | 〔工程〕卫生：8 处空 catch 中 4 处该报不报（`Affect.kt:163` / `JsConvLog.kt:714` / `PdfText.kt:109` / `ProvidersScreen.kt:195`）；`diag.yml` 一次性排障工作流仍带 `contents: write` | 0.5 天 | 加 warn 日志或 UI 提示；`diag.yml` 删掉或改成仅 `workflow_dispatch` |
 
 ### P3 · 产品体验与长线（穿插做）
 
@@ -89,6 +104,9 @@
 
 - 不扩张功能（会话内搜索/书签/分支）——功能已超出用户规模需要
 - 不重写 Compose 层、不做视觉重构
+- **不做 i18n / 多语言**：`res/values/strings.xml` 只有 1 条，生产代码 1,630 处硬编码中文；抽字符串是 1,600+ 处改动且零用户价值
+- **不关闭 `usesCleartextTraffic`**：会破坏「用户自填 http 网关」这条真实用法，改在文档里做安全提示
+- **不批量消 `!!`**：140 处已逐个核对均有前置非空判断，纯风格改动不划算
 - 无验证不开大重构；所有算法改动走「开关默认关 → 灰度 → 转正」
 
 ---
@@ -120,14 +138,16 @@
 
 ### 5.1 各线完成度
 
-| 线 | 完成度 | 已完成 | 欠账 |
+| 线 | 完成度（11-17 22:20 重算） | 已完成 | 欠账 |
 |---|---|---|---|
-| 改进方案（算法线 D1–D11） | ~40% | D11、D1、D9/D10 不适用部分、§5.2、§6 | D2/D3（1–2 天）、D8+D4/D5（3–4 天）、D6（1 天）、D7（2–3 天）、P2 长线（5–8 天） |
-| 工程评审 11 项 | ~75% | 8 项 ✅ | 阶段 C/D（1.5 天）、三套 Js（2–3 天）、JsConvLog 拆分（2 天）、ChatController 细拆（1 天）、instrumented/detekt/smoke（1.5 天） |
-| advisory 缓存专项 | ~62% | TokenEstimator 统一 + 图片公式**已接预算路径**（PR #98）+ `Retry-After` | 能力表参数化（P2，1 天）/ 文件分块检索（P3，2–3 天） |
+| 改进方案（算法线 D1–D11） | **~78%**（旧 ~40%） | D1、D2、D6、D8、D11 ✅；D4/D5 已关闭；D9/D10 不适用 | D3 受控探索（1 天，先埋点）、D7 文件分块（2–3 天） |
+| 工程评审 11 项 | **~88%**（旧 ~75%） | 10 项 ✅（含阶段 C/D、instrumented CI 转绿） | 三套 Js 收口（3–5 天，需值模型迁移） |
+| advisory 缓存专项 | **~70%**（旧 62%） | TokenEstimator 统一 + 图片公式接预算路径 + `Retry-After`（PR #98） | 能力表参数化（B2，1.5 天）/ 文件分块（B3，2–3 天）/ 路由埋点（B4） |
+| 发布工程（新增） | **~30%** | 固定签名 + 校验流程（`SIGNING.md`） | R8/keep 规则、release 变体验证、lint 门槛（#14，0.5 天） |
+| 测试分布（新增） | **~70%** | 逻辑层 413 例 + 12 例 instrumented 全绿 | `data/files`/`data/backup`/`data/secret` 与 UI 页面级测试（#15，0.5 天起） |
 | 产品体验（advisory §5） | 0% | — | 抽屉分组 / 触控目标 / 无障碍 / 提示（3–4 天，穿插） |
 
-**总账**：核心承诺（方案 P0+P1 + 评审 P0/P1）约 **8–11 个工作日**；含长线 P2 约 4–5 周。
+**总账**：核心承诺（方案 P0+P1 + 评审 P0/P1）已达 **~85%**；补齐 #14+#15（1 天）后可发「发布与数据都靠得住」的版本；#16+B2+B3 约 5–7 天到 v1.6.0。含长线 P2 仍约 3–4 周。
 
 ### 5.2 验收口径修正（三项降级/调整）
 
@@ -202,3 +222,19 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 1. **D8 摘要最优停止已实现**（`RpCacheCore.kt:175 summaryTiming`，PR #78）——`RpCacheCore.kt:419` 那句「有意没搬 adaptiveSummary」是过期注释，B1 一并改掉。
 2. **D2 Beta 折扣路由已实现**（`net/Router.kt:251 chooseUpstream`：`hitQuantile(st.a, st.b, z)` + stickyIdle + 切换成本折现）；真正缺的是**探索**与**统计衰减**（B4 先埋点）。
 3. **D1 索引缓存已实现**（`RpMemoryCore.kt:437 buildIndex(list, prev)` 签名复用）；`GCache.adaptiveMinTokens` 与 `sessionId` 也已落地（advisory §10.3 已完成）。
+
+### 5.6 2026-11-17 22:20 全面核对（详见 ASSESS-2026-11-17.md）
+
+**方法**：不看文档看代码——逐条把 §1/§2 的状态声明拿 `grep` + 读实现核对，再补一轮「文档里根本没有」的扫描（构建配置、测试分布、空 catch、硬编码文案、APK 组成）。
+
+**结论一：11 处状态不符，全是「做完了没回写」**（详见 ASSESS §1.2）。已在本轮全部修正：#4 instrumented、#5 阶段 B/C/D、#8 D6、§1 单测/golden/UI 测试/架构四行、§5.1 三行完成度、文首核实时点。
+
+**结论二：发布工程是最大空白**（新增 #14）。`release { minifyEnabled false }`、无 `proguard-rules.pro`、CI 只 `assembleDebug`、`lint { abortOnError false }` —— 也就是说**至今所有发布包其实都是 debug 构建**。固定签名解决了「能不能覆盖安装」，但没解决「产物是不是发布产物」。
+
+**结论三：用户数据路径两处硬伤**（新增 #15/#16）。
+- `data/files`（文件截断，D7 的核心）、`data/backup`（整库导出/导入）、`data/secret`（KeyVault）三个目录 **0 单测**——而备份导入会整库替换，写错一次就是数据丢失。
+- 图片以 `data:image/jpeg;base64,…` 内联进消息（`Message.images`），一轮 10 图 ≈ 1.4–2.7 MB 进 `conv_*.log.jsonl`，长图会话文件可达数十 MB，且每次 commit 都要把它重新序列化。
+
+**结论四：明确不做的三件事写死**（i18n、关 cleartext、批量消 `!!`），避免以后反复讨论——判断依据见 ASSESS §2.4/§2.5。
+
+**流程教训**：上一轮文档收敛只给每份文档加了「身份标签」，但没有机制保证**状态列**回写。这次的做法是把「核对」本身变成定期动作（本节的日期 + main sha），并且**状态只有一个列**（§2 的「状态」列 + §5.1 的完成度），其他文档一律指向它。
