@@ -16,6 +16,8 @@ permissions:
 jobs:
   emu:
     runs-on: ubuntu-latest
+    # 单次实测 ~16 分钟（软件渲染）；失败会重试一次，留够余量
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -37,15 +39,26 @@ jobs:
           target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 3072
-          # 无头模拟器偶发安装中断（Broken pipe）：失败自动重试一次
+          # 无头模拟器偶发安装中断（Broken pipe）：失败自动重试一次。
+          # 第一次失败先把 logcat 落盘——UI 测试失败时 AppRootUiTest 会把语义树打进 logcat（tag=UITEST），
+          # 没有这份日志就只能在本地复现猜原因（2026-11-17 前 4 次全红就是这么耗掉的）。
           script: |
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest || \
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest
+            adb logcat -c || true
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest || {
+              echo "::warning::第一次 instrumented 失败，收集 logcat 后重试"
+              adb logcat -d > logcat-first-failure.txt || true
+              adb logcat -d -s UITEST:V > uitest-tree.txt || true
+              ./gradlew --no-daemon :app:connectedDebugAndroidTest
+            }
 
-      - name: 上传测试报告
-        if: failure()
+      - name: 上传测试报告与日志
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instrumented-report
-          path: app/build/outputs/androidTest-results/
+          path: |
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            logcat-first-failure.txt
+            uitest-tree.txt
           if-no-files-found: ignore

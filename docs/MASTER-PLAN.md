@@ -42,11 +42,14 @@
 
 ### P0 · 本周
 
-| # | 事项 | 量 | 说明 |
+> **状态（2026-11-17 12:40 复核）：下表 1–3 已全部完成，P0 清零。** 明细见 §5.4。
+
+| # | 事项 | 量 | 状态 |
 |---|---|---|---|
-| 1 | 〔悬案〕PR #39（世界书编辑面板）rebase 到 main、重测、合并或明确挂起 | 0.5 天 | 落后 main 5 个 PR；功能本体完成度高，纯界面入口 |
-| 2 | 〔工程〕structured-diff **阶段 A 验收**：golden 逐条对比（ops 逐条一致 + oplog 体积不增） | 0.5 天 | 代码已进 main（#66），专项对比未做；这是 B/C/D 的通行证 |
-| 3 | 〔工程〕评审 #10：流式状态拆独立 flow，消除整屏重组 | 1 天 | 长会话帧率，用户最可感知的性能项 |
+| 1 | 〔悬案〕PR #39（世界书编辑面板）rebase 到 main、重测、合并 | 0.5 天 | ✅ 已合并（2026-11-16 16:40） |
+| 2 | 〔工程〕structured-diff **阶段 A 验收**：golden 逐条对比（ops 逐条一致 + oplog 体积不增） | 0.5 天 | ✅ PR #70 |
+| 3 | 〔工程〕评审 #10：流式状态拆独立 flow，消除整屏重组 | 1 天 | ✅ PR #71 |
+| 4 | 〔工程〕instrumented CI 从接入起 4 次全红，门禁形同虚设 | 0.5 天 | 🔄 PR 见 §5.4（超时/滚动/收键盘 + 失败留语义树） |
 
 ### P1 · 1–2 周
 
@@ -134,3 +137,33 @@
 3. **已完成 ✅（本夜）**：阶段 C/D（#76）、sessionId 收口 + 骤降告警（#77）、§4.2 摘要最优停止开关灰度（#78）、完成度盘点（#75）。
 4. **2026-11-17 早批次**：#86 输入草稿丢失真 bug（AppRoot if/else 切屏丢 rememberSaveable → SaveableStateProvider 修复）+ instrumented 10/10 全绿 + 接 CI（#87/#88）；#89 检索体检 + keywords 编辑字段（§4.5.2 配套，桥接用例验收）；v1.5.0 发版。
 5. **已知问题：CI 模拟器 2 次失败**（ShellCommandUnresponsive + 用例 15s 超时——CI 机器慢，本地全绿代码无问题；#88 加固后仍一次失败）。待选：调大 waitUntil 超时、或降级为仅手动触发。
+
+### 5.4 2026-11-17 复核：P0 清零、签名修复、CI 稳定性
+
+**1. P0 全部完成**（§2 已同步）：#39 世界书面板（11-16 16:40 合并）、阶段 A 验收（#70）、流式状态拆独立 flow（#71）。里程碑 v1.3.0 → v1.4.0 → v1.5.0 均已发版。
+
+**2. 固定签名（#91，v1.5.1）——发版门新增硬约束。**
+过去每次发版都用构建机的临时 debug 证书，实测 v1.3.0 / v1.4.0 / v1.5.0 三份 APK 是**三张不同证书**，导致用户每次升级都被 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` 挡下，只能卸载重装、数据全丢。
+
+- 现在 `debug` 与 `release` 统一挂 `keystore.properties` 指向的固定 keystore（`D:\android-dev\keystore\ai-chat-release.jks`，证书 SHA-256 `A2:28:0D:C1…2F:52`）
+- 缺失该文件时构建仍可跑，但会 `logger.warn` 明确警告「产物不能覆盖安装到用户设备」
+- **发版门新增：发布前必须 `apksigner verify --print-certs` 核对证书指纹**，详见 `SIGNING.md`
+- ⚠️ keystore 丢失 = 所有已装设备永久无法覆盖升级。已备份到 `D:\android-dev\keystore\备份-请勿删除\`
+
+**3. instrumented CI 稳定性（P0 #4）。** 症状：接入起 4 次运行 4 次全红，本地同 commit 10/10 全绿。日志实证（run 44007789586）：
+
+```
+versionMenuOpens           ComposeTimeoutException: Condition still not satisfied after 15000 ms
+regenerateVersionsAndEdit  ComposeTimeoutException: Condition still not satisfied after 15000 ms
+sendThenStop               AssertionError: Assert failed: The component is not displayed!
+```
+
+根因判断（按证据强度排序）：① CI 模拟器软件渲染慢，一帧数百毫秒 → 15s 不够；② 输入文字后软键盘不收起，视口缩半 → 消息动作行被推出可视区、`regen` 点击落空；③ `assertIsDisplayed` 在节点被键盘遮挡时假红（该用例本地此前就是这么修的）。
+
+对策（`AppRootUiTest.kt` 顶部写死了四条约定）：
+- 一律用 `waitUntilExists` 判「出现」，超时统一 **30s**；只有真要看布局才用 `assertIsDisplayed`
+- 点消息动作行之前 `performScrollTo()`
+- `performTextInput` 之后 `closeKeyboard()`（用 `InputMethodManager` 直接收，不引 Espresso）
+- `TestWatcher` 在失败时把语义树打进 logcat（tag `UITEST`），workflow 第一次失败先落盘 `logcat-first-failure.txt` / `uitest-tree.txt` 再重试，并 `always()` 上传
+
+**教训（值得写进任何 UI 测试）：`assertIsDisplayed` 不是「出现了」的断言，它是「此刻可见」的断言。在屏幕尺寸/键盘状态不确定的环境里，它只会制造假红。**
