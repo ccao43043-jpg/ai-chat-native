@@ -305,3 +305,39 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 |---|---|
 | 2026-11-17 | 首版。核实 16 项现状，识别 5 件实事（P1/P2/P3/P4/P6 主体）+ 3 件卫生/长线（P5/P7/P8），排入 B1–B4 |
 | 2026-11-17 | **B1 完成**（PR #98）：P1 图片 token 接入预算路径（`estimateItems`/`layerTokens`/`computeTrimWindow`/`applyTempTrim`/`itemTokens` 全部透传 provider，`RpCachePlugin` 传 presetId）；P4 `Retry-After`（秒数 + HTTP-date，封顶 60s）；P5 过期注释与 `TokenEstimator` 说明。单测 403 → **413**，golden 零改动。同时更正两处判断错误：`itemTokens` 不是死代码（§1 第 13 行）、`plan()` 里 `hist` 只算一次（§1 第 14 行 / §2 P6） |
+| 2026-11-17 | **B0 完成**（新增 §8）：缓存策略选择 + 缓存体检数据收集 + 前缀稳定化算法，单测 413 → **438** |
+
+## 8. 缓存策略与体检（2026-11-17 落地）
+
+问题不是「没有缓存功能」，而是「六个缓存插件各改各的请求，且只在 OpenRouter/Gemini 这一条路上真的生效；其它服务商一分钱没省，也没人知道为什么没省」。
+
+于是拆成三件事，全部是**纯函数 + 一个只读插件**，不改任何现有插件的改写逻辑：
+
+| 文件 | 作用 | 关键 API |
+|---|---|---|
+| `plugins/cache/CachePolicy.kt` | 每个会话选**唯一**一条缓存路线 | `pick(provider, model, settings, conv): CachePlan` |
+| `plugins/cache/CacheLedger.kt` | 每轮记一条样本 + 6 类 miss 归因 | `sample(...)` / `attribute(...)` / `hitRate(...)` / `summary(...)` |
+| `plugins/cache/CacheMeterPlugin.kt` | 只读插件：算路线、写账本、出入口令徽章 | `headerBadges` → 「缓存 68%」 |
+| `plugins/cache/PrefixStabilizer.kt` | 段级稳定性 → 期望命中率、断点位置、TTL 建议、值不值得写 | `stability` / `expectedLcp` / `breakpoints` / `CacheCostModel` |
+
+路线规则（`CachePolicy.pick`，自上而下第一条命中）：
+
+| 顺序 | 条件 | owner | 是否改请求 |
+|---|---|---|---|
+| 0 | `conv.extras.plugins.cachepolicy.owner` 有值 | 会话指定 | 看指定值 |
+| 1 | 设置里关掉 `cachepolicy` | `none` | 否 |
+| 2 | `cacheAdapter=none`（用户明确关） | `none` | 否 |
+| 3 | MiniMax | `mmcache` | 是 |
+| 4 | OpenRouter / openai-compat 上的 Gemini | `gcache` | 是（全量改写） |
+| 5 | 原生 Anthropic | `prefix`（`breakpoints`） | 否 |
+| 6 | 原生 Gemini | `prefix`（`auto`，隐式缓存） | 否 |
+| 7 | 其它 OpenAI 兼容（OpenAI/DeepSeek/Qwen/Moonshot…） | `prefix`（`auto`，服务端自动前缀缓存） | 否 |
+
+配套改动：`GCachePluginImpl` / `MmCachePluginImpl` 由「常开 + 自己内部再判」改成 **`perConversation = true` + `autoActive` 读 CachePolicy**——插件要么真的在干活，要么干净地不出现，不再有「在跑但什么都没做」的假象。
+
+归因优先级：换模型 > 换服务商 > 空闲超 TTL > 前缀变短 > LCP 低 > 未知；**首轮不归因**（缓存还没建立，记成 unknown 会污染统计）。
+
+命中率口径：按 **token 加权**（`Σhit / Σprompt`），且只统计 `known` 样本（服务商回了 `hit` 或 `cache_supported`）；中转吞掉缓存字段时宁可显示「无数据」，也不把「不知道」算成「没命中」。
+
+数据落在 `conv.extras.plugins.cachemeter`：`plan` / `summary` / `ledger`（最近 40 条）/ `stab`（段稳定度与断点建议）/ `gaps` / `ttlSuggest` / `worthWrite`。这些都是后续调参的输入，不参与决策。
+

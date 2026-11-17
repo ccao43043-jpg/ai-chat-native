@@ -34,7 +34,10 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
     override val id = GCache.ID
     override val name = "Gemini 提示缓存（OpenRouter）"
     override val defaultEnabled = true
-    override val perConversation = false
+    // 改成「按会话生效」：由 CachePolicy 判断这个会话该不该走 gcache。
+    // 之前是常开 + onBeforeRequest 里自查，导致「插件在跑但什么都没做」的假象，
+    // 也没法在会话级关掉它。
+    override val perConversation = true
     /** 仅运行时：convId → 上一轮 system 前缀 / 完整请求体 */
     private val lastPrefix = HashMap<String, String>()
     private val lastReqBody = HashMap<String, String>()
@@ -52,6 +55,9 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
     }
     private fun rpActive(settings: AppSettings, conv: Conversation): Boolean = try { host.isActive("rpcache", settings, conv) } catch (e: Throwable) { false }
     private fun convJs(conv: Conversation): JObj = jobj("id" to conv.id, "systemPrompt" to conv.systemPrompt, "plugins" to Js.fromJson(conv.extras["plugins"]))
+
+    override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
+        CachePolicy.pick(CachePolicy.providerOf(settings, conv), conv.model, settings, conv).owner == CachePolicy.OWNER_GCACHE
 
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         if (!GCache.isOpenRouterGemini(PluginRegistryImpl.providerJs(ctx.provider), ctx.model)) return ctx
@@ -177,9 +183,12 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
     override val id = MmCache.ID
     override val name = "MiniMax 提示缓存（OpenRouter）"
     override val defaultEnabled = true
-    override val perConversation = false
+    override val perConversation = true
     private val lastPrefix = HashMap<String, String>()
     private val lastBody = HashMap<String, String>()
+
+    override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
+        CachePolicy.pick(CachePolicy.providerOf(settings, conv), conv.model, settings, conv).owner == CachePolicy.OWNER_MMCACHE
 
     fun cfgOf(settings: AppSettings): JObj = Js.assign(MmCache.DEFAULTS, host.config(settings, id))
     fun statOf(conv: Conversation): JObj {

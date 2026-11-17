@@ -142,7 +142,7 @@ class PluginRegistryImpl(
     companion object {
         const val ERR_MAX = 50
         /** 固定注册顺序（Contracts.kt 注释 + index.html 脚本顺序） */
-        val ORDER = listOf("knowledge", "rpcache", "rpmemory", "usage", "gcache", "mmcache", "affect")
+        val ORDER = listOf("knowledge", "rpcache", "rpmemory", "usage", "gcache", "mmcache", "affect", "cachemeter")
 
         /**
          * 默认组装：按 ORDER 注册已实现的插件。
@@ -169,6 +169,9 @@ class PluginRegistryImpl(
             impls["mmcache"] = { h -> com.aichat.app.plugins.cache.MmCachePluginImpl(h) }
             // affect：默认开启（与旧版一致）；只改 system 末尾协议与末条 user 的前缀，不动历史正文
             impls["affect"] = { h -> com.aichat.app.plugins.affect.AffectPlugin(h) }
+            // cachemeter：排在最后——只读，不改请求；要看到**所有插件处理完之后**的 system，
+            // 才能统计出真正发出去的前缀长什么样（排前面会统计到别人改之前的文本）。
+            impls["cachemeter"] = { h -> com.aichat.app.plugins.cache.CacheMeterPlugin(h) }
             ORDER.forEach { id -> impls[id]?.let { reg.register(it(reg)) } }
             return reg
         }
