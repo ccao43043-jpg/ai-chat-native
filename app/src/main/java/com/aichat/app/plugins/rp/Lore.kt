@@ -45,7 +45,9 @@ object Lore {
         val out = ArrayList<E>(); var cur: E? = null
         val head = Js.re("^##\\s*(.+?)\\s*(?:\\|\\s*(.*))?$")
         Js.replace(Js.re("\\r\\n?", "g"), if (Js.truthy(text)) Js.str(text) else "", true, "\n").split("\n").forEach { line ->
-            val m = Js.match(head, line)
+            // 行首空白必须容错：从聊天/文档里粘过来的世界书常常整体缩进，
+            // 一旦 ## 前面多一个空格，整份文本会被解析成 0 条，而界面看起来「保存成功」。
+            val m = Js.match(head, Js.trim(line))
             if (m != null) { cur = E(Js.trim(m[1]!!), Js.trim(m[2] ?: "")); out += cur!! } else cur?.lines?.add(line)
         }
         val res: JArr = ArrayList()
