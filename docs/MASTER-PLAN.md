@@ -132,3 +132,5 @@
 1. **§4.3 精确背包 + 粘滞：✅ 关闭（2026-11-17 用户确认，被架构演进取代）。** 决策依据：用户实际使用以 **AI 自动摘取记忆**为主（rpmemory 插件：BM25+MMR 条目召回，注入**末条 user 消息**尾部，不碰 system 前缀）——D4 的「选择集漂移毒化 system 缓存」在原生架构下不存在（system 的 memory 层是静态手写块，不编辑就不变；动态召回在尾部，选什么都不伤缓存）；600 token 尾注入场景下贪心 pickByBudget 与背包差异可忽略。若后续观察到召回条目来回跳导致 AI 行为不一致，再考虑轻量粘滞（同分时偏向近轮已召回条目）。**对用户实际使用真正有影响的是 §4.5.2 检索质量**（同义改写 MRR 0.5 的弱点同样作用于记忆召回，同一套 RetrievalCore）。
 2. **三套 Js 收敛：范围上修。** `net.Js`（JsonElement 值模型）实际消费方 7 个文件——cost 域 5 个（CostCoreJs / UsageStatsCore / Balance / FloorPrices / UsageReport）+ engine 2 个，远超评审估的 2 处。cost 域深度绑定 JsonElement，收敛 = 值模型迁移 = 3–5 天（原估 2–3 天），且 net-golden 与 secure-golden 双侧锁定。建议拆两步：先共享纯 JS 语义核心（numberToString / localeCompare / round / i32 的算法层），值模型迁移单独立项。
 3. **已完成 ✅（本夜）**：阶段 C/D（#76）、sessionId 收口 + 骤降告警（#77）、§4.2 摘要最优停止开关灰度（#78）、完成度盘点（#75）。
+4. **2026-11-17 早批次**：#86 输入草稿丢失真 bug（AppRoot if/else 切屏丢 rememberSaveable → SaveableStateProvider 修复）+ instrumented 10/10 全绿 + 接 CI（#87/#88）；#89 检索体检 + keywords 编辑字段（§4.5.2 配套，桥接用例验收）；v1.5.0 发版。
+5. **已知问题：CI 模拟器 2 次失败**（ShellCommandUnresponsive + 用例 15s 超时——CI 机器慢，本地全绿代码无问题；#88 加固后仍一次失败）。待选：调大 waitUntil 超时、或降级为仅手动触发。
