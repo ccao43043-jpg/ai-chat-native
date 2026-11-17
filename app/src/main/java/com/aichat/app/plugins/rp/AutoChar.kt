@@ -51,7 +51,10 @@ object AutoChar {
         val us = msgs.filter { it["role"] == "user" && !Js.truthy(it["error"]) && !Js.truthy(it["imageGen"]) }
         if (us.size != 1 || Js.trim(s(us[0]["content"])).isEmpty()) return false
         if (msgs.any { it["role"] == "assistant" && !Js.truthy(it["error"]) && Js.trim(s(it["content"])).isNotEmpty() }) return false
-        return isRpTemplate(conv, templates) && !hasCharacter(conv)
+        // 世界里开聊用的是沉浸式 RP 模板，但用户也可能换成别的模板；
+        // 只要这个对话已经绑定了世界，就该问「要不要生成一个符合这个世界的角色」。
+        val rp = isRpTemplate(conv, templates) || worldOf(conv) != null
+        return rp && !hasCharacter(conv)
     }
     fun fromUserText(text: Any?): JObj? { val f = parse(text); return if (f != null && Js.truthy(f["character"])) f else null }
     const val FORMAT = "【世界观】\n【角色卡】\n【RP规则】\n【输出格式】\n【示例对白】\n【禁止事项】\n【写作风格】\n【开场白】"
@@ -107,6 +110,111 @@ object AutoChar {
     }
     private val VAR_LINE = Js.re("^\\s*(?:-\\s*)?(?:[^{}\\n：:]{1,16}[：:]\\s*)?\\{\\{[^{}]*\\}\\}\\s*$")
     private val IS_HEAD = Js.re("^【[^】]+】\\s*$")
+    // ---------- 世界作用域（PLAN-AUTOCHAR-WORLD）----------
+    /**
+     * 已有世界设定的上下文（只读）。
+     *
+     * 世界里生成角色卡时，它同时是约束（角色必须属于这个世界）和禁区（不许改写世界）：
+     * world/rules/style 属于世界，角色只该补「这个人是谁」。
+     */
+    data class WorldContext(
+        val worldId: String = "",
+        val worldName: String = "",
+        val world: String = "",
+        val lore: String = "",
+    ) {
+        val hasWorld: Boolean get() = world.isNotEmpty() || lore.isNotEmpty()
+    }
+
+    /** 生成范围：专场聊天全套 8 段；已经有世界的对话只生成角色卡。 */
+    enum class Scope { FULL, CHARACTER_ONLY }
+
+    /** 世界里只该输出这两段——其余段落属于世界，不是角色能决定的。 */
+    const val FORMAT_CHARACTER = "【角色卡】\n【示例对白】"
+
+    private val CHAR_ONLY_IDS = listOf("character", "fewshot")
+
+    private const val CHAR_RULES = "你是角色卡生成器。世界观已经存在，你只负责为它设计一个可以立刻扮演的角色，" +
+        "写具体可扮演的细节（姓名、年龄性别、外貌、身份、背景经历、性格优缺点、说话方式、喜好禁忌、秘密、人物关系、与用户的关系、目标动机）。"
+
+    private fun blockText(st: Any?, id: String): String = Js.trim(s(RpState.getBlock(st, id)?.get("content")))
+
+    /** 三条判据任一成立就算「在世界里」：会话绑了 worldId、分层设定里的 world 块有内容、或者带 worldRef。 */
+    fun worldOf(conv: Any?): WorldContext? {
+        if (!Js.truthy(conv)) return null
+        val st = conv["plugins"]["rpcache"]["state"]
+        val world = blockText(st, "world")
+        val id = s(conv["worldId"])
+        val name = s(conv["worldName"])
+        if (world.isEmpty() && id.isEmpty()) return null
+        return WorldContext(worldId = id, worldName = name.ifEmpty { id }, world = world)
+    }
+
+    /**
+     * 只要这个对话**绑定了世界**（有 worldId 或 world 块），就算在世界里 —— 哪怕块是空的，
+     * 也不能让 AI 顺手把世界写出来：那属于世界模板，不归角色管。
+     */
+    fun scopeOf(conv: Any?): Scope = if (worldOf(conv) != null) Scope.CHARACTER_ONLY else Scope.FULL
+
+    /** 世界里用的提示词：世界是只读约束，只要角色卡（可选示例对白）。 */
+    fun buildCharacterPrompt(firstText: Any?, systemPrompt: Any?, world: WorldContext?, skillContent: Any?): String {
+        val rules = if (Js.truthy(s(skillContent)) && Js.trim(Js.str(skillContent)).isNotEmpty()) Js.trim(Js.str(skillContent)) else CHAR_RULES
+        val w = world?.world.orEmpty()
+        val lore = world?.lore.orEmpty()
+        return rules + "\n\n---\n下面是一场角色扮演，世界观与规则**已经写好**，你只负责为它生成一个角色。\n" +
+            (if (w.isNotEmpty()) "\n【已有世界设定（只读，不要改写，也不要复述）】\n" + Js.slice(w, 0, 6000) + "\n" else "") +
+            (if (lore.isNotEmpty()) "\n【已有关键设定（只读）】\n" + Js.slice(lore, 0, 2000) + "\n" else "") +
+            "硬性要求：\n1. 只输出两段，按顺序，标题字面完全一致、各占一行：\n" + FORMAT_CHARACTER + "\n" +
+            "2. 段内用「- 」列表；【角色卡】第一行写「- 姓名：xxx」；\n" +
+            "3. 角色必须属于这个世界（时代、地点、势力、规则一致），不要引入世界设定里没有的东西；\n" +
+            "4. 绝对不要输出【世界观】【RP规则】【输出格式】【禁止事项】【写作风格】——它们已经存在，改写会打乱世界设定；\n" +
+            "5. 角色卡写具体可扮演的细节，不要只写一句标签；\n" +
+            "6. 不要寒暄、不要解释、不要提问，直接从【角色卡】开始输出。\n" +
+            (if (Js.truthy(systemPrompt)) "\n【当前 RP 模板（系统提示词，供参考，保持一致）】\n" + Js.slice(Js.str(systemPrompt), 0, 3000) else "") +
+            "\n\n【用户首条消息】\n" + Js.slice(s(firstText), 0, 6000)
+    }
+
+    data class Filtered(val fields: JObj, val dropped: List<String>)
+
+    /** 按作用域过滤 AI 的输出：世界里丢掉 world/rules/format/prohibit/style，记下被丢了什么（便于面板提示）。 */
+    fun filterFields(fields: Any?, scope: Scope): Filtered {
+        val out = JObj(); val dropped = ArrayList<String>()
+        if (!Js.truthy(fields)) return Filtered(out, dropped)
+        for (id in TITLES.keys) {
+            val v = fields[id]
+            if (!Js.truthy(v) || Js.trim(Js.str(v)).isEmpty()) continue
+            if (scope == Scope.CHARACTER_ONLY && id !in CHAR_ONLY_IDS) { dropped += TITLES[id] ?: id; continue }
+            out[id] = Js.trim(Js.str(v))
+        }
+        return Filtered(out, dropped)
+    }
+
+    data class Applied(val state: JObj, val applied: List<String>, val dropped: List<String>, val status: String)
+
+    /**
+     * 把（已过滤的）字段写回分层设定。
+     *
+     * 世界里默认**不覆盖**已有角色卡（status = "already"）——用户自己写的角色比 AI 猜的可靠；
+     * 要覆盖得显式 overwrite = true（面板上的「重新生成角色卡」）。
+     */
+    fun applyToState(st0: Any?, fields: Any?, scope: Scope, at: Long, overwrite: Boolean = false): Applied {
+        val st = RpState.normalizeState(st0)
+        val f = filterFields(fields, scope)
+        if (f.fields.isEmpty()) return Applied(st, emptyList(), f.dropped, "empty")
+        if (scope == Scope.CHARACTER_ONLY && !overwrite && blockText(st, "character").isNotEmpty()) {
+            return Applied(st, emptyList(), f.dropped, "already")
+        }
+        var cur = st; val applied = ArrayList<String>()
+        for (id in TITLES.keys) {
+            val v = f.fields[id] ?: continue
+            if (!Js.truthy(v)) continue
+            val r = RpState.setBlock(cur, id, v, at)
+            @Suppress("UNCHECKED_CAST") val next = r["state"] as? JObj ?: continue
+            cur = next
+            if (Js.truthy(r["changed"])) applied += TITLES[id] ?: id
+        }
+        return Applied(cur, applied, f.dropped, if (applied.isEmpty()) "empty" else "applied")
+    }
     fun fillLeftovers(sp: Any?, fields: Any?): String {
         val name = charName(fields)
         var t = s(sp)
