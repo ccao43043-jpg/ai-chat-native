@@ -39,6 +39,11 @@ data class UiDeps(
     val client: ProviderClient? = null,
     /** 余额缓存（balance-cache.json） */
     val balanceCache: com.aichat.app.data.repo.JsonDocStore? = null,
+    /**
+     * 插件/工具用的「顺手问一次模型」（旧版 host.callModel）：非流式、温度 0、maxTokens 2048。
+     * 为 null 时角色生成等辅助功能一律显示「未就绪」，不会静默失败。
+     */
+    val autoCharAsk: (suspend (com.aichat.app.domain.model.Conversation, String) -> String?)? = null,
 )
 
 val LocalUiDeps = staticCompositionLocalOf<UiDeps> { error("UiDeps 未提供") }

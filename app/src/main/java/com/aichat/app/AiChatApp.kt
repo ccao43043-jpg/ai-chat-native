@@ -153,7 +153,8 @@ class AppGraph(app: Application) {
     /** A 的 UI 依赖（真实实现） */
     fun uiDeps() = com.aichat.app.ui.common.UiDeps(chats = chats, settings = settings, library = library, keys = keys,
         engine = engine, plugins = plugins, migration = migration, isFake = false, charCard = charCard, usage = usage,
-        image = imageClient, rpMemory = data.rpMemory, balance = balanceClient, balanceCache = data.balanceCache, knowledge = knowledge, client = providerClient)
+        image = imageClient, rpMemory = data.rpMemory, balance = balanceClient, balanceCache = data.balanceCache, knowledge = knowledge, client = providerClient,
+        autoCharAsk = { conv, prompt -> askModel(conv, prompt) })
 
     // ---- 首次启动迁移：后台执行，不阻塞启动；报告给设置 →「数据与备份」 ----
     private val _migrationReport = MutableStateFlow<MigrationReport?>(null)
