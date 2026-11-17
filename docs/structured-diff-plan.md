@@ -1,5 +1,9 @@
 # 2.2 去字节对齐：结构化 diff 迁移方案
 
+> **状态**：✅ **已完成**（阶段 A PR #70 / B PR #74 / C+D PR #76）· 历史方案记录，不再更新。
+> 现状：`Repositories.saveLocked()` 已无 `KeyOrder.align` 与 `nullRemovedMessageKeys`，改由 diff 层统一处理。
+> 本文保留作「当时的改法 + 验收 + 回滚步骤」存档。
+
 > 对应 `docs/REVIEW-2026-11-16.md` §2.2。本方案只描述改法与验收，不改代码。
 > 目标版本：v1.3.x（2–3 个 PR）。
 
