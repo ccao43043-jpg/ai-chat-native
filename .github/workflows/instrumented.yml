@@ -2,10 +2,14 @@ name: instrumented
 # instrumented 测试（模拟器）：仅在 main 推送与手动触发时跑——PR 循环保持 ~3 分钟（评审 §6.1）。
 # 本地已验证：dsh34 模拟器（API 34 / x86_64）10/10 全绿（PR #86）。
 #
-# 2026-11-17 加固（见 MASTER-PLAN §5.4）：
-#  - 重试/日志逻辑搬到 scripts/ci/instrumented.sh：inline 多行 `|| { ... }` 会被
-#    android-emulator-runner 拼成一行，报 `Syntax error: end of file unexpected (expecting "}")`
-#  - 无头模拟器首启实测 411 秒，emulator-boot-timeout 提到 900s、job 提到 60 分钟
+# 2026-11-17 加固（见 MASTER-PLAN §5.4），三次 dispatch 才定位到真因：
+#  1. inline 多行 `|| { ... }` 会被 android-emulator-runner 拼成一行 → `Syntax error: end of file unexpected`
+#     → 逻辑搬进 scripts/ci/instrumented.sh，workflow 只留一行 `bash ...`
+#  2. boot_completed=1 早于 package manager 就绪 → 装 APK 报 `Broken pipe` / `Can't find service: package`
+#     → 脚本里 wait_for_pm() 要求 `pm path android` 成功
+#  3. **真因**：runner 上没有 /dev/kvm 权限（日志 `ProbeKVM: This user doesn't have permissions to use KVM`），
+#     x86_64 全靠软件模拟 → system_server 起不来、首启 411s、装包必然失败
+#     → 加 udev 规则那一步（下面的 "开启 KVM 加速"），并把镜像换回启动更快的 AOSP(default)
 on:
   push:
     branches: [main]
@@ -21,8 +25,8 @@ permissions:
 jobs:
   emu:
     runs-on: ubuntu-latest
-    # 首启 ~7 分钟 + 两轮测试各 ~6 分钟，留足余量
-    timeout-minutes: 60
+    # 有 KVM 时：首启 ~90s + 一轮测试 ~3 分钟；留足重试余量
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -36,19 +40,27 @@ jobs:
       - name: 准备 gradlew
         run: chmod +x gradlew
 
+      # 没有这一步，模拟器只能用纯软件模拟 x86_64（实测首启 411 秒、装 APK 必挂）
+      - name: 开启 KVM 加速
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
       - name: 模拟器上跑 instrumented 测试
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
-          # AOSP(default) 镜像实测两次都在装 APK 时掉 package service（Broken pipe / Can't find service: package），
-          # 换 google_apis 镜像 + 加内存/核数，配合脚本里的 wait_for_pm。
-          target: google_apis
+          target: default
+          cores: 4
+          ram-size: 3072
           disable-animations: true
-          # 无头软件渲染首启实测 411s，默认 600s 余量偏小
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -memory 4096 -cores 4
-          # 单行调用，逻辑在脚本里（失败落盘 logcat 后重试一次）
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          # 单行调用，逻辑在脚本里（等 PM 就绪、失败落盘 logcat 后重试一次）
           script: bash scripts/ci/instrumented.sh
 
       - name: 上传测试报告与日志
