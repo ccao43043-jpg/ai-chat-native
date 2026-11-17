@@ -171,14 +171,8 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
         val pct = i["pct"].d()
         return listOf(Badge(id, "💎 缓存 " + Js.str(i["pct"]), if (pct >= GCache.DIAG_GOOD) "ok" else if (i["hit"].truthy()) "warn" else "info", GCache.usageText(i), action = id).let { it.copy(text = it.text + "%") })
     }
-    override fun headerBadges(conv: Conversation): List<Badge> {
-        val s = Js.fromJson((conv.extras["plugins"] as? JsonObject)?.get(id))["stat"]
-        if (!s.truthy() || (s["roll"].a() ?: jarr()).isEmpty()) return emptyList()
-        val d = if (s["diag"].truthy()) s["diag"] else GCache.diagnose(s)
-        if (d["rate"] == null) return emptyList()
-        val tn = when (d["level"]) { "good" -> "ok"; "low" -> "bad"; "ok" -> "warn"; else -> "info" }
-        return listOf(Badge(id, "命中 " + Js.str(d["rate"]) + "%", tn, "Gemini 滚动命中率（近 " + GCache.ROLL_N + " 次）", action = id))
-    }
+    /** 徽章收口到 cachemeter（见 PLAN-CONTEXT-ARCH §3.3）：本插件仍写 stat/滚动率，但不再自己出徽章 */
+    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 }
 
 /** www/plugins/cache/mmcache.js 插件部分 */
@@ -245,12 +239,6 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
         if (i["known"] == false) return listOf(Badge(id, "🧊 缓存 ?", "info", MmCache.usageText(i)))
         return listOf(Badge(id, "🧊 缓存 " + Js.str(i["pct"]) + "%", if (i["pct"].d() >= MmCache.DIAG_GOOD) "ok" else if (i["hit"].truthy()) "warn" else "info", MmCache.usageText(i)))
     }
-    override fun headerBadges(conv: Conversation): List<Badge> {
-        val s = Js.fromJson((conv.extras["plugins"] as? JsonObject)?.get(id))["stat"]
-        if (!s.truthy() || (s["roll"].a() ?: jarr()).isEmpty()) return emptyList()
-        val d = if (s["diag"].truthy()) s["diag"] else MmCache.diagnose(s)
-        if (d["rate"] == null) return emptyList()
-        val tn = when (d["level"]) { "good" -> "ok"; "low" -> "bad"; "ok" -> "warn"; else -> "info" }
-        return listOf(Badge(id, "命中 " + Js.str(d["rate"]) + "%", tn, "MiniMax 滚动命中率（近 " + MmCache.ROLL_N + " 次）", action = id))
-    }
+    /** 徽章收口到 cachemeter（见 PLAN-CONTEXT-ARCH §3.3）：本插件仍写 stat/滚动率，但不再自己出徽章 */
+    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 }

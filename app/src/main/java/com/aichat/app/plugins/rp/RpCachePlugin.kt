@@ -329,20 +329,12 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         return out
     }
 
-    override fun headerBadges(conv: Conversation): List<Badge> {
-        val last = conv.messages.lastOrNull { it.role == Role.ASSISTANT && cacheOf(it) != null } ?: return emptyList()
-        val c = cacheOf(last) ?: return emptyList()
-        if (boolOf(c["supported"]) != true) return emptyList()
-        val rate = numOf(c["rate"]) ?: return emptyList()
-        val st = RpState.normalizeState(Js.fromJson(conv.rpState))
-        val cap = numOf((st["settings"] as? Map<*, *>)?.get("max_context"))?.toLong() ?: 0L
-        val used = numOf(c["prompt"])?.toLong() ?: 0L
-        val detail = buildString {
-            append("缓存命中率（上一轮 ").append(pct(rate)).append("）")
-            if (cap > 0 && used > 0) append("\n上下文 ").append(compact(used)).append(" / ").append(compact(cap))
-        }
-        return listOf(Badge("", "命中 " + pct(rate), tone(rate), detail))
-    }
+    /**
+     * 缓存徽章已收口到「缓存体检」（cachemeter）一处，见 PLAN-CONTEXT-ARCH §3.3。
+     * 原来这里还有一个「命中 N%」（上一轮口径），和 gcache/mmcache 的滚动口径、cachemeter
+     * 的 token 加权口径三套并存，三个数字常打架 → 只保留最诚实的那一个。
+     */
+    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 
     override fun messageState(msg: Message, conv: Conversation): MessageState? {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))
