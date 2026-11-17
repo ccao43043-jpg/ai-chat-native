@@ -9,6 +9,7 @@ import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jarr
+import com.aichat.app.plugins.js.jobj
 import com.aichat.app.plugins.rp.RpCacheCore
 import com.aichat.app.plugins.rp.RpState
 import kotlinx.serialization.json.JsonObject
@@ -74,6 +75,12 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
         d["lastSys"] = ctx.systemPrompt.take(SYS_SNAPSHOT)
         d["lastLen"] = ctx.systemPrompt.length
         d["hist"] = jarr(*PrefixStabilizer.historyPush(hist, segs).toTypedArray())
+
+        // 上下文体检（PLAN-CONTEXT-ARCH §3.3）：把本轮「谁动了哪一段」原样存下来，
+        // 面板只读这份快照，不去猜。注意 cachemeter 在 ORDER 里排最后，
+        // 所以这里看到的是「所有插件处理完之后」的最终结果。
+        d["lastTrace"] = traceJs(ctx.trace)
+        d["segments"] = Js.toJson(PrefixStabilizer.summary(segs, stability))
 
         return ctx.copy(meta = JsonObject(LinkedHashMap(ctx.meta).also { it["cachePlan"] = Js.toJson(plan.toJs()) }))
     }
@@ -178,5 +185,28 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
 
         /** 只留 4000 字符的前缀快照用于 LCP 比较，避免把整个 system 落进 conv 文件 */
         const val SYS_SNAPSHOT = 4000
+    }
+
+    /** ContextTrace → 面板可读的 JS 结构 */
+    private fun traceJs(t: com.aichat.app.domain.ContextTrace): JObj = JObj().also { o ->
+        o["steps"] = jarr(*t.steps().map { s ->
+            jobj(
+                "plugin" to s.plugin,
+                "slots" to jarr(*s.slots.map { it.code }.toTypedArray()),
+                "sys" to s.systemDelta,
+                "user" to s.userDelta,
+                "note" to s.note,
+            ) as Any
+        }.toTypedArray())
+        o["conflicts"] = jarr(*t.conflicts().toTypedArray())
+        o["sysTokens"] = t.systemTokens
+        o["userTokens"] = t.lastUserTokens
+        o["stableHash"] = t.stableHash
+        o["owners"] = JObj().also { m ->
+            com.aichat.app.domain.Slot.entries.forEach { s ->
+                val owners = t.ownersOf(s)
+                if (owners.isNotEmpty()) m[s.code] = owners.joinToString("、")
+            }
+        }
     }
 }

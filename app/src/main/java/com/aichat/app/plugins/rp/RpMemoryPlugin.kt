@@ -3,6 +3,7 @@ package com.aichat.app.plugins.rp
 import com.aichat.app.data.repo.JsonDocStore
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.Role
@@ -44,6 +45,11 @@ class RpMemoryPlugin(
     override val name: String = "结构化记忆"
     override val defaultEnabled: Boolean = false
     override val perConversation: Boolean = false
+
+    override fun inactiveReason(conv: Conversation, settings: com.aichat.app.domain.model.AppSettings): String =
+        "本对话还没有抽取过记忆（默认每 20 轮抽一次，可在记忆面板手动提取）"
+    /** 结构化记忆只往末条 user 尾部追加召回（S3） */
+    override fun slots(): List<Slot> = listOf(Slot.S3_RECALL)
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mutex = Mutex()
@@ -87,6 +93,15 @@ class RpMemoryPlugin(
         val sel = RpMemoryCore.selectRelevant(entries, q, opt)
         val inj = RpMemoryCore.renderInjection(sel)
         if (inj.isEmpty()) return ctx
+
+        if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+            ctx.fragments.add(com.aichat.app.domain.Slot.S3_RECALL, "rpmemory", inj,
+                com.aichat.app.plugins.TokenEstimator.text(inj), com.aichat.app.domain.RecallBus.P_MEMORY)
+            val meta0 = JsonObject(ctx.meta.toMutableMap().also {
+                it["rpmemory"] = Js.toJson(jobj("ids" to sel.map { e -> e["id"] }))
+            })
+            return ctx.copy(meta = meta0)
+        }
 
         val msgs = ctx.messages.toMutableList()
         val m = msgs[idx]

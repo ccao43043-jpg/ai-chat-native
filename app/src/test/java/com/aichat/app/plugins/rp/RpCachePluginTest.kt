@@ -135,7 +135,7 @@ class RpCachePluginTest {
     }
 
     @Test
-    fun afterResponseStoresCacheStatsAndBadgesReadThem() = runTest {
+    fun afterResponseStoresCacheStatsAndMessageBadgeReadsThem() = runTest {
         val plugin = RpCachePlugin(host)
         val c = conv(stateWithWorld())
         val out = plugin.onBeforeRequest(ctx(c)) {}
@@ -152,9 +152,8 @@ class RpCachePluginTest {
         assertEquals("缓存 80.0%", badges[0].text)
         assertEquals("ok", badges[0].tone)
 
-        val header = plugin.headerBadges(next)
-        assertEquals(1, header.size)
-        assertEquals("命中 80.0%", header[0].text)
+        // 顶栏徽章已收口到 cachemeter（PLAN-CONTEXT-ARCH §3.3）：rpcache 只留消息级徽章
+        assertTrue(plugin.headerBadges(next).isEmpty())
 
         // 用户消息不出徽章
         assertTrue(plugin.messageBadges(next.messages.first { it.id == "m1" }, next).isEmpty())
@@ -259,11 +258,11 @@ class RpCachePluginTest {
         }
         val c = conv(Js.toJson(st) as JsonObject).copy(messages = msgs)
         var asked = 0
-        val plugin = RpCachePlugin(host) { _, prompt ->
+        val plugin = RpCachePlugin(host, ask = { _, prompt ->
             asked++
             assertTrue("摘要提示词里应带本批旧对话", prompt.contains("本批旧对话"))
             GOLDEN_SUMMARY
-        }
+        })
         val before = ctx(c)
         val after = plugin.onBeforeRequest(before) {}
 

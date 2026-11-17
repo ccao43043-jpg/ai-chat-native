@@ -67,6 +67,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.text.font.FontWeight
 import com.aichat.app.ui.theme.Palette
+import com.aichat.app.plugins.js.Js
+import kotlinx.serialization.json.JsonObject
 
 /**
  * 聊天页：顶栏（抽屉 / 标题 + 模型切换 / 更多）、消息列表（reverseLayout，流式时贴底）、输入区。
@@ -108,6 +110,11 @@ fun ChatScreen(
     var rpLore by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
     var pluginErrPanel by remember { mutableStateOf(false) }
+    var ctxInspect by remember { mutableStateOf(false) }
+    // 用 AI 生成角色设定：AutoChar 那套纯函数一直没接线，新 RP 会话里用户从没被问过
+    var autoOffer by remember(st.convId) { mutableStateOf(false) }
+    var autoBusy by remember(st.convId) { mutableStateOf(false) }
+    val autoChar = remember(deps) { deps.autoCharAsk?.let { com.aichat.app.plugins.rp.AutoCharService(it) } }
     // 插件错误：以前只有一个没人读的 StateFlow，插件静默失效时用户完全无感（世界书整版不生效就是这么漏的）
     val pluginErrs by deps.plugins.errors.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -289,6 +296,7 @@ fun ChatScreen(
                                 onSettings = { menu = false; onOpenSettings(SettingsDestination.Main) },
                                 onExport = { menu = false; conv?.let { exportConv(it.id) } },
                                 onConvPlugins = { menu = false; convPlugins = true },
+                                onContext = { menu = false; ctxInspect = true },
                                 onRp = { menu = false; controller.ensureConversation(); rpPanel = true },
                                 onMemory = { menu = false; controller.ensureConversation(); rpMemoryPanel = true },
                                 onInspect = { menu = false; controller.ensureConversation(); rpInspect = true },
@@ -393,6 +401,48 @@ fun ChatScreen(
                     }
                 }
                 ChatMounts.headerExtras?.invoke(conv, settings)
+                LaunchedEffect(st.convId, conv?.messages?.size, settings.autoCharMode) {
+                    val c = conv
+                    autoOffer = c != null && autoChar != null && !autoBusy && autoChar.offer(c, templates, settings)
+                }
+                if (autoOffer && autoChar != null && conv != null) {
+                    val inWorld = com.aichat.app.plugins.rp.AutoChar.scopeOf(autoChar.convJs(conv)) ==
+                        com.aichat.app.plugins.rp.AutoChar.Scope.CHARACTER_ONLY
+                    AutoCharOfferBar(
+                        inWorld = inWorld,
+                        busy = autoBusy,
+                        onDismiss = { autoOffer = false },
+                        onGenerate = {
+                            val c = conv
+                            if (c != null && !autoBusy) {
+                                autoBusy = true
+                                scope.launch {
+                                    val r = runCatching {
+                                        autoChar.generate(c, templates, settings, autoChar.skillOf(templates))
+                                    }.getOrNull()
+                                    autoBusy = false
+                                    if (r == null) {
+                                        controller.toast("生成失败：没有可用的服务商或模型")
+                                    } else if (r.ok && r.state != null) {
+                                        val saved = runCatching {
+                                            deps.chats.save(c.copy(rpState = Js.toJson(r.state) as JsonObject))
+                                        }
+                                        if (saved.isSuccess) {
+                                            autoOffer = false
+                                            controller.toast(r.message)
+                                            controller.select(c.id)
+                                        } else {
+                                            controller.toast("保存失败：${saved.exceptionOrNull()?.message}")
+                                        }
+                                    } else {
+                                        controller.toast(r.message)
+                                        if (r.status == "already") autoOffer = false
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
                 val tplName = conv?.templateName?.takeIf { it.isNotEmpty() }
                 val tplEmoji = conv?.templateEmoji.orEmpty()
                 InputBar(input, { input = it }, st.draftImages, controller::setDraftImages, busy,
@@ -537,6 +587,9 @@ fun ChatScreen(
     }
     if (affectPanel && conv != null) {
         AffectPanelDialog(conv, onDismiss = { affectPanel = false })
+    }
+    if (ctxInspect) {
+        ContextInspectorDialog(conv, onDismiss = { ctxInspect = false })
     }
     if (pluginErrPanel) {
         PluginErrorsDialog(

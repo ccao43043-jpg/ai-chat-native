@@ -2,6 +2,7 @@ package com.aichat.app.plugins.knowledge
 
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.Role
 import com.aichat.app.plugins.PluginHost
@@ -33,6 +34,9 @@ class KnowledgePlugin(
     override val name = "本地资料库"
     override val defaultEnabled = false
     override val perConversation = false
+
+    /** 本地资料库只往末条 user 尾部拼接（S3）；M4 起改为向 RecallBus 交片段 */
+    override fun slots(): List<Slot> = listOf(Slot.S3_RECALL)
 
     /** 最近一次的注入 trace（JS 挂在 conv._knowledgeTrace 上供面板显示；这里留在实例上） */
     @Volatile
@@ -75,6 +79,13 @@ class KnowledgePlugin(
 
         val inj = Knowledge.renderInjection(sel["hits"] as? List<Any?>)
         if (inj.isEmpty()) return out
+        // 统一装配（PLAN-CONTEXT-ARCH M4）：只登记片段，由注册表在末尾拼一次，
+        // 避免与前后的 [AFFECT] / [MEMORY_RECALL] 互相覆盖。
+        if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+            ctx.fragments.add(com.aichat.app.domain.Slot.S3_RECALL, ID, inj,
+                com.aichat.app.plugins.TokenEstimator.text(inj), com.aichat.app.domain.RecallBus.P_KNOWLEDGE)
+            return out
+        }
         val spliced = Knowledge.spliceIntoUserContent(user0, inj) ?: return out
         val next = msgs.toMutableList()
         next[idx] = msgs[idx].copy(content = textOf(spliced))

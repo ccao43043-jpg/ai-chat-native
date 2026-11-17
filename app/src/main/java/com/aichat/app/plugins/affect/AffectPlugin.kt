@@ -3,6 +3,7 @@ package com.aichat.app.plugins.affect
 import com.aichat.app.domain.Badge
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.TurnResult
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
@@ -45,6 +46,14 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
      * 全局开关（设置 › 插件）关掉时一律不生效，这一层仍由 isGloballyEnabled 管。
      */
     override val perConversation: Boolean get() = true
+
+    /**
+     * 心情/关系状态行（末条 user 首行）。
+     * 注意：本插件还会往 systemPrompt 里塞 [AFFECT_RULE] 协议说明——那是历史上的越界行为，
+     * S1 的所有者是 rpcache，所以这里**不**声明 S1，只让 trace 的 systemDelta 把它暴露出来；
+     * M4 统一装配时再把协议说明并进 S4。
+     */
+    override fun slots(): List<Slot> = listOf(Slot.S4_TAG)
 
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))
@@ -97,7 +106,15 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
                     }
                     out[i] = m.copy(content = text)
                 }
-                m.role == Role.USER && i == lastIdx -> out[i] = m.copy(content = tag + "\n" + m.content)
+                m.role == Role.USER && i == lastIdx -> {
+                    // 统一装配时不自己拼：只登记 S4 片段，由注册表按「状态行 → 原文 → 召回」拼一次
+                    if (com.aichat.app.domain.recallUnified(ctx.settings)) {
+                        ctx.fragments.add(com.aichat.app.domain.Slot.S4_TAG, "affect", tag,
+                            com.aichat.app.plugins.TokenEstimator.text(tag), 50)
+                    } else {
+                        out[i] = m.copy(content = tag + "\n" + m.content)
+                    }
+                }
                 m.role == Role.USER -> {
                     // 历史 user：只回放当轮冻结的短 tag（P0-3）
                     val inj = injOf(ctx.conv, m.srcId)

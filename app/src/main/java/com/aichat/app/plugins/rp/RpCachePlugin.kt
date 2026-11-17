@@ -4,6 +4,7 @@ import com.aichat.app.domain.Badge
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.MessageState
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.TurnResult
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
@@ -13,6 +14,7 @@ import com.aichat.app.plugins.PluginHost
 import com.aichat.app.plugins.TokenEstimator
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.cache.CacheMarkers
 import com.aichat.app.plugins.js.jobj
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,12 +34,28 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     private val host: PluginHost,
     /** 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。 */
     private val ask: (suspend (Conversation, String) -> String?)? = null,
+    /**
+     * L1「已确立事实」账本（结构化记忆里的事实三元组）。
+     *
+     * 旧版这事没接：账本每次抽取都在写文件，但**从不进请求** —— 模型看不到「上次说定了什么」，
+     * 于是隔几轮又问一遍、或者自己编一个。这里由 AppGraph 注入读取逻辑（纯函数层不认识存储）。
+     * 它属于低频层（≈ 摘要频率），所以进 system 静态段末尾，不破前缀。
+     */
+    private val facts: ((Conversation) -> String)? = null,
 ) : ChatPlugin {
 
     override val id: String get() = "rpcache"
     override val name: String get() = "RP 缓存优化器"
     override val defaultEnabled: Boolean get() = true
     override val perConversation: Boolean get() = true
+
+    override fun inactiveReason(conv: Conversation, settings: com.aichat.app.domain.model.AppSettings): String =
+        "本对话没有 RP 分层设定，也没有世界书条目"
+    /** system 前段（模板/角色卡/世界设定）与中段（章节摘要）的唯一所有者 */
+    override fun slots(): List<Slot> = listOf(Slot.S1_STABLE, Slot.S2_DELTA, Slot.S3_RECALL)
+
+    /** 事实账本的 token 上限：再多也不是「已确立」，塞进去只会挤掉剧情。 */
+    private val FACTS_MAX_TOKENS = 400
 
     /** 上一轮算好的状态，等 onAfterResponse 落盘。 */
     /** 本轮请求的快照：状态 + 规划时用的原始估算 + provider/model（收尾时拿去校准） */
@@ -54,6 +72,25 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))
         return hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
+    }
+
+    /**
+     * 取本对话的事实账本并控制预算：账本本身按 confidence×recency 取前 12 条，
+     * 这里再按 token 封顶 [FACTS_MAX_TOKENS]（超了从尾部丢，行粒度，不截半行）。
+     */
+    private fun factsFor(conv: Conversation): String? {
+        val raw = facts?.invoke(conv).orEmpty().trim()
+        if (raw.isEmpty()) return null
+        if (RpCacheCore.estimateTokens(raw) <= FACTS_MAX_TOKENS) return raw
+        val kept = ArrayList<String>()
+        var used = 0
+        for (line in raw.split("\n")) {
+            val t = RpCacheCore.estimateTokens(line) + 1
+            if (used + t > FACTS_MAX_TOKENS) break
+            kept.add(line)
+            used += t
+        }
+        return if (kept.isEmpty()) null else kept.joinToString("\n")
     }
 
     private fun hasAnyBlock(st: JObj): Boolean {
@@ -95,7 +132,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // 而旧口径一律按 1000 算 —— 前者导致提前裁剪白丢历史，后者导致该裁不裁撞窗口。
         val provId = ctx.provider.presetId.ifEmpty { ctx.provider.id }
         val calKey = jobj("provider" to provId, "model" to ctx.model)
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId)
+        val factsText = factsFor(ctx.conv)
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
@@ -105,7 +143,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             val r = summarize(ctx.conv, stFired, p0)
             if (r != null) stBase = r else summaryFail = "summary_failed"
         }
-        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId) else p0
+        val pRaw = if (stBase !== stFired) {
+            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
+        } else p0
 
         val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
 
@@ -145,9 +185,44 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             "summaryFail" to summaryFail,
             "chapters" to RpCacheCore.chaptersOf(st2).size,
         )
+        // 显式缓存断点（旧版 v0.21.3 P6 placeMarkers 的移植）。
+        // 只有服务商真支持显式标记才动手；其余情况 opts 与 messages **逐字节不变** ——
+        // 缓存前缀一旦被无关插件改动，命中率就归零，而且界面上完全看不出来。
+        val histTok = TokenEstimator.messages(p.hist.map { m ->
+            jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
+        }, provId)
+        val stableTok = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base) + RpCacheCore.summaryText(st2))
+        val markers = CacheMarkers.plan(
+            sysTokens = RpCacheCore.estimateTokens(p.system),
+            staticTokens = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base)),
+            memoryTokens = RpCacheCore.estimateTokens(RpCacheCore.memoryText(st2)),
+            summaryTokens = RpCacheCore.estimateTokens(RpCacheCore.summaryText(st2)),
+            historyTokens = histTok,
+            historyCount = p.hist.size,
+            stablePrefixLen = stableTok,
+            systemLen = p.system.length,
+        )
+        val useMarks = CacheMarkers.needsExplicitMarkers(cap.vendor, cap.kind)
+        val marked = if (useMarks && markers.historyIndex >= 0) {
+            val at = msgs.indexOfLast { it.role.wire == "user" }
+            if (at >= 0) msgs.toMutableList().also { list -> list[at] = list[at].copy(cacheMark = true) } else msgs
+        } else {
+            msgs
+        }
+        val outOpts = if (useMarks) ctx.opts.copy(cacheControl = markers.system, cacheSystemSplit = markers.systemSplit) else ctx.opts
+
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
-        return ctx.copy(systemPrompt = p.system, messages = msgs, meta = JsonObject(meta))
+        meta["rpcacheMarks"] = Js.toJson(jobj(
+            "vendor" to cap.vendor,
+            "kind" to cap.kind,
+            "applied" to useMarks,
+            "system" to markers.system,
+            "split" to markers.systemSplit,
+            "history" to (markers.historyIndex >= 0),
+            "count" to markers.count,
+        ))
+        return ctx.copy(systemPrompt = p.system, messages = marked, opts = outOpts, meta = JsonObject(meta))
     }
 
     /**
@@ -325,20 +400,12 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         return out
     }
 
-    override fun headerBadges(conv: Conversation): List<Badge> {
-        val last = conv.messages.lastOrNull { it.role == Role.ASSISTANT && cacheOf(it) != null } ?: return emptyList()
-        val c = cacheOf(last) ?: return emptyList()
-        if (boolOf(c["supported"]) != true) return emptyList()
-        val rate = numOf(c["rate"]) ?: return emptyList()
-        val st = RpState.normalizeState(Js.fromJson(conv.rpState))
-        val cap = numOf((st["settings"] as? Map<*, *>)?.get("max_context"))?.toLong() ?: 0L
-        val used = numOf(c["prompt"])?.toLong() ?: 0L
-        val detail = buildString {
-            append("缓存命中率（上一轮 ").append(pct(rate)).append("）")
-            if (cap > 0 && used > 0) append("\n上下文 ").append(compact(used)).append(" / ").append(compact(cap))
-        }
-        return listOf(Badge("", "命中 " + pct(rate), tone(rate), detail))
-    }
+    /**
+     * 缓存徽章已收口到「缓存体检」（cachemeter）一处，见 PLAN-CONTEXT-ARCH §3.3。
+     * 原来这里还有一个「命中 N%」（上一轮口径），和 gcache/mmcache 的滚动口径、cachemeter
+     * 的 token 加权口径三套并存，三个数字常打架 → 只保留最诚实的那一个。
+     */
+    override fun headerBadges(conv: Conversation): List<Badge> = emptyList()
 
     override fun messageState(msg: Message, conv: Conversation): MessageState? {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))

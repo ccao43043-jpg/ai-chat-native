@@ -82,14 +82,90 @@ class PluginRegistryImpl(
     }
     fun active(settings: AppSettings, conv: Conversation?): List<ChatPlugin> = list.filter { isActive(it.id, settings, conv) }
 
+    /** 给插件页用：本会话为什么没跑（优先问插件自己，答不上来给兜底文案） */
+    internal fun inactiveReason(p: ChatPlugin, conv: Conversation, settings: AppSettings): String {
+        if (!isGloballyEnabled(p.id, settings)) return "全局开关已关闭"
+        val en = (convPluginState(conv, p.id)?.get("enabled") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
+        if (en == false) return "本对话已关闭"
+        if (p.perConversation) {
+            val r = safe(p, "inactiveReason") { p.inactiveReason(conv, settings) }.orEmpty()
+            return r.ifEmpty { "本对话不满足自动条件" }
+        }
+        return "已关闭"
+    }
     override suspend fun runBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         convPlugins[ctx.conv.id] = (Js.fromJson(ctx.conv.extras["plugins"]) as? JObj) ?: JObj()
         val act = active(ctx.settings, ctx.conv)
         var cur = ctx.copy(activePlugins = act.map { it.id })
+        // 一槽一主（PLAN-CONTEXT-ARCH §3.2）：先把声明收上来，冲突只记账不改请求
+        val slots = SlotRegistry()
         for (p in act) {
-            cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); continue }
+            for (s in p.slots()) {
+                if (!slots.claim(s, p.id)) {
+                    val others = slots.ownersOf(s).filter { it != p.id }.joinToString("、")
+                    cur.trace.conflict("${s.code}（${s.label}）${others} 已拥有，${p.id} 也声明了")
+                }
+            }
+        }
+        for (p in act) {
+            val before = cur
+            cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); cur }
+            recordStep(before, cur, p)
+        }
+        cur = assembleRecall(cur)
+        finishTrace(cur)
+        // 给插件页留一份「本会话谁真跑了」的快照（进程内，不落盘）
+        runCatching {
+            val plan = (cur.meta["cachePlan"] as? JsonObject)
+            val owner = (plan?.get("owner") as? JsonPrimitive)?.content ?: ""
+            val reason = (plan?.get("reason") as? JsonPrimitive)?.content ?: ""
+            PluginActivation.record(ctx.conv, ctx.model, ctx.settings, this, System.currentTimeMillis(), owner, reason)
         }
         return cur
+    }
+
+    /** 比较插件调用前后的 systemPrompt 与末条 user，得出「谁动了哪一段、多少 token」 */
+    private fun recordStep(before: RequestContext, after: RequestContext, p: ChatPlugin) {
+        if (before.systemPrompt == after.systemPrompt &&
+            lastUserContent(before) == lastUserContent(after) &&
+            before.bodyPatch == after.bodyPatch
+        ) return   // 没动请求的插件不记，避免面板被噪声填满
+        val sysDelta = TokenEstimator.text(after.systemPrompt) - TokenEstimator.text(before.systemPrompt)
+        val userDelta = TokenEstimator.text(lastUserContent(after)) - TokenEstimator.text(lastUserContent(before))
+        after.trace.record(ContextTrace.Step(p.id, p.slots(), sysDelta, userDelta))
+    }
+
+    private fun lastUserContent(c: RequestContext): String =
+        c.messages.lastOrNull { it.role.wire == "user" }?.content ?: ""
+
+    /**
+     * 末条用户消息的**单点装配**（PLAN-CONTEXT-ARCH M4）。
+     *
+     * 开关关着时原样返回；开着时把各插件交上来的片段拼一次：
+     * `[状态行]` + 原文 + `[召回]`。召回由 RecallBus 统一去重与预算。
+     */
+    private fun assembleRecall(ctx: RequestContext): RequestContext {
+        if (!com.aichat.app.domain.recallUnified(ctx.settings)) return ctx
+        val idx = ctx.messages.indexOfLast { it.role.wire == "user" }
+        if (idx < 0) return ctx
+        val tag = ctx.fragments.of(com.aichat.app.domain.Slot.S4_TAG).joinToString("\n") { it.text.trim() }.trim()
+        val recallItems = ctx.fragments.of(com.aichat.app.domain.Slot.S3_RECALL)
+        val recall = if (recallItems.isEmpty()) "" else {
+            val bus = com.aichat.app.domain.RecallBus()
+            recallItems.forEach { bus.offer(com.aichat.app.domain.RecallItem(it.src, it.text, it.priority, it.tokens)) }
+            bus.render()
+        }
+        if (tag.isEmpty() && recall.isEmpty()) return ctx
+        val msgs = ctx.messages.toMutableList()
+        val m = msgs[idx]
+        msgs[idx] = m.copy(content = com.aichat.app.domain.ContextAssembler.assembleLastUser(m.content, tag, recall))
+        return ctx.copy(messages = msgs)
+    }
+    private fun finishTrace(ctx: RequestContext) {
+        val t = ctx.trace
+        t.systemTokens = TokenEstimator.text(ctx.systemPrompt)
+        t.lastUserTokens = TokenEstimator.text(lastUserContent(ctx))
+        t.stableHash = Js.sha256(ctx.systemPrompt).take(16)
     }
 
     /**
