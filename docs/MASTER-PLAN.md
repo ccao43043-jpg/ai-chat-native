@@ -39,6 +39,8 @@
 
 > 标注：〔算法〕= 来自改进方案；〔工程〕= 来自评审/advisory；〔产品〕= 体验项；〔悬案〕
 > 每项给工作量与前置依赖。
+>
+> **〔算法〕与缓存专项的细化执行计划见 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md)（2026-11-17 逐行核实版：16 项现状表 + P1–P8 改法 + B1–B4 批次）。**
 
 ### P0 · 本周
 
@@ -55,10 +57,12 @@
 
 | # | 事项 | 量 | 说明 |
 |---|---|---|---|
-| 4 | 〔算法〕统一 `TokenEstimator`（含按 provider 的图片公式） | 1 天 | RP 用 0.6/字、cache 用 1.0/字，两套尺子差 40%；它是下面 #6/#7 的**共同前提**（advisory §10.2①） |
+| 4 | 〔算法〕统一 `TokenEstimator`（含按 provider 的图片公式） | 1 天 | ⚠️ **尺子已统一（PR #72），但图片公式没接进预算路径**：`RpCacheCore.estimateItems` 不传 provider → 仍 1000/张。剩 0.5 天，见 PLAN-ALGO-CACHE **P1** |
 | 5 | 〔工程〕structured-diff 阶段 **B → C → D**：去 `KeyOrder.align` → 去键删除补丁 → 清理 | 2.5 天 | 按 `structured-diff-plan.md` §4 执行，带 `structuralDiff` 开关灰度；⚠️ 碰数据兼容，验收清单 §7 必须全过 |
 | 6 | 〔工程〕评审 #9：三套 Js 收敛为 1 核心 + 2 薄适配 | 2–3 天 | 净删 600+ 行，消灭 `"null"/"undefined"` 一类 bug 的土壤 |
-| 7 | 〔算法〕摘要最优停止（§4.2）+ 分层预算精确背包 + 选择集粘滞（§4.3） | 3–4 天 | advisory §10.2③：原生**不要照搬 JS 版的密度贪心（D4/D5 原样）**，直接上背包 + 粘滞；依赖 #4 |
+| 7 | 〔算法〕摘要最优停止（§4.2） | ✅ 0 天 | **已实现**：`RpCacheCore.summaryTiming`（PR #78），枚举 t∈0..H 的折现总成本取 argmin |
+| 7b | 〔算法〕分层预算精确背包 + 选择集粘滞（§4.3） | ⛔ 不做 | 用户已拍板关闭（§5.3 第 1 条：架构演进取代） |
+| 7c | 〔算法〕预算系数能力表（替代 autoBudget 里 0.8/0.1/0.02/0.3/0.12 硬编码 + 200K 封顶） | 1 天 | 见 PLAN-ALGO-CACHE **P2**，开关默认 `legacy` 保持旧行为 |
 
 ### P2 · 2–4 周
 
@@ -68,13 +72,13 @@
 | 9 | 〔算法〕路由折扣 Beta + 受控探索（D2/D3） | 1–2 天 | 改进方案 §4.1 有完整算法与验收用例；**先埋点验证 D2/D3 真实发生率**再开（方案 Phase 0 原则），带开关默认关 |
 | 10 | 〔工程〕ChatController 按职责拆 4 个（SendFlow/VersionOps/FilesOps/RpOps） | 1 天 | 纯移动 + 接口隔离 |
 | 11 | 〔工程〕JsConvLog 按职责重构（Replay/Diff/Commit/Compact） | 2 天 | 917 行 god file；配 golden |
-| 12 | 〔算法〕重试 Retry-After + Full Jitter（D9） | 0.5 天 | 低风险可独立做 |
+| 12 | 〔算法〕重试 Retry-After（Full Jitter 已有：`NetRetry.backoff` 带 ×(0.8+0.4·rnd)） | 0.25 天 | 见 PLAN-ALGO-CACHE **P4**；低风险可独立做 |
 | 13 | 〔工程〕detekt/ktlint + 3 个 Compose smoke test（空态/发送/流式） | 1 天 | 一次配置长期收益；instrumented 修 3 例后接 CI（仅 main + 手动） |
 
 ### P3 · 产品体验与长线（穿插做）
 
 - 〔产品〕抽屉信息架构分组（内容/工具/账户）、触控目标 ≥44dp、图标按钮补 `contentDescription`、模型切换首次提示
-- 〔算法〕D7 文件分块检索替代前缀截断（用户可见行为变化，做设置项；取决于长文档使用频率）
+- 〔算法〕D7 文件分块检索替代前缀截断——**升级为 B3 / v1.6.0**（`FileText.capText` 是纯前缀截断，问长文档后半段必错；改法见 PLAN-ALGO-CACHE **P3**，带 `files.chunkRetrieval` 开关）
 - 〔算法〕Token RLS 校准（§4.4）、成本有效价格学习（§4.6）——需线上日志回放验证，长线
 - 〔工程〕性能埋点（首帧 <1.2s、流式帧率、检索耗时）进 eval 门禁
 
@@ -179,3 +183,19 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 修法：workflow 加「开启 KVM 加速」步骤（写 `99-kvm4all.rules` + `udevadm control --reload-rules` + `udevadm trigger`），镜像回到启动更快的 AOSP `default`，`cores`/`ram-size` 改用 action 自带输入而非塞进 `emulator-options`。
 
 **教训：UI 测试的 flake 必须先区分「测试写错」和「环境根本没跑起来」。** 前两次失败的日志全在装 APK，跟测试代码毫无关系；`Finished 0 tests` 是最关键的信号——看到它就不要再改断言了，去查设备。
+
+### 5.5 算法与缓存细化计划（2026-11-17）
+
+细化执行计划已单独立文：[`PLAN-ALGO-CACHE.md`](PLAN-ALGO-CACHE.md)。要点：
+
+| 批次 | 内容 | 工时 | 版本 |
+|---|---|---|---|
+| B1 | 图片 token 接入预算路径 · `Retry-After` · 死代码与过期注释清理 | 0.75 天 | v1.5.3 |
+| B2 | 预算系数能力表（默认 legacy）· `plan()` 单轮估算 memo | 1.5 天 | v1.5.4 |
+| B3 | D7 文件分块检索（替代前缀截断） | 2–3 天 | v1.6.0 |
+| B4 | 路由埋点 → 观察两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | v1.6.x |
+
+**更正三条过期判断**（此前口头/文档说法与代码不符，避免重复劳动）：
+1. **D8 摘要最优停止已实现**（`RpCacheCore.kt:175 summaryTiming`，PR #78）——`RpCacheCore.kt:419` 那句「有意没搬 adaptiveSummary」是过期注释，B1 一并改掉。
+2. **D2 Beta 折扣路由已实现**（`net/Router.kt:251 chooseUpstream`：`hitQuantile(st.a, st.b, z)` + stickyIdle + 切换成本折现）；真正缺的是**探索**与**统计衰减**（B4 先埋点）。
+3. **D1 索引缓存已实现**（`RpMemoryCore.kt:437 buildIndex(list, prev)` 签名复用）；`GCache.adaptiveMinTokens` 与 `sessionId` 也已落地（advisory §10.3 已完成）。
