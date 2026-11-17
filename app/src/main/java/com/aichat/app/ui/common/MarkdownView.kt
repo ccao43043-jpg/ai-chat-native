@@ -21,6 +21,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +58,34 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier, onCopy: (String) -
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { b -> MdBlockView(b, onCopy) }
     }
+}
+
+/**
+ * 流式揭示：把「已收到的文本」逐帧追赶显示，看起来像在连续书写。
+ *
+ * 为什么需要：网络分片是一块一块到的（有的服务商一次几十上百字、思考型模型
+ * 还有成段的思考与正文交替），直接整块渲染就是「跳一下、跳一下」。
+ *
+ * 追赶策略：每帧补掉剩余差额的 1/5（最少 1 字），所以
+ *   - 差距大（一次到了 300 字）→ 一帧补 60 字，几帧之内跟上；
+ *   - 差距小（一句一句到）→ 一帧 1 字，读起来是匀速书写；
+ * 永远不会让显示落后于网络，也不会因为「追不上」而让文字越积越多。
+ *
+ * 逐帧重绘的代价是可控的：MarkdownCache 按段缓存，只有最后那一小段会重新解析。
+ */
+@Composable
+fun MarkdownReveal(text: String, modifier: Modifier = Modifier, onCopy: (String) -> Unit = {}) {
+    var shown by remember { mutableIntStateOf(text.length) }
+    LaunchedEffect(text) {
+        val target = text.length
+        if (shown > target) shown = target      // 切消息 / 版本回退：直接对齐，不做倒放
+        while (shown < target) {
+            withFrameNanos { }
+            val gap = target - shown
+            shown = (shown + ((gap + 4) / 5).coerceAtLeast(1)).coerceAtMost(target)
+        }
+    }
+    MarkdownText(if (shown >= text.length) text else text.substring(0, shown), modifier, onCopy)
 }
 
 @Composable

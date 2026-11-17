@@ -6,16 +6,14 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -28,9 +26,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -61,12 +56,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.aichat.app.data.files.FileText
@@ -114,10 +107,9 @@ fun InputBar(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var attachMenu by remember { mutableStateOf(false) }
+    // 只认键盘，不掺焦点：焦点在键盘弹出前就变了，两段动画会错位
+    val composing = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var reading by remember { mutableStateOf(0) }
-    var focused by remember { mutableStateOf(false) }
-    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val composing = focused && imeOpen
     // 回调里读最新值（launcher 回调在组合之外触发）
     val cur = remember { object { var images = images; var files = files } }
     cur.images = images; cur.files = files
@@ -188,33 +180,53 @@ fun InputBar(
                 Text("正在读取文件…", style = MaterialTheme.typography.labelSmall, color = Palette.Fg3)
             }
 
-            // 点输入框时功能胶囊淡出并收起，输入框高度跟着缓动
+            // 功能胶囊：键盘弹起时淡出 + 轻微上移「让位」，收起时淡入落回。
+            //
+            // 关键取舍：**只做透明度/位移，不动高度**。以前是 shrinkVertically 把这一行
+            // 收掉，输入区高度变 36dp，LazyColumn 的可用高度跟着变，正在显示的
+            // Markdown 气泡要逐帧重新测量排版 —— 系统键盘动画和这段高度动画抢同一批
+            // 帧，所以怎么调都卡。空间固定后，这两段动画互不干扰。
             val hasTools = tools.onSearch != null || tools.onPrompts != null || tools.onTemplates != null
-            val ease = FastOutSlowInEasing
-            AnimatedVisibility(
-                visible = !composing && hasTools,
-                enter = fadeIn(tween(220, easing = ease)) + expandVertically(tween(280, easing = ease)) + scaleIn(tween(280, easing = ease), initialScale = 0.96f),
-                exit = fadeOut(tween(180, easing = ease)) + shrinkVertically(tween(260, easing = ease)) + scaleOut(tween(220, easing = ease), targetScale = 0.96f),
-            ) {
+            val pillsAlpha by animateFloatAsState(
+                targetValue = if (composing) 0f else 1f,
+                animationSpec = tween(durationMillis = if (composing) 200 else 240, easing = LinearOutSlowInEasing),
+                label = "pillsAlpha",
+            )
+            val pillsShift by animateDpAsState(
+                targetValue = if (composing) (-6).dp else 0.dp,
+                animationSpec = tween(durationMillis = if (composing) 200 else 240, easing = LinearOutSlowInEasing),
+                label = "pillsShift",
+            )
+            if (hasTools) {
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
+                    Modifier.fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = pillsAlpha
+                            translationY = pillsShift.toPx()
+                        }
+                        .horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // 淡出后（透明度趋 0）不再响应点击，避免「看不见却点得到」
+                    val canTap = !composing
                     tools.onSearch?.let { f ->
-                        ToolPill(Icons.Filled.Search, "联网搜索", tools.searchOn, "search-toggle") { f(!tools.searchOn) }
+                        ToolPill(Icons.Filled.Search, "联网搜索", tools.searchOn, "search-toggle") { if (canTap) f(!tools.searchOn) }
                     }
-                    tools.onPrompts?.let { ToolPill(Icons.Filled.Create, "提示词", false, "prompts-open", it) }
-                    tools.onTemplates?.let {
-                        ToolPill(Icons.AutoMirrored.Filled.List, tools.templateLabel ?: "模板", tools.templateLabel != null, "templates-open", it)
+                    tools.onPrompts?.let { f -> ToolPill(Icons.Filled.Create, "提示词", false, "prompts-open") { if (canTap) f() } }
+                    tools.onTemplates?.let { f ->
+                        ToolPill(Icons.AutoMirrored.Filled.List, tools.templateLabel ?: "模板", tools.templateLabel != null, "templates-open") { if (canTap) f() }
                     }
                 }
             }
 
             // ── 输入条：＋ ｜ 文本 ｜ 发送 ──
             val canSend = reading == 0 && (text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty())
-            val minH by animateDpAsState(if (composing) 72.dp else 48.dp, tween(320, easing = FastOutSlowInEasing), label = "inputMin")
-            val fieldH by animateDpAsState(if (composing) 48.dp else 22.dp, tween(320, easing = FastOutSlowInEasing), label = "fieldMin")
-            val topPad by animateDpAsState(if (composing) 8.dp else 4.dp, tween(320, easing = FastOutSlowInEasing), label = "inputPad")
+            // 高度恒为 48dp，不随键盘/焦点变化；只有真的换行（maxLines=6）才自然长高。
+            // 这里刻意不加任何尺寸动画：打字时每多一行都插一段布局动画，
+            // 正文气泡会跟着每帧重排，反而发涩。
+            val minH = 48.dp
+            val fieldH = 20.dp
+            val topPad = 4.dp
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
@@ -222,7 +234,7 @@ fun InputBar(
             ) {
                 Row(
                     Modifier.padding(start = 4.dp, end = 6.dp, top = topPad, bottom = 4.dp),
-                    verticalAlignment = if (composing) Alignment.Top else Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box {
                         Box(
@@ -256,8 +268,7 @@ fun InputBar(
                             // testTag('input') 必须挂在文本框本体上：performTextInput 需要
                             // RequestFocus 语义动作（容器节点没有，挂外层会让 5 个 UI 测试全挂）
                             modifier = Modifier.fillMaxWidth().heightIn(min = fieldH)
-                                .testTag("input")
-                                .onFocusChanged { focused = it.isFocused },
+                                .testTag("input"),
                         )
                     }
                     if (streaming) {
