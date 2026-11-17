@@ -60,7 +60,7 @@
 
 | # | 事项 | 量 | 说明 |
 |---|---|---|---|
-| 4 | 〔算法〕统一 `TokenEstimator`（含按 provider 的图片公式） | 1 天 | ⚠️ **尺子已统一（PR #72），但图片公式没接进预算路径**：`RpCacheCore.estimateItems` 不传 provider → 仍 1000/张。剩 0.5 天，见 PLAN-ALGO-CACHE **P1** |
+| 4 | 〔算法〕统一 `TokenEstimator`（含按 provider 的图片公式） | 1 天 | ✅ **已完成**（PR #72 统一尺子 + PR #98 P1 把 provider 接进预算路径：`estimateItems`/`itemTokens`/`computeTrimWindow`/`applyTempTrim` 全透传，不传时仍 1000/张保 golden） |
 | 5 | 〔工程〕structured-diff 阶段 **B → C → D**：去 `KeyOrder.align` → 去键删除补丁 → 清理 | 2.5 天 | 按 `structured-diff-plan.md` §4 执行，带 `structuralDiff` 开关灰度；⚠️ 碰数据兼容，验收清单 §7 必须全过 |
 | 6 | 〔工程〕评审 #9：三套 Js 收敛为 1 核心 + 2 薄适配 | 2–3 天 | 净删 600+ 行，消灭 `"null"/"undefined"` 一类 bug 的土壤 |
 | 7 | 〔算法〕摘要最优停止（§4.2） | ✅ 0 天 | **已实现**：`RpCacheCore.summaryTiming`（PR #78），枚举 t∈0..H 的折现总成本取 argmin |
@@ -75,7 +75,7 @@
 | 9 | 〔算法〕路由折扣 Beta + 受控探索（D2/D3） | 1–2 天 | 改进方案 §4.1 有完整算法与验收用例；**先埋点验证 D2/D3 真实发生率**再开（方案 Phase 0 原则），带开关默认关 |
 | 10 | 〔工程〕ChatController 按职责拆 4 个（SendFlow/VersionOps/FilesOps/RpOps） | 1 天 | 纯移动 + 接口隔离 |
 | 11 | 〔工程〕JsConvLog 按职责重构（Replay/Diff/Commit/Compact） | 2 天 | 917 行 god file；配 golden |
-| 12 | 〔算法〕重试 Retry-After（Full Jitter 已有：`NetRetry.backoff` 带 ×(0.8+0.4·rnd)） | 0.25 天 | 见 PLAN-ALGO-CACHE **P4**；低风险可独立做 |
+| 12 | 〔算法〕重试 Retry-After（Full Jitter 已有：`NetRetry.backoff` 带 ×(0.8+0.4·rnd)） | 0.25 天 | ✅ **已完成**（PR #98 P4）：`NetRetry.parseRetryAfterValue`/`delayFor` 封顶 60s，`Error.retryAfterMs` 透传到引擎。见 PLAN-ALGO-CACHE P4 |
 | 13 | 〔工程〕detekt/ktlint + 3 个 Compose smoke test（空态/发送/流式） | 1 天 | 一次配置长期收益；instrumented 修 3 例后接 CI（仅 main + 手动） |
 
 ### P3 · 产品体验与长线（穿插做）
@@ -124,7 +124,7 @@
 |---|---|---|---|
 | 改进方案（算法线 D1–D11） | ~40% | D11、D1、D9/D10 不适用部分、§5.2、§6 | D2/D3（1–2 天）、D8+D4/D5（3–4 天）、D6（1 天）、D7（2–3 天）、P2 长线（5–8 天） |
 | 工程评审 11 项 | ~75% | 8 项 ✅ | 阶段 C/D（1.5 天）、三套 Js（2–3 天）、JsConvLog 拆分（2 天）、ChatController 细拆（1 天）、instrumented/detekt/smoke（1.5 天） |
-| advisory 缓存专项 | ~50% | TokenEstimator 统一 + 图片公式 | 诊断骤降告警 / sessionId 统一 / 能力表参数化（各 0.5 天） |
+| advisory 缓存专项 | ~62% | TokenEstimator 统一 + 图片公式**已接预算路径**（PR #98）+ `Retry-After` | 能力表参数化（P2，1 天）/ 文件分块检索（P3，2–3 天） |
 | 产品体验（advisory §5） | 0% | — | 抽屉分组 / 触控目标 / 无障碍 / 提示（3–4 天，穿插） |
 
 **总账**：核心承诺（方案 P0+P1 + 评审 P0/P1）约 **8–11 个工作日**；含长线 P2 约 4–5 周。
@@ -193,7 +193,7 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 
 | 批次 | 内容 | 工时 | 版本 |
 |---|---|---|---|
-| B1 | 图片 token 接入预算路径 · `Retry-After` · 死代码与过期注释清理 | 0.75 天 | v1.5.3 |
+| B1 | 图片 token 接入预算路径 · `Retry-After` · 过期注释清理 | 0.75 天 | ✅ 已完成（PR #98，413 单测）→ v1.5.3 |
 | B2 | 预算系数能力表（默认 legacy）· `plan()` 单轮估算 memo | 1.5 天 | v1.5.4 |
 | B3 | D7 文件分块检索（替代前缀截断） | 2–3 天 | v1.6.0 |
 | B4 | 路由埋点 → 观察两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | v1.6.x |

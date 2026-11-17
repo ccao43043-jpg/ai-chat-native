@@ -160,8 +160,13 @@ object RpCacheCore {
      */
     fun estimateTokens(text: Any?): Int = TokenEstimator.text(Js.str(text))
 
-    /** 每条消息 = 正文 + 4（角色/分隔开销）+ 图片；provider 未知时图片沿用旧口径 1000/张（golden 兼容）。 */
-    fun estimateItems(items: List<Any?>): Int = TokenEstimator.messages(items)
+    /**
+     * 每条消息 = 正文 + 4（角色/分隔开销）+ 图片。
+     * **provider 决定图片怎么算**：Gemini 每图 258 / Anthropic (w×h)/750 / OpenAI tile 计费；
+     * 传 null 时沿用旧口径 1000/张（golden 与旧版逐位一致）。
+     * 见 PLAN-ALGO-CACHE P1——同一句话「这轮会不会超预算」，文本与图片必须同一把尺子。
+     */
+    fun estimateItems(items: List<Any?>, provider: String? = null): Int = TokenEstimator.messages(items, provider)
 
     /**
      * §4.2 摘要时点最优停止：枚举「再等 t 轮（t ∈ 0..H）再摘」的折现总成本 J[t]，取 argmin。
@@ -392,17 +397,17 @@ object RpCacheCore {
     }
 
     /** 估算各层 token（用于界面与预算判断）。 */
-    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>): JObj {
+    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>, provider: String? = null): JObj {
         val input = items.lastOrNull() as? JObj
         val hist = if (input != null && Js.str(input["role"]) == "user") items.dropLast(1) else items
         return jobj(
             "static" to estimateTokens(staticText(st, baseSystem)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
-            "history" to estimateItems(hist),
+            "history" to estimateItems(hist, provider),
             "delta" to estimateTokens(deltaText(st)),
             "state" to estimateTokens(stateText(st)),
-            "input" to (if (input != null) estimateItems(listOf(input)) + 6 else 0),
+            "input" to (if (input != null) estimateItems(listOf(input), provider) + 6 else 0),
         )
     }
 
@@ -416,9 +421,9 @@ object RpCacheCore {
 
     // ============================================================ 预算规划与裁剪
     // 对应 rpcache.js 的 plan / computeTrimWindow / temporaryTrimPlan。
-    // 有意没搬：applyLagrangeBudget（分层预算）与 adaptiveSummary（自适应摘要时机）——
-    // 它们只在「宿主传了 env / lagrange_layers 自定义」时才改变行为，默认路径下 plan 的
-    // 结果就是本文件的 token 汇总 + limit 判断；等面板能做到配置分层预算时再补。
+    // 摘要时点**不再**用固定阈值：见 summaryTiming()（§4.2，PR #78 已实现）。
+    // applyLagrangeBudget（分层预算/背包）按 MASTER-PLAN §5.3 第 1 条**明确不做**（架构造型演进取代）；
+    // 预算系数本身要走能力表，见 PLAN-ALGO-CACHE P2（BudgetProfile）。
 
     /** JS 的 `(v | 0) || def` 口径：非数字/0/空 → 默认值。 */
     private fun numOf(v: Any?, def: Int): Int {
@@ -433,11 +438,13 @@ object RpCacheCore {
 
     fun roundsOf(items: List<JObj>): Int = items.count { Js.str(it["role"]) == "user" }
 
-    /** 单条消息的 token 估算（JS itemTokens：内容 + 4 结构开销 + 每张图 1000）。 */
-    fun itemTokens(m: JObj): Int {
-        val imgs = (m["images"] as? List<*>)?.size ?: 0
-        return estimateTokens(m["content"]) + 4 + imgs * 1000
-    }
+    /**
+     * 单条消息的 token 估算（JS itemTokens：内容 + 4 结构开销 + 图片）。
+     * 图片必须和 [estimateItems] 同一把尺子，否则「临时裁剪窗口」是按 1000/张 算的、
+     * 而「是否超预算」是按真实计价算的，两个判断会互相打架。
+     */
+    fun itemTokens(m: JObj, provider: String? = null): Int =
+        TokenEstimator.messages(listOf<Any?>(m), provider)
 
     data class TrimWindow(val startId: String, val startOrdinal: Int, val startIdx: Int)
 
@@ -469,7 +476,12 @@ object RpCacheCore {
      * 规划本轮请求：算各层 token、判断是否超预算、要不要生成章节。
      * items 是「可发送的消息」（按原顺序，最后一条是本轮用户输入）。
      */
-    fun plan(st0: JObj, baseSystem: String, items: List<JObj>, calibOverride: Double? = null, meta: JObj? = null): Plan {
+    fun plan(
+        st0: JObj, baseSystem: String, items: List<JObj>,
+        calibOverride: Double? = null, meta: JObj? = null,
+        /** presetId（自定义服务商回落到 id）；只用于图片计价，不参与任何 golden 数值 */
+        provider: String? = null,
+    ): Plan {
         val st = RpState.normalizeState(st0)
         val s = (st["settings"] as? JObj) ?: JObj()
         val sum = (s["summary"] as? JObj) ?: JObj()
@@ -497,10 +509,10 @@ object RpCacheCore {
             "static" to estimateTokens(staticText(st, baseSystem)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
-            "history" to estimateItems(hist),
+            "history" to estimateItems(hist, provider),
             "delta" to estimateTokens(deltaText(st)),
             "state" to estimateTokens(stateText(st)),
-            "input" to (if (input != null) estimateItems(listOf(input)) + 6 else 0),
+            "input" to (if (input != null) estimateItems(listOf(input), provider) + 6 else 0),
         )
         val tok = LinkedHashMap<String, Any?>()
         var total = 0
@@ -528,7 +540,7 @@ object RpCacheCore {
                 reason = "budget"
             } else {
                 val guardsOk = batchRounds >= maxOf(1, numOf(sum["min_new_turns"], 1)) && sinceLast >= minGap
-                val U = cal(estimateItems(unsummarized))
+                val U = cal(estimateItems(unsummarized, provider))
                 val mode = Js.str(Js.or(sum["mode"], "trigger"))
                 if (mode == "adaptive") {
                     // §4.2 摘要时点最优停止（开关 summary.mode=adaptive，默认 trigger 保持旧行为）：
@@ -561,7 +573,7 @@ object RpCacheCore {
     }
 
     /** 临时裁剪窗口：从哪条消息开始发送，才能塞进 limit（JS 的 computeTrimWindow）。 */
-    fun computeTrimWindow(st: JObj, p: Plan): TrimWindow? {
+    fun computeTrimWindow(st: JObj, p: Plan, provider: String? = null): TrimWindow? {
         val s = (st["settings"] as? JObj) ?: JObj()
         val sum = (s["summary"] as? JObj) ?: JObj()
         val keep = maxOf(1, numOf(sum["keep_recent_turns"], 2))
@@ -569,7 +581,7 @@ object RpCacheCore {
         val users = un.indices.filter { Js.str(un[it]["role"]) == "user" }
         val fixed = numOf(p.tokens["total"], 0) - numOf(p.tokens["history"], 0)
         val prefix = IntArray(un.size + 1)
-        for (i in un.indices) prefix[i + 1] = prefix[i] + itemTokens(un[i])
+        for (i in un.indices) prefix[i + 1] = prefix[i] + itemTokens(un[i], provider)
         fun fits(j: Int): Boolean =
             fixed + ((prefix[un.size] - prefix[users[j]]) * p.calib).roundToInt() <= p.limit
 
@@ -592,10 +604,10 @@ object RpCacheCore {
      * 临时裁剪：只改本轮 plan.hist，不永久推进 st.window（摘要失败后的超预算走这里，
      * 避免剧情被静默永久丢掉）。返回新的 state 与 plan。
      */
-    fun applyTempTrim(st: JObj, p: Plan, now: Long): Pair<JObj, Plan> {
-        val win = computeTrimWindow(st, p) ?: return st to p
+    fun applyTempTrim(st: JObj, p: Plan, now: Long, provider: String? = null): Pair<JObj, Plan> {
+        val win = computeTrimWindow(st, p, provider) ?: return st to p
         val hist = p.unsummarized.drop(win.startIdx)
-        val histTok = (estimateItems(hist) * p.calib).roundToInt()
+        val histTok = (estimateItems(hist, provider) * p.calib).roundToInt()
         val total = numOf(p.tokens["total"], 0) - numOf(p.tokens["history"], 0) + histTok
         val tokens = p.tokens.toMutableMap().also { it["history"] = histTok; it["total"] = total }
         val np = p.copy(

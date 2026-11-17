@@ -14,8 +14,9 @@ import kotlin.math.ceil
  * 三处入口（RpCacheCore / CacheCommonImpl / 本对象）同值（见 TokenEstimatorTest）。
  *
  * 图片计价按服务商：Gemini 每图 258；Anthropic (w×h)/750（下限 156）；
- * OpenAI 系 85 + 170×512px tile 数；其他或解析失败沿用旧口径 1000/张
- * （与 `RpCacheCore.estimateItems` 的 `imgN * 1000` 一致，rpcache golden 兼容）。
+ * OpenAI 系 85 + 170×512px tile 数；其他或解析失败沿用旧口径 1000/张。
+ * `RpCacheCore.estimateItems` / `itemTokens` 都委托这里：provider 传 null 时等价于旧版的
+ * `imgN * 1000`（rpcache golden 靠它保持字节级一致），传 presetId 则按真实公式算。
  *
  * 预算路径的系统性偏差由 `RpCacheCore.calibrate`（按 provider|model|modality 的
  * 真实 prompt_tokens EWMA）自动修正，静态系数只做首估。
@@ -57,7 +58,7 @@ object TokenEstimator {
 
     /**
      * 消息序列估算：每条 = 正文 + 4（角色/分隔开销）+ 图片。
-     * provider 为 null 时图片按旧口径 1000/张（与 `RpCacheCore.estimateItems` 完全一致，golden 兼容）。
+     * provider 为 null 时图片按旧口径 1000/张（等价旧版 `imgN * 1000`，golden 兼容）；传入 presetId 后按服务商真实公式算（PLAN-ALGO-CACHE P1）。
      */
     fun messages(items: List<Any?>, provider: String? = null): Int = items.sumOf { m ->
         val o = m as? JObj ?: jobj()

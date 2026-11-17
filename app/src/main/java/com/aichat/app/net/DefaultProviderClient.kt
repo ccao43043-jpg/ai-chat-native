@@ -78,6 +78,7 @@ class DefaultProviderClient(
                 var status = 0
                 val raw = StringBuilder()
                 var retry = false
+                var retryAfterMs: Long? = null
                 suspend fun apply(ds: List<StreamDelta>) {
                     for (d in ds) {
                         if (d.countsAsContent) gotDelta = true
@@ -97,6 +98,8 @@ class DefaultProviderClient(
                 try {
                     call.execute().use { resp ->
                         status = resp.code
+                        // 429 / 503 才看 Retry-After：其它错误上这个头没有意义，不该被它拖住
+                        if (status == 429 || status == 503) retryAfterMs = NetRetry.parseRetryAfterValue(resp.header("Retry-After"))
                         send(StreamEvent.Status(status))
                         val ok = status in 200..299
                         val parser = StreamParser(type)
@@ -127,7 +130,7 @@ class DefaultProviderClient(
                             var msg = Deltas.parseError(status, rawS)
                             if (status == 402 && downgraded) msg += "\n请在设置里调小「最大输出 tokens」后再试。"
                             else if (status == 402 && RE_402.containsMatchIn(rawS)) msg += "\n请在设置里调小「最大输出 tokens」。"
-                            send(StreamEvent.Error(status, msg, rawS))
+                            send(StreamEvent.Error(status, msg, rawS, retryAfterMs))
                         } else if (streaming) {
                             apply(parser.end())
                             // 整轮既没给结束原因、也没有任何「宣告结束」的标记（[DONE] / message_stop）、

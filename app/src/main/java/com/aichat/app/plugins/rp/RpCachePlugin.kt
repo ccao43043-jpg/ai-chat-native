@@ -90,8 +90,12 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val itemsLore = RpLoreCore.applyFrozenLore(stFired, items)
 
         // 规划：算各层 token、判断超预算；超了就走临时裁剪（只影响本轮，不改 window）
-        val calKey = jobj("provider" to ctx.provider.presetId.ifEmpty { ctx.provider.id }, "model" to ctx.model)
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey)
+        // provider 与 calib 同源（presetId，自定义服务商回落到 id）。
+        // 它决定图片怎么计价：一张 1024×1024 的图 Gemini 真实 258 token、Anthropic 1398，
+        // 而旧口径一律按 1000 算 —— 前者导致提前裁剪白丢历史，后者导致该裁不裁撞窗口。
+        val provId = ctx.provider.presetId.ifEmpty { ctx.provider.id }
+        val calKey = jobj("provider" to provId, "model" to ctx.model)
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
@@ -101,9 +105,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             val r = summarize(ctx.conv, stFired, p0)
             if (r != null) stBase = r else summaryFail = "summary_failed"
         }
-        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore, meta = calKey) else p0
+        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId) else p0
 
-        val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now()) else stBase to pRaw
+        val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
 
         // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
         val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
@@ -219,7 +223,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
                 if (!r.ok) throw IllegalStateException("合并被拒绝：${r.reason ?: "invalid"}")
                 ManualChapter(r.state, Js.str(r.chapter?.get("no")).toIntOrNull() ?: 0, true)
             } else {
-                val p = RpCacheCore.plan(st, base, items)
+                val p = RpCacheCore.plan(st, base, items, provider = conv.providerId)
                 if (p.batch.isEmpty()) throw IllegalStateException("没有可总结的旧对话（保留轮数内的不总结，可在 RP 检视里调小「保留轮数」）")
                 val prompt = RpChapterCore.buildSummaryPrompt(
                     RpCacheCore.chaptersOf(st), p.batch, RpCacheCore.memoryText(st).ifEmpty { null },
