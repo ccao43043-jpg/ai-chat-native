@@ -81,6 +81,7 @@
 | 11 | 〔工程〕JsConvLog 按职责重构（Replay/Diff/Commit/Compact） | 2 天 | 917 行 god file；配 golden |
 | 12 | 〔算法〕重试 Retry-After（Full Jitter 已有：`NetRetry.backoff` 带 ×(0.8+0.4·rnd)） | 0.25 天 | ✅ **已完成**（PR #98 P4）：`NetRetry.parseRetryAfterValue`/`delayFor` 封顶 60s，`Error.retryAfterMs` 透传到引擎。见 PLAN-ALGO-CACHE P4 |
 | 13 | 〔工程〕detekt/ktlint + 3 个 Compose smoke test（空态/发送/流式） | 1 天 | 一次配置长期收益；instrumented 修 3 例后接 CI（仅 main + 手动） |
+| 18 | 〔产品·RP〕**角色生成 Skill 按世界分档**：`AutoChar` 的 7 个入口全仓零调用（`shouldOffer`/`buildPrompt`/`toPromptAppend`/`fillLeftovers`/`fromUserText`/`hasCharacter`/`isRpTemplate`），`settings.autoCharMode` 无消费方；一旦接线，世界里会拿模型瞎编的世界观覆盖既有分层设定 | 1.5–2 天 | 见 [PLAN-AUTOCHAR-WORLD.md](PLAN-AUTOCHAR-WORLD.md)：世界里只写 `character`（可选 `fewshot`），`world/rules/style` 逐字节不变；专场保持 8 段 |
 
 ### P1.5 · 2026-11-17 核对新增（发布工程与数据安全）
 
