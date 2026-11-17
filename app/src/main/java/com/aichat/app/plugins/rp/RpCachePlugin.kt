@@ -34,6 +34,14 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     private val host: PluginHost,
     /** 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。 */
     private val ask: (suspend (Conversation, String) -> String?)? = null,
+    /**
+     * L1「已确立事实」账本（结构化记忆里的事实三元组）。
+     *
+     * 旧版这事没接：账本每次抽取都在写文件，但**从不进请求** —— 模型看不到「上次说定了什么」，
+     * 于是隔几轮又问一遍、或者自己编一个。这里由 AppGraph 注入读取逻辑（纯函数层不认识存储）。
+     * 它属于低频层（≈ 摘要频率），所以进 system 静态段末尾，不破前缀。
+     */
+    private val facts: ((Conversation) -> String)? = null,
 ) : ChatPlugin {
 
     override val id: String get() = "rpcache"
@@ -45,6 +53,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         "本对话没有 RP 分层设定，也没有世界书条目"
     /** system 前段（模板/角色卡/世界设定）与中段（章节摘要）的唯一所有者 */
     override fun slots(): List<Slot> = listOf(Slot.S1_STABLE, Slot.S2_DELTA, Slot.S3_RECALL)
+
+    /** 事实账本的 token 上限：再多也不是「已确立」，塞进去只会挤掉剧情。 */
+    private val FACTS_MAX_TOKENS = 400
 
     /** 上一轮算好的状态，等 onAfterResponse 落盘。 */
     /** 本轮请求的快照：状态 + 规划时用的原始估算 + provider/model（收尾时拿去校准） */
@@ -61,6 +72,25 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean {
         val st = RpState.normalizeState(Js.fromJson(conv.rpState))
         return hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
+    }
+
+    /**
+     * 取本对话的事实账本并控制预算：账本本身按 confidence×recency 取前 12 条，
+     * 这里再按 token 封顶 [FACTS_MAX_TOKENS]（超了从尾部丢，行粒度，不截半行）。
+     */
+    private fun factsFor(conv: Conversation): String? {
+        val raw = facts?.invoke(conv).orEmpty().trim()
+        if (raw.isEmpty()) return null
+        if (RpCacheCore.estimateTokens(raw) <= FACTS_MAX_TOKENS) return raw
+        val kept = ArrayList<String>()
+        var used = 0
+        for (line in raw.split("\n")) {
+            val t = RpCacheCore.estimateTokens(line) + 1
+            if (used + t > FACTS_MAX_TOKENS) break
+            kept.add(line)
+            used += t
+        }
+        return if (kept.isEmpty()) null else kept.joinToString("\n")
     }
 
     private fun hasAnyBlock(st: JObj): Boolean {
@@ -102,7 +132,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // 而旧口径一律按 1000 算 —— 前者导致提前裁剪白丢历史，后者导致该裁不裁撞窗口。
         val provId = ctx.provider.presetId.ifEmpty { ctx.provider.id }
         val calKey = jobj("provider" to provId, "model" to ctx.model)
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId)
+        val factsText = factsFor(ctx.conv)
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
@@ -112,7 +143,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             val r = summarize(ctx.conv, stFired, p0)
             if (r != null) stBase = r else summaryFail = "summary_failed"
         }
-        val pRaw = if (stBase !== stFired) RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId) else p0
+        val pRaw = if (stBase !== stFired) {
+            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
+        } else p0
 
         val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
 

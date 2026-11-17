@@ -48,7 +48,12 @@ object RpCacheCore {
         return Js.str(b["content"])
     }
 
-    fun staticText(st: JObj?, baseSystem: Any?): String {
+    /**
+     * @param facts L1「已确立事实」账本（`[MEMORY_LEDGER]` 渲染结果）。它变化频率 ≈ 摘要（每 20 轮一次），
+     *   所以放在静态层末尾 —— 改一次只毒化它之后的部分，而不是整个前缀。
+     *   为空时逐字节等于 1.5.3 的输出（golden 靠这条保持不变）。
+     */
+    fun staticText(st: JObj?, baseSystem: Any?, facts: String? = null): String {
         val parts = ArrayList<String>()
         val b = canonicalize(baseSystem)
         if (b.isNotEmpty()) parts.add(b)
@@ -59,7 +64,17 @@ object RpCacheCore {
         // 常驻世界书条目属于「几乎不改」的层，排在静态块之后（JS 的 staticText 同序）
         val lore = RpLoreCore.constantLoreText(st)
         if (lore.isNotEmpty()) parts.add(lore)
+        val f = factsText(facts)
+        if (f.isNotEmpty()) parts.add(f)
         return parts.joinToString("\n\n")
+    }
+
+    /** L1 事实账本段；传入的已经是 `[MEMORY_LEDGER]…` 或纯行文本，这里只补标题、剥重复标题。 */
+    fun factsText(facts: String?): String {
+        val c = (facts ?: "").trim()
+        if (c.isEmpty()) return ""
+        val body = c.removePrefix("[MEMORY_LEDGER]").trim()
+        return if (body.isEmpty()) "" else "[ESTABLISHED_FACTS]\n$body"
     }
 
     /** 章节标签：JS 的 `slabel` = "#" + 三位序号。 */
@@ -92,21 +107,21 @@ object RpCacheCore {
     }
 
     /** C-2：层序按变更频率从低到高，memory 变动不再毒化 summary 缓存。 */
-    fun buildSystem(st: JObj?, baseSystem: Any?): String =
-        listOf(staticText(st, baseSystem), summaryText(st), memoryText(st))
+    fun buildSystem(st: JObj?, baseSystem: Any?, facts: String? = null): String =
+        listOf(staticText(st, baseSystem, facts), summaryText(st), memoryText(st))
             .filter { it.isNotEmpty() }
             .joinToString("\n\n")
 
     /** system 里「static + summary」这一段稳定前缀，供第二个缓存断点使用。 */
-    fun systemStablePrefix(st: JObj?, baseSystem: Any?): String =
-        listOf(staticText(st, baseSystem), summaryText(st))
+    fun systemStablePrefix(st: JObj?, baseSystem: Any?, facts: String? = null): String =
+        listOf(staticText(st, baseSystem, facts), summaryText(st))
             .filter { it.isNotEmpty() }
             .joinToString("\n\n")
 
     data class Segment(val layer: String, val kind: String, val title: String, val gl: String, val text: String)
 
     /** 结构化分段：`segments.joinToString("\n\n") == buildSystem`。 */
-    fun buildSystemSegments(st: JObj?, baseSystem: Any?): List<Segment> {
+    fun buildSystemSegments(st: JObj?, baseSystem: Any?, facts: String? = null): List<Segment> {
         val out = ArrayList<Segment>()
         val b = canonicalize(baseSystem)
         if (b.isNotEmpty()) out.add(Segment("L1", "static", "base", "-", b))
@@ -117,6 +132,8 @@ object RpCacheCore {
         val sm = summaryText(st)
         val lore = RpLoreCore.constantLoreText(st)
         if (lore.isNotEmpty()) out.add(Segment("L1", "static", "LORE", "D", lore))
+        val f = factsText(facts)
+        if (f.isNotEmpty()) out.add(Segment("L1", "static", "FACTS", "D", f))
         if (sm.isNotEmpty()) out.add(Segment("L3", "static", "CHAPTER_SUMMARY", "S", sm))
         val mm = memoryText(st)
         if (mm.isNotEmpty()) out.add(Segment("L2", "dynamic", "LONG_TERM_MEMORY", "E", mm))
@@ -397,11 +414,11 @@ object RpCacheCore {
     }
 
     /** 估算各层 token（用于界面与预算判断）。 */
-    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>, provider: String? = null): JObj {
+    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>, provider: String? = null, facts: String? = null): JObj {
         val input = items.lastOrNull() as? JObj
         val hist = if (input != null && Js.str(input["role"]) == "user") items.dropLast(1) else items
         return jobj(
-            "static" to estimateTokens(staticText(st, baseSystem)),
+            "static" to estimateTokens(staticText(st, baseSystem, facts)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
             "history" to estimateItems(hist, provider),
@@ -481,6 +498,8 @@ object RpCacheCore {
         calibOverride: Double? = null, meta: JObj? = null,
         /** presetId（自定义服务商回落到 id）；只用于图片计价，不参与任何 golden 数值 */
         provider: String? = null,
+        /** L1 事实账本（见 [factsText]）；null = 不带，输出与 1.5.3 逐字节一致 */
+        facts: String? = null,
     ): Plan {
         val st = RpState.normalizeState(st0)
         val s = (st["settings"] as? JObj) ?: JObj()
@@ -503,10 +522,10 @@ object RpCacheCore {
             start = if (i >= 0) i else minOf(numOf(win["startOrdinal"], 0), maxOf(0, unsummarized.size - 1))
         }
         val hist = unsummarized.drop(start)
-        val system = buildSystem(st, baseSystem)
+        val system = buildSystem(st, baseSystem, facts)
 
         val raw = linkedMapOf(
-            "static" to estimateTokens(staticText(st, baseSystem)),
+            "static" to estimateTokens(staticText(st, baseSystem, facts)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
             "history" to estimateItems(hist, provider),

@@ -92,12 +92,36 @@ class AppGraph(app: Application) {
         },
         // 结构化记忆：默认关（旧版 defaultEnabled:false）；开关在设置 → 插件里，打开后每 N 轮抽一次
         rpcache = { host ->
-            com.aichat.app.plugins.rp.RpCachePlugin(host) { conv, prompt -> askModel(conv, prompt) }
+            com.aichat.app.plugins.rp.RpCachePlugin(
+                host,
+                ask = { conv, prompt -> askModel(conv, prompt) },
+                facts = { conv -> factsOf(conv) },
+            )
         },
         memory = { host ->
             com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt -> askModel(conv, prompt) }
         },
     )
+
+    /**
+     * 本对话的事实账本（`rp-memory.json` 里 `ledger`），渲染成 `[MEMORY_LEDGER]` 行文本。
+     *
+     * 只读纯渲染，不做抽取；抽取在 `RpMemoryPlugin` 里按轮次触发。
+     * 桶键与记忆插件同源（[com.aichat.app.plugins.rp.RpMemoryCore.charKey]）：
+     * 有角色卡时跨对话共享事实，否则按对话隔离。
+     */
+    private fun factsOf(conv: com.aichat.app.domain.model.Conversation): String = try {
+        val key = com.aichat.app.plugins.rp.RpMemoryCore.charKey(
+            conv.id,
+            conv.personaName?.takeIf { it.isNotEmpty() },
+        )
+        val bucket = data.rpMemory.load()[key] as? kotlinx.serialization.json.JsonObject
+        val ledger = (com.aichat.app.plugins.js.Js.fromJson(bucket?.get("ledger")) as? List<*>)
+            ?.mapNotNull { it as? com.aichat.app.plugins.js.JObj } ?: emptyList()
+        com.aichat.app.plugins.rp.RpMemoryCore.renderLedger(ledger)
+    } catch (e: Throwable) {
+        ""
+    }
 
     /**
      * 插件用的「顺手问一次模型」（旧版 host.callModel）：用当前对话的服务商与模型，

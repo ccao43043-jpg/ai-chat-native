@@ -141,19 +141,12 @@ object AutoChar {
 
     /** 三条判据任一成立就算「在世界里」：会话绑了 worldId、分层设定里的 world 块有内容、或者带 worldRef。 */
     fun worldOf(conv: Any?): WorldContext? {
-        if (!Js.truthy(conv)) return null
-        val st = conv["plugins"]["rpcache"]["state"]
-        val world = blockText(st, "world")
-        val id = s(conv["worldId"])
-        val name = s(conv["worldName"])
-        if (world.isEmpty() && id.isEmpty()) return null
-        return WorldContext(worldId = id, worldName = name.ifEmpty { id }, world = world)
+        // 三处世界的读法（extras.worldId / blocks.world / worldRef）统一由 WorldResolver 决定，
+        // 这里只做形状转换；绑定关系优先于内容，见 WorldResolver 的注释。
+        val w = WorldResolver.of(conv) ?: return null
+        return WorldContext(w.id, w.name, w.text, w.lore)
     }
 
-    /**
-     * 只要这个对话**绑定了世界**（有 worldId 或 world 块），就算在世界里 —— 哪怕块是空的，
-     * 也不能让 AI 顺手把世界写出来：那属于世界模板，不归角色管。
-     */
     fun scopeOf(conv: Any?): Scope = if (worldOf(conv) != null) Scope.CHARACTER_ONLY else Scope.FULL
 
     /** 世界里用的提示词：世界是只读约束，只要角色卡（可选示例对白）。 */

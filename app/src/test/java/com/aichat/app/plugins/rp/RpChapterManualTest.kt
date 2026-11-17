@@ -112,7 +112,7 @@ class RpChapterManualTest {
 
     @Test
     fun emptyBatchExplainsWhyNothingHappens() = runTest {
-        val plugin = RpCachePlugin(host) { _, _ -> goodSummary }
+        val plugin = RpCachePlugin(host, ask = { _, _ -> goodSummary })
         // 保留轮数 10 > 实际轮数，batch 为空
         val c = conv(keepRecent = 10, extraRounds = 1)
         val r = plugin.summarizeNow(c, settings, merge = false)
@@ -123,11 +123,11 @@ class RpChapterManualTest {
     @Test
     fun manualGenerateAppendsOneChapterCoveringOldRounds() = runTest {
         var asked = 0
-        val plugin = RpCachePlugin(host) { _, prompt ->
+        val plugin = RpCachePlugin(host, ask = { _, prompt ->
             asked++
             assertTrue("提示词要带最近对话", prompt.contains("最近对话") || prompt.contains("====="))
             goodSummary
-        }
+        })
         val c = conv(keepRecent = 1, extraRounds = 1)
         val r = plugin.summarizeNow(c, settings, merge = false)
         assertTrue(r.exceptionOrNull()?.message ?: "", r.isSuccess)
@@ -144,7 +144,7 @@ class RpChapterManualTest {
 
     @Test
     fun mergeNeedsAtLeastTwoChapters() = runTest {
-        val plugin = RpCachePlugin(host) { _, _ -> goodSummary }
+        val plugin = RpCachePlugin(host, ask = { _, _ -> goodSummary })
         val r = plugin.summarizeNow(conv(), settings, merge = true)
         assertTrue(r.isFailure)
         assertTrue(r.exceptionOrNull()!!.message!!.contains("不需要合并"))
@@ -152,7 +152,7 @@ class RpChapterManualTest {
 
     @Test
     fun lowQualitySummaryIsRejectedWithReadableMessage() = runTest {
-        val plugin = RpCachePlugin(host) { _, _ -> "只有一句话，没有分区。" }
+        val plugin = RpCachePlugin(host, ask = { _, _ -> "只有一句话，没有分区。" })
         val r = plugin.summarizeNow(conv(keepRecent = 1, extraRounds = 1), settings, merge = false)
         assertTrue(r.isFailure)
         assertTrue(r.exceptionOrNull()!!.message!!.contains("质量检查"))
