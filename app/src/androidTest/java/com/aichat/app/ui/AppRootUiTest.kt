@@ -12,7 +12,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToLog
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -101,6 +101,9 @@ class AppRootUiTest {
         closeKeyboard()
         rule.onNodeWithTag("send").performClick()
         rule.waitUntilExists("stop")
+        // 先等第一段文字到达再点停止：fake 引擎用 `truncated = !finished && acc.isNotEmpty()` 判定，
+        // 一个字都没吐就取消的话不会出「已中断」，CI 上就是这么 30s 超时的。
+        rule.waitUntilExists(text = "演示回复", substring = true)
         rule.onNodeWithTag("stop").performClick()
         rule.waitUntilExists("send")
         // 「已中断」是消息元信息行：只判存在（被键盘挡住时 assertIsDisplayed 会假红）
@@ -125,17 +128,21 @@ class AppRootUiTest {
         closeKeyboard()
         rule.onNodeWithTag("send").performClick()
         rule.waitUntilExists("regen")
-        rule.onNodeWithTag("regen").performScrollTo().performClick()
+        // LazyColumn 的 item 不支持 performScrollTo（它要的是祖先的 ScrollBy 语义），
+        // 必须让列表自己滚过去；否则 CI 上直接 "Action performScrollTo() failed"。
+        rule.onNodeWithTag("messages").performScrollToNode(hasTestTag("regen"))
+        rule.onNodeWithTag("regen").performClick()
         rule.waitUntilExists("ver-label")
         rule.waitUntilExists("send")
         rule.waitUntilExists(text = "2/2")
-        rule.onNodeWithTag("ver-prev").performScrollTo().performClick()
+        rule.onNodeWithTag("ver-prev").performClick()
         rule.waitUntilExists(text = "1/2")
         // 用户行与助手行各有一个 edit（同一个 tag）。助手行的编辑器只有「保存」，
         // 只有用户行才有「保存并重新发送」——所以必须按祖先 actions-user 精确定位，
         // 直接用下标取（[0] / [n-1]）会点到助手那条，然后等不到 editor-resend 超时。
         val userEdit = hasTestTag("edit") and hasAnyAncestor(hasTestTag("actions-user"))
-        rule.onNode(userEdit).performScrollTo().performClick()
+        rule.onNodeWithTag("messages").performScrollToNode(userEdit)
+        rule.onNode(userEdit).performClick()
         // 全屏编辑器有自己的 testTag（editor-resend =「保存并重新发送」）
         rule.waitUntilExists("editor-resend")
     }
@@ -169,10 +176,13 @@ class AppRootUiTest {
         closeKeyboard()
         rule.onNodeWithTag("send").performClick()
         rule.waitUntilExists("regen")
-        rule.onNodeWithTag("regen").performScrollTo().performClick()
+        // LazyColumn 的 item 不支持 performScrollTo（它要的是祖先的 ScrollBy 语义），
+        // 必须让列表自己滚过去；否则 CI 上直接 "Action performScrollTo() failed"。
+        rule.onNodeWithTag("messages").performScrollToNode(hasTestTag("regen"))
+        rule.onNodeWithTag("regen").performClick()
         rule.waitUntilExists("ver-label")
         rule.waitUntilExists("send")
-        rule.onNodeWithTag("ver-label").performScrollTo().performClick()
+        rule.onNodeWithTag("ver-label").performClick()
         rule.waitUntilExists("version-menu")
     }
 
