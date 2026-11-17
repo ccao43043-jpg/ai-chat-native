@@ -3,6 +3,7 @@ package com.aichat.app.plugins.rp
 import com.aichat.app.data.repo.JsonDocStore
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.Role
@@ -44,6 +45,9 @@ class RpMemoryPlugin(
     override val name: String = "结构化记忆"
     override val defaultEnabled: Boolean = false
     override val perConversation: Boolean = false
+
+    /** 结构化记忆只往末条 user 尾部追加召回（S3） */
+    override fun slots(): List<Slot> = listOf(Slot.S3_RECALL)
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mutex = Mutex()

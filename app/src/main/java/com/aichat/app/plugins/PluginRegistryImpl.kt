@@ -86,10 +86,44 @@ class PluginRegistryImpl(
         convPlugins[ctx.conv.id] = (Js.fromJson(ctx.conv.extras["plugins"]) as? JObj) ?: JObj()
         val act = active(ctx.settings, ctx.conv)
         var cur = ctx.copy(activePlugins = act.map { it.id })
+        // 一槽一主（PLAN-CONTEXT-ARCH §3.2）：先把声明收上来，冲突只记账不改请求
+        val slots = SlotRegistry()
         for (p in act) {
-            cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); continue }
+            for (s in p.slots()) {
+                if (!slots.claim(s, p.id)) {
+                    val others = slots.ownersOf(s).filter { it != p.id }.joinToString("、")
+                    cur.trace.conflict("${s.code}（${s.label}）${others} 已拥有，${p.id} 也声明了")
+                }
+            }
         }
+        for (p in act) {
+            val before = cur
+            cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); cur }
+            recordStep(before, cur, p)
+        }
+        finishTrace(cur)
         return cur
+    }
+
+    /** 比较插件调用前后的 systemPrompt 与末条 user，得出「谁动了哪一段、多少 token」 */
+    private fun recordStep(before: RequestContext, after: RequestContext, p: ChatPlugin) {
+        if (before.systemPrompt == after.systemPrompt &&
+            lastUserContent(before) == lastUserContent(after) &&
+            before.bodyPatch == after.bodyPatch
+        ) return   // 没动请求的插件不记，避免面板被噪声填满
+        val sysDelta = TokenEstimator.text(after.systemPrompt) - TokenEstimator.text(before.systemPrompt)
+        val userDelta = TokenEstimator.text(lastUserContent(after)) - TokenEstimator.text(lastUserContent(before))
+        after.trace.record(ContextTrace.Step(p.id, p.slots(), sysDelta, userDelta))
+    }
+
+    private fun lastUserContent(c: RequestContext): String =
+        c.messages.lastOrNull { it.role.wire == "user" }?.content ?: ""
+
+    private fun finishTrace(ctx: RequestContext) {
+        val t = ctx.trace
+        t.systemTokens = TokenEstimator.text(ctx.systemPrompt)
+        t.lastUserTokens = TokenEstimator.text(lastUserContent(ctx))
+        t.stableHash = Js.sha256(ctx.systemPrompt).take(16)
     }
 
     /**

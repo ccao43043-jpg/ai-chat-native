@@ -38,6 +38,9 @@ class GCachePluginImpl(private val host: PluginHost) : GCachePlugin {
     // 之前是常开 + onBeforeRequest 里自查，导致「插件在跑但什么都没做」的假象，
     // 也没法在会话级关掉它。
     override val perConversation = true
+
+    /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
+    override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
     /** 仅运行时：convId → 上一轮 system 前缀 / 完整请求体 */
     private val lastPrefix = HashMap<String, String>()
     private val lastReqBody = HashMap<String, String>()
@@ -184,6 +187,9 @@ class MmCachePluginImpl(private val host: PluginHost) : MmCachePlugin {
     override val name = "MiniMax 提示缓存（OpenRouter）"
     override val defaultEnabled = true
     override val perConversation = true
+
+    /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
+    override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
     private val lastPrefix = HashMap<String, String>()
     private val lastBody = HashMap<String, String>()
 

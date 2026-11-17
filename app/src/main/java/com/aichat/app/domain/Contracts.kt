@@ -153,6 +153,10 @@ data class RequestContext(
     val bodyPatch: JsonObject = EmptyJson,
     val meta: JsonObject = EmptyJson,
     val activePlugins: List<String> = emptyList(),
+    /** 本轮的分段账本（谁动了哪一段、各多少 token）；由 PluginRegistry 自动记录，插件不需要写 */
+    val trace: ContextTrace = ContextTrace(),
+    /** 本轮各插件交上来的片段（M4 起末条 user 由管线统一装配，插件不再直接改 messages） */
+    val fragments: TurnFragments = TurnFragments(),
 )
 
 /** 回合结果（runAfterResponse 的 result） */
@@ -190,6 +194,11 @@ interface ChatPlugin {
     val defaultEnabled: Boolean
     val perConversation: Boolean
     fun autoActive(conv: Conversation, settings: AppSettings): Boolean = false
+    /**
+     * 本插件声称拥有请求的哪些槽位（PLAN-CONTEXT-ARCH §3.1）。
+     * 只用于「一槽一主」检查与体检面板展示，**不影响**执行顺序；默认空 = 不改请求。
+     */
+    fun slots(): List<Slot> = emptyList()
     suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext = ctx
     fun onResponseUsage(usage: Usage, ctx: RequestContext) {}
     /** 可返回更新后的对话（章节、affect、ledger、插件状态写入 conv.extras.plugins / rpState） */

@@ -44,6 +44,7 @@ internal fun ChatOverflowMenu(
     onSettings: () -> Unit,
     onExport: () -> Unit,
     onConvPlugins: () -> Unit,
+    onContext: () -> Unit,
     onRp: () -> Unit,
     onMemory: () -> Unit,
     onInspect: () -> Unit,
@@ -57,6 +58,7 @@ internal fun ChatOverflowMenu(
         MenuSection("对话")
         if (conv != null) MenuEntry("导出本对话", onExport)
         if (conv != null) MenuEntry("本对话插件", onConvPlugins)
+        if (conv != null) MenuEntry("上下文体检", onContext)
         if (conv != null) MenuEntry("据此生图", onImage)
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),

@@ -4,6 +4,7 @@ import com.aichat.app.domain.Badge
 import com.aichat.app.domain.ChatPlugin
 import com.aichat.app.domain.MessageState
 import com.aichat.app.domain.RequestContext
+import com.aichat.app.domain.Slot
 import com.aichat.app.domain.TurnResult
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
@@ -38,6 +39,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     override val name: String get() = "RP 缓存优化器"
     override val defaultEnabled: Boolean get() = true
     override val perConversation: Boolean get() = true
+
+    /** system 前段（模板/角色卡/世界设定）与中段（章节摘要）的唯一所有者 */
+    override fun slots(): List<Slot> = listOf(Slot.S1_STABLE, Slot.S2_DELTA, Slot.S3_RECALL)
 
     /** 上一轮算好的状态，等 onAfterResponse 落盘。 */
     /** 本轮请求的快照：状态 + 规划时用的原始估算 + provider/model（收尾时拿去校准） */

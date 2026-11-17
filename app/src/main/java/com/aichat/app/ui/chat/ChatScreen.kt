@@ -108,6 +108,7 @@ fun ChatScreen(
     var rpLore by remember { mutableStateOf(false) }
     var affectPanel by remember { mutableStateOf(false) }
     var pluginErrPanel by remember { mutableStateOf(false) }
+    var ctxInspect by remember { mutableStateOf(false) }
     // 插件错误：以前只有一个没人读的 StateFlow，插件静默失效时用户完全无感（世界书整版不生效就是这么漏的）
     val pluginErrs by deps.plugins.errors.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -289,6 +290,7 @@ fun ChatScreen(
                                 onSettings = { menu = false; onOpenSettings(SettingsDestination.Main) },
                                 onExport = { menu = false; conv?.let { exportConv(it.id) } },
                                 onConvPlugins = { menu = false; convPlugins = true },
+                                onContext = { menu = false; ctxInspect = true },
                                 onRp = { menu = false; controller.ensureConversation(); rpPanel = true },
                                 onMemory = { menu = false; controller.ensureConversation(); rpMemoryPanel = true },
                                 onInspect = { menu = false; controller.ensureConversation(); rpInspect = true },
@@ -537,6 +539,9 @@ fun ChatScreen(
     }
     if (affectPanel && conv != null) {
         AffectPanelDialog(conv, onDismiss = { affectPanel = false })
+    }
+    if (ctxInspect) {
+        ContextInspectorDialog(conv, onDismiss = { ctxInspect = false })
     }
     if (pluginErrPanel) {
         PluginErrorsDialog(
