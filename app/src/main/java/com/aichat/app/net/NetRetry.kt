@@ -41,4 +41,37 @@ object NetRetry {
 
     fun shouldRetry(c: Kind?, attempt: Int, gotDelta: Boolean, stopped: Boolean): Boolean =
         c != null && c.retry && !gotDelta && !stopped && attempt < MAX_RETRIES
+
+    /** 等待上限：比 60s 更久的等待不如直接报错让用户决定（也可能只是中转编了个大数）。 */
+    const val MAX_DELAY_MS = 60_000L
+
+    /**
+     * 服务端说「多久之后再来」（`Retry-After` 响应头），毫秒。
+     *
+     * 以前我们只会猜：429 一律 2s 起步。服务端说「30 秒后再来」，我们 2 秒就重试，
+     * `MAX_RETRIES = 2` 的两次机会瞬间烧光，最后给用户一个假失败。
+     * 键名大小写不敏感（OkHttp 的 `header()` 已经不敏感，这里兼容普通 Map 调用）。
+     */
+    fun parseRetryAfter(headers: Map<String, String>, nowMs: Long = System.currentTimeMillis()): Long? =
+        parseRetryAfterValue(headers.entries.firstOrNull { it.key.equals("Retry-After", true) }?.value, nowMs)
+
+    /** 两种格式都认：秒数（"30"）与 HTTP-date（"Wed, 21 Oct 2015 07:28:00 GMT"）。解析不出来 → null。 */
+    fun parseRetryAfterValue(raw: String?, nowMs: Long = System.currentTimeMillis()): Long? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        s.toLongOrNull()?.let { sec -> return if (sec < 0) null else sec * 1000L }
+        val at = parseHttpDate(s) ?: return null
+        return (at - nowMs).coerceAtLeast(0L)
+    }
+
+    /** 实际等待 = max(指数退避, Retry-After)，封顶 [MAX_DELAY_MS]。只在 429/503 传 retryAfterMs。 */
+    fun delayFor(attempt: Int, kind: String?, retryAfterMs: Long?, rnd: Double = Math.random()): Long =
+        minOf(MAX_DELAY_MS, maxOf(backoff(attempt, kind, rnd), retryAfterMs ?: 0L))
+
+    private fun parseHttpDate(s: String): Long? = try {
+        java.time.ZonedDateTime.parse(s, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().toEpochMilli()
+    } catch (_: Exception) {
+        null
+    }
 }

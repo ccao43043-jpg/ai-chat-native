@@ -240,4 +240,41 @@ class RpCacheCoreTest {
         val noPrompt = RpCacheCore.calibrate(st, 5000, 0L, meta)
         assertTrue("没有真实 token 也不校准", noPrompt === st)
     }
+
+    // ------------------------------------------------------------ P1：图片计价接进预算
+
+    /** 造一个「1024×1024 PNG」的 data URL：只填 PNG 签名 + IHDR 宽高（估算器只读头部，不解码整图）。 */
+    private fun png1024(): String {
+        val b = ByteArray(24)
+        byteArrayOf(
+            0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(),
+            0x0D.toByte(), 0x0A.toByte(), 0x1A.toByte(), 0x0A.toByte(),
+        ).copyInto(b, 0)
+        val w = 1024
+        for (off in intArrayOf(16, 20)) {
+            b[off] = (w ushr 24).toByte()
+            b[off + 1] = (w ushr 16).toByte()
+            b[off + 2] = (w ushr 8).toByte()
+            b[off + 3] = w.toByte()
+        }
+        return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(b)
+    }
+
+    @Test
+    fun imageTokensUseProviderFormula() {
+        val m = jobj("id" to "u1", "role" to "user", "content" to "", "images" to listOf(png1024()))
+        // 一张 1024×1024：Gemini 258 / Anthropic (w×h)/750 = 1398 / OpenAI 85+170×4 = 765
+        assertEquals(258 + 4, RpCacheCore.estimateItems(listOf(m), "gemini"))
+        assertEquals(1398 + 4, RpCacheCore.estimateItems(listOf(m), "anthropic"))
+        assertEquals(765 + 4, RpCacheCore.estimateItems(listOf(m), "openai"))
+        // 不传 provider 时沿用旧口径 1000/张（rpcache golden 靠它保持字节级一致）
+        assertEquals(1000 + 4, RpCacheCore.estimateItems(listOf(m)))
+    }
+
+    @Test
+    fun trimWindowUsesSameImageRuler() {
+        val m = jobj("id" to "u1", "role" to "user", "content" to "", "images" to listOf(png1024()))
+        // 「是否超预算」与「临时裁剪窗口」必须同一把尺子，否则两个判断互相打架
+        assertEquals(RpCacheCore.estimateItems(listOf(m), "gemini"), RpCacheCore.itemTokens(m, "gemini"))
+    }
 }

@@ -242,7 +242,7 @@ class DefaultChatEngine(
                     val netErr = if (f.message.startsWith(NET_ERR)) f.message.removePrefix(NET_ERR).substringBefore(NET_HINT) else null
                     val c = NetRetry.classify(if (netErr != null) 0 else f.httpStatus, f.raw, netErr)
                     if (NetRetry.shouldRetry(c, attempt, gotDelta, false)) {
-                        val wait = NetRetry.backoff(attempt, c.kind, rnd())
+                        val wait = NetRetry.delayFor(attempt, c.kind, f.retryAfterMs, rnd())
                         send(StreamEvent.Notice(c.label + "，" + Js.numberToString(Math.round(wait / 100.0) / 10.0) + " 秒后重试（" + (attempt + 1) + "/" + NetRetry.MAX_RETRIES + "）"))
                         sleep(wait)
                         attempt++

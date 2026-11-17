@@ -75,7 +75,11 @@ sealed interface StreamEvent {
     data class UsageUpdate(val usage: Usage) : StreamEvent       // 已 mergeUsage
     data class Finish(val reason: String?) : StreamEvent
     data class RouteChosen(val slug: String) : StreamEvent        // OpenRouter 实际上游（用于 observeRoute）
-    data class Error(val httpStatus: Int, val message: String, val raw: String) : StreamEvent
+    /**
+     * retryAfterMs：服务端 `Retry-After` 给的等待时长（只在 429/503 上解析），
+     * 交给 ChatEngine 决定这次重试等多久；null = 按指数退避猜。
+     */
+    data class Error(val httpStatus: Int, val message: String, val raw: String, val retryAfterMs: Long? = null) : StreamEvent
     /** v1 契约变更 #4：给用户看的提示（如 402「额度不足，已将最大输出降至 N 并重试」），不影响正文 */
     data class Notice(val text: String) : StreamEvent
 }

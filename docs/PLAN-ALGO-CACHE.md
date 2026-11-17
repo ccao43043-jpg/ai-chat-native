@@ -18,7 +18,7 @@
 
 | 批次 | 内容 | 工时 | 出口 |
 |---|---|---|---|
-| **B1** | 图片按服务商计价接入预算路径、`Retry-After`、死代码与过期注释清理 | 0.75 天 | 可发 v1.5.3（纯改善，无行为突变） |
+| **B1** | 图片按服务商计价接入预算路径、`Retry-After`、死代码与过期注释清理 | 0.75 天 | ✅ **已完成**（PR #98，413 单测全绿）→ 可发 v1.5.3 |
 | **B2** | 预算系数能力表参数化、`plan()` 单轮估算 memo | 1.5 天 | 可发 v1.5.4（带开关，默认保守） |
 | **B3** | **D7 文件分块检索**（替代前缀截断） | 2–3 天 | 可发 v1.6.0（用户可见，收益最大） |
 | **B4** | 路由埋点 → 数据两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | 视数据决定 |
@@ -35,7 +35,7 @@ D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）�
 | # | 项 | 结论 | 证据 |
 |---|---|---|---|
 | 1 | 统一文本 token 尺子 | ✅ 已完成 | `plugins/rp/RpCacheCore.kt:161` `fun estimateTokens(text: Any?): Int = TokenEstimator.text(Js.str(text))`；`plugins/TokenEstimator.kt:26` 逐码点分档（汉字 0.6 / 英文 0.3 / 数字 0.5 / 空白 0.1 / 其余 1.5） |
-| 2 | 图片按服务商计价 | ⚠️ **算法有、预算路径没接** | `TokenEstimator.kt:47-56` `image(provider, dataUrl)`：gemini 258 / anthropic `max(156,w*h/750)` / openai `85+170*tiles` / 其它 1000；但 `RpCacheCore.kt:164` `fun estimateItems(items: List<Any?>): Int = TokenEstimator.messages(items)` **不传 provider** → 走 `TokenEstimator.kt:72` `FALLBACK = 1000` |
+| 2 | 图片按服务商计价 | ✅ 已完成（P1，PR #98） | `TokenEstimator.kt:47-56` `image(provider, dataUrl)`：gemini 258 / anthropic `max(156,w*h/750)` / openai `85+170*tiles` / 其它 1000。现在 `RpCacheCore.estimateItems(items, provider: String? = null)`、`layerTokens(...)`、`computeTrimWindow(st, p, provider)`、`applyTempTrim(st, p, now, provider)`、`itemTokens(m, provider)` 全部透传；`RpCachePlugin` 传 `ctx.provider.presetId.ifEmpty { ctx.provider.id }`。不传 provider 时仍 `FALLBACK = 1000`（golden 字节级兼容） |
 | 3 | 摘要最优停止（D8） | ✅ 已完成 | `RpCacheCore.kt:175-193` `fun summaryTiming(U, g, saved, fixed, limit, h=12, gamma=0.9): Int` 枚举 `t∈0..H` 的折现总成本取 argmin |
 | 4 | 分层预算 `applyLagrangeBudget` | ⛔ 用户已决定不做 | `MASTER-PLAN.md` §5.3 第 1 条（架构演进取代）；注释仍留在 `RpCacheCore.kt:419`，需登记为「明确不做」 |
 | 5 | 预算系数 | ⚠️ 硬编码 | `RpCacheCore.kt:365-372`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]` |
@@ -44,10 +44,10 @@ D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）�
 | 8 | BM25 索引缓存 | ✅ 已完成 | `RpMemoryCore.kt:437 fun buildIndex(list, prev: Index? = null)` + `:452 buildIndexUncached`（签名命中复用） |
 | 9 | 路由 Beta 折扣 | ✅ 已完成 | `net/Router.kt:251 chooseUpstream`：`:266 hitQuantile(st.a, st.b, zPessimistic)`、`:286 stickyIdleMs`、`:291-296` 切换成本折现 |
 | 10 | 路由探索 / 统计衰减 | ❌ 未做 | `chooseUpstream` 全程无 epsilon/UCB，`UpstreamStats.a/b` 无时间衰减（`lastAt` 只用于 idle 判定） |
-| 11 | 重试退避 | ⚠️ 有 jitter、无 `Retry-After` | `net/NetRetry.kt:35 backoff`（`base·2^attempt`，429 起步 2s，上限 15s，`×(0.8+0.4·rnd)`）；`:43` 重试条件；全仓 `retryAfter` 零命中 |
+| 11 | 重试退避 | ✅ 已完成（P4，PR #98） | `net/NetRetry.kt` `backoff` 保留（Full Jitter），新增 `parseRetryAfter(headers, nowMs)` / `parseRetryAfterValue(raw, nowMs)`（认秒数与 HTTP-date）/ `delayFor(attempt, kind, retryAfterMs, rnd)` = `minOf(MAX_DELAY_MS = 60_000, maxOf(backoff, retryAfter))`；`domain/Contracts.kt` 的 `Error` 增 `retryAfterMs: Long? = null`；`DefaultProviderClient` 在 429/503 读 `Retry-After` 头；`DefaultChatEngine` 改用 `delayFor` |
 | 12 | 文件上下文 | ❌ 纯前缀截断（D7） | `data/files/FileText.kt:167 fun capText(text, max)` = `text.substring(0, max)`；`:174-181 buildFileContext` 按 `remain` 依次截断 |
-| 13 | 死代码 | ⚠️ 存在 | `RpCacheCore.kt:437-440 fun itemTokens(m)` 已无生产调用（估算统一走 `estimateItems`） |
-| 14 | 单轮重复估算 | ⚠️ 存在 | `plan()` 内 6 处 `estimateItems(...)`：`:402 hist`、`:405 input`、`:500 hist`、`:503 input`、`:531 unsummarized`、`:598 hist`，每次 O(全部字数) 逐码点扫描 |
+| 13 | 死代码 | ✅ 无（原判断有误，已更正） | 复核后 `itemTokens` **不是**死代码：`computeTrimWindow` 的前缀和就靠它（`prefix[i + 1] = prefix[i] + itemTokens(un[i], provider)`）。P5 改为「与 `estimateItems` 同一把尺子」，**没有删除** |
+| 14 | 单轮重复估算 | ⚠️ 少量（原判断有误，已更正） | 复核：`plan()` 内 `hist` 只算 1 次、`unsummarized` 只算 1 次，原写「hist 被算 3 次」不成立（`:402`/`:405` 在 `layerTokens`、`:598` 在裁剪段的不同列表上）。真正的重复是**同一条带图消息**被 `estimateItems`（预算）与 `itemTokens`（前缀和）各算一次 → 图片像素尺寸被反复解码，优化点应落在 `TokenEstimator.image` 的尺寸缓存 |
 | 15 | 自适应 TTL / 阈值 / sessionId | ✅ 已完成 | `plugins/cache/GCache.kt:146 adaptiveMinTokens`、`:219 TTL_EFF_DEFAULT = 240`、`:16` 默认 `sessionId = true` |
 | 16 | 成本有效价格学习（§4.6） | ⚠️ 仅单标量 | `domain/cost/CostCoreJs.kt` `reconcile`（scale + biasEwma），无按模型的价差回归 |
 
@@ -55,7 +55,7 @@ D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）�
 
 ## 2. 待做项详解
 
-### P1 · 图片 token 接入预算路径（B1，0.5 天）
+### P1 · 图片 token 接入预算路径（B1，0.5 天）✅ 已完成（PR #98）
 
 **问题**：同一句话「这轮会不会超预算」，文本用了精确尺子，图片却仍是 1000/张。
 一张 1024×1024 图：Gemini 真实 ≈258（高估 3.9×）→ 提前裁剪，白丢历史、命中率下降；
@@ -153,7 +153,7 @@ fun pickRelevantChunks(text: String, question: String, budgetChars: Int): Pair<S
 
 ---
 
-### P4 · `Retry-After` 支持（B1，0.25 天）
+### P4 · `Retry-After` 支持（B1，0.25 天）✅ 已完成（PR #98）
 
 **问题**：`NetRetry.kt:35` 的退避是「猜的」（429 起步 2s）。服务端说「30 秒后再来」，我们 2s 就重试，
 `MAX_RETRIES = 2` 的两次机会瞬间烧光，最后给用户一个假失败。
@@ -177,7 +177,7 @@ fun delayFor(attempt: Int, kind: String?, retryAfterMs: Long?, rnd: Double = Mat
 
 ---
 
-### P5 · 卫生：死代码 + 过期注释（B1，0.25 天）
+### P5 · 卫生：过期注释 + 尺子归一（B1，0.25 天）✅ 已完成（PR #98）——**原写的「删死代码」有误，见 §1 第 13 行更正**
 
 1. 删 `RpCacheCore.kt:437-440` `fun itemTokens(m: JObj)`（无生产调用，只在注释里被引用）；
    同时改 `TokenEstimator.kt:18` 与 `:60` 两处「与 `RpCacheCore.estimateItems` 的 `imgN * 1000` 一致」描述（`estimateItems` 已委托 TokenEstimator，不再是独立实现）。
@@ -195,7 +195,7 @@ fun delayFor(attempt: Int, kind: String?, retryAfterMs: Long?, rnd: Double = Mat
 
 ### P6 · `plan()` 单轮估算 memo（B2，0.5 天）
 
-**问题**：`plan()` 内 6 处 `estimateItems(...)`，其中 `hist` 被算 3 次（`:402`、`:500`、`:598`）。
+**问题**（已按复核更正）：**不是**「`hist` 被算 3 次」——`plan()` 内 `hist`、`unsummarized` 各只算 1 次。真正的重复是：同一条带图消息会被 `estimateItems`（判断是否超预算）与 `itemTokens`（裁剪前缀和）各算一次，而 `TokenEstimator.dims()` 每次都 Base64 解码图片头部；长会话多图时这一次重复才值得省。
 每个 token 都是逐码点循环，长会话 200 条消息 × 3 遍 ≈ 多扫几十万字符，一次发送白烧 30–80ms（低端机更明显）。
 
 **改法**：`plan()` 开头一次性算出并复用：
@@ -250,7 +250,7 @@ val unsumTok = estimateItems(unsummarized, provider)
 
 | 批次 | 项 | 工时 | 版本 | 风险 |
 |---|---|---|---|---|
-| **B1** | P1 图片计价 · P4 Retry-After · P5 卫生 | 0.75 天 | v1.5.3 | 低（全部带默认值，golden 不动） |
+| **B1** | P1 图片计价 · P4 Retry-After · P5 卫生 | 0.75 天 | ✅ **已完成**（PR #98）→ v1.5.3 | 低（全部带默认值，golden 不动）——实际 golden 一条没改 |
 | **B2** | P2 能力表（默认 legacy）· P6 memo | 1.5 天 | v1.5.4 | 中低（开关默认关，行为不变） |
 | **B3** | P3 文件分块检索 | 2–3 天 | v1.6.0 | 中（用户可见，需 golden + 三条验收） |
 | **B4** | P7 埋点 → 观察 → 算法 · P8 | 1–2 天 + 观察 | v1.6.x | 低（埋点）/ 中（算法带开关） |
@@ -269,7 +269,7 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 | 429 场景重试成功率 | 2s 即重试，易烧光 | 遵守 `Retry-After`，成功率 > 90% | P4 |
 | 长文档问答（答案在后 2/3） | 必错 | 必对（3 条固定用例） | P3 |
 | `plan()` 单次耗时（200 条消息） | 未测 | < 20ms | P6 |
-| 单测数 | 403 | 只增不减 | 全部 |
+| 单测数 | 413（B1 后） | 只增不减 | 全部 |
 | golden | 全绿 | 全绿（`estimateItems`/`plan` 默认入参不变） | P1/P2/P6 |
 
 ---
@@ -304,3 +304,4 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 | 日期 | 变更 |
 |---|---|
 | 2026-11-17 | 首版。核实 16 项现状，识别 5 件实事（P1/P2/P3/P4/P6 主体）+ 3 件卫生/长线（P5/P7/P8），排入 B1–B4 |
+| 2026-11-17 | **B1 完成**（PR #98）：P1 图片 token 接入预算路径（`estimateItems`/`layerTokens`/`computeTrimWindow`/`applyTempTrim`/`itemTokens` 全部透传 provider，`RpCachePlugin` 传 presetId）；P4 `Retry-After`（秒数 + HTTP-date，封顶 60s）；P5 过期注释与 `TokenEstimator` 说明。单测 403 → **413**，golden 零改动。同时更正两处判断错误：`itemTokens` 不是死代码（§1 第 13 行）、`plan()` 里 `hist` 只算一次（§1 第 14 行 / §2 P6） |
