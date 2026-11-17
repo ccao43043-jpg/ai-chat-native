@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -142,16 +143,42 @@ fun ChatScreen(
 
     // 新消息 / 切对话时回到底部。
     //
-    // 旧版是无条件 `scrollToItem(0)`：只要消息条数变化（新消息、删一条、编辑重发）就把列表弹回底部。
-    // 用户往上翻历史时，这几件事都会把他正在读的位置弹走，所以这里只在「本来就在底部附近」时才滚。
-    // `reverseLayout = true` → item 0 是最新消息，离底 ≈ firstVisibleItemIndex == 0。
+    // 旧版无条件 `scrollToItem(0)`，翻历史时会被弹走；上一版改成「只在底部时才滚」，
+    // 结果最该贴底的场景反而失效：自己发出一条消息后，列表往往还停在首屏最上面
+    // （`reverseLayout = true`，item 0 是最新消息，首屏 = 顶部），守卫判定「不在底部」→ 不跟随。
+    // 现在分四种情况：
+    //   1. 切对话：无条件贴底，并恢复跟随；
+    //   2. 自己发出消息（条数变多且最新一条是 user）：无条件贴底，并恢复跟随；
+    //   3. 其他增长（插件开场白、删除、编辑重发）：只在跟随状态下贴底；
+    //   4. 用户手动往上翻（拖动中且不在底部附近）→ 停止跟随，直到他翻回底部或再发一条。
+    var follow by remember(st.convId) { mutableStateOf(true) }
     var lastConvId by remember { mutableStateOf(st.convId) }
+    var lastCount by remember { mutableStateOf(messages.size) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                // 只认用户拖动：程序化 animateScrollToItem 期间 isScrollInProgress 也为真，
+                // 但那时 index/offset 一路趋近 0，不会误判成「翻走了」。
+                if (!listState.isScrollInProgress) return@collect
+                follow = index == 0 && offset < 80
+            }
+    }
+
     LaunchedEffect(st.convId, messages.size) {
         if (messages.isEmpty()) return@LaunchedEffect
         val switched = lastConvId != st.convId
+        val grew = messages.size > lastCount
+        val mine = grew && messages.lastOrNull()?.role == com.aichat.app.domain.model.Role.USER
         lastConvId = st.convId
-        val atBottom = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 200
-        if (switched || atBottom) listState.animateScrollToItem(0)
+        lastCount = messages.size
+        if (switched) {
+            follow = true
+            listState.scrollToItem(0)
+            return@LaunchedEffect
+        }
+        if (mine) follow = true
+        if (follow) listState.animateScrollToItem(0)
     }
 
     // 抽屉底部各行的计数（旧版 v0.29 也展示这些）

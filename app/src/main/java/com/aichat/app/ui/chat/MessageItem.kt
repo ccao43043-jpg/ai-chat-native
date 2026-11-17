@@ -2,7 +2,22 @@ package com.aichat.app.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import com.aichat.app.R
+import com.aichat.app.ui.theme.Palette
+import com.aichat.app.ui.theme.Radii
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -53,6 +68,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.longOrNull
 import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.Role
+import com.aichat.app.ui.common.MarkdownReveal
 import com.aichat.app.ui.common.MarkdownText
 import com.aichat.app.ui.common.RemoteImage
 import com.aichat.app.ui.common.pressScale
@@ -124,7 +140,7 @@ fun MessageItem(
                     )
                 }
             }
-            ActionRow(m, view, copy, actions)
+            ActionBar(m, view, copy, actions)
         }
         return
     }
@@ -161,7 +177,9 @@ fun MessageItem(
                 ) {
                     SelectionContainer {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            MarkdownText(m.content, onCopy = onToast)
+                            // 流式中逐字揭示；已落定的消息直接整块渲染（无动画开销）
+                            if (streaming) MarkdownReveal(m.content, onCopy = onToast)
+                            else MarkdownText(m.content, onCopy = onToast)
                         }
                     }
                 }
@@ -182,7 +200,7 @@ fun MessageItem(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.weight(1f).clipToBounds()) {
-                    AssistantActionRow(m, view, copy, actions)
+                    ActionBar(m, view, copy, actions)
                 }
                 if (info.isNotEmpty()) Text(
                     info,
@@ -224,77 +242,117 @@ fun BadgeChip(b: Badge, onClick: () -> Unit, prefix: String = "") {
     }
 }
 
-/** 操作栏（app.js fillMsgEl .actions）：版本切换 ‹ n/m ›、复制、继续生成、重新生成 / 从这里重新生成、编辑、删除 */
+/**
+ * 操作栏：一行放得下，不横向滚动。
+ *
+ * 旧版把「复制 / 台词卡 / 场景图 / 继续生成 / 重新生成 / 编辑 / 删除」七个 12sp 文字平铺，
+ * 屏宽塞不下只能左右滑——用户根本不知道右边还有按钮。
+ * 现在：版本胶囊 + 至多两个高频文字胶囊 + 两个图标按钮 + 「⋯」，
+ * 低频操作（分享、删除）收进菜单。**所有 testTag 保持不变**，UI 测试依赖它们。
+ */
 @Composable
-private fun ActionRow(m: Message, v: MessageView, copy: () -> Unit, a: MessageActions) {
+private fun ActionBar(m: Message, v: MessageView, copy: () -> Unit, a: MessageActions) {
     val n = Versions.count(m); val k = Versions.index(m)
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())
-        .testTag("actions-${m.role.name.lowercase()}")) {
-        if (n > 1 && a.onVersion != null) Row(Modifier.alpha(if (v.dim) 0.55f else 1f).testTag(if (v.dim) "ver-frozen" else "ver-sw"),
-            verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { a.onVersion.invoke(k - 1) }, enabled = k > 0, contentPadding = SmallPad,
-                modifier = Modifier.testTag("ver-prev")) { Text("‹", fontSize = 16.sp) }
-            TextButton(onClick = { a.onVersionMenu?.invoke() }, contentPadding = SmallPad, modifier = Modifier.testTag("ver-label")) {
-                Text("${k + 1}/$n", style = MaterialTheme.typography.labelMedium)
-            }
-            TextButton(onClick = { a.onVersion.invoke(k + 1) }, enabled = k < n - 1, contentPadding = SmallPad,
-                modifier = Modifier.testTag("ver-next")) { Text("›", fontSize = 16.sp) }
-        }
-        if (m.content.isNotEmpty()) Act("复制", "copy", copy)
-        if (!v.busy) {
-            if (!v.dim) a.onContinue?.let { Act("继续生成", "continue", it) }
-            if (!v.dim) a.onRegenerate?.let { Act(if (v.isLast) "重新生成" else "从这里重新生成", "regen", it) }
-            a.onEdit?.let { Act("编辑", "edit", it) }
-            a.onDelete?.let { Act("删除", "delete", it) }
-        }
-    }
-}
-
-/** 助手操作栏：贴气泡、12sp 灰字，不用 TextButton 的 48dp 紫字。用户气泡那一行不动。 */
-@Composable
-private fun AssistantActionRow(m: Message, v: MessageView, copy: () -> Unit, a: MessageActions) {
-    val n = Versions.count(m); val k = Versions.index(m)
+    var more by remember(m.id) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier.horizontalScroll(rememberScrollState()).testTag("actions-${m.role.name.lowercase()}"),
+        modifier = Modifier.testTag("actions-${m.role.name.lowercase()}"),
     ) {
-        if (n > 1 && a.onVersion != null) {
-            val dim = if (v.dim) 0.55f else 1f
-            Text("‹", fontSize = 14.sp, color = if (k > 0) com.aichat.app.ui.theme.Palette.Fg2 else com.aichat.app.ui.theme.Palette.Fg3,
-                modifier = Modifier.alpha(dim).clickable(enabled = k > 0) { a.onVersion.invoke(k - 1) }.padding(horizontal = 4.dp, vertical = 4.dp).testTag("ver-prev"))
-            Text("${k + 1}/$n", fontSize = 12.sp, color = com.aichat.app.ui.theme.Palette.Accent,
-                modifier = Modifier.alpha(dim).clickable { a.onVersionMenu?.invoke() }.padding(horizontal = 2.dp, vertical = 4.dp).testTag("ver-label"))
-            Text("›", fontSize = 14.sp, color = if (k < n - 1) com.aichat.app.ui.theme.Palette.Fg2 else com.aichat.app.ui.theme.Palette.Fg3,
-                modifier = Modifier.alpha(dim).clickable(enabled = k < n - 1) { a.onVersion.invoke(k + 1) }.padding(horizontal = 4.dp, vertical = 4.dp).testTag("ver-next"))
+        if (n > 1 && a.onVersion != null) VersionPill(k, n, v.dim, a)
+        if (!v.busy && !v.dim) {
+            a.onContinue?.let { ActionPill("继续生成", "continue", it) }
+            a.onRegenerate?.let { ActionPill(if (v.isLast) "重新生成" else "从头重生成", "regen", it) }
         }
-        if (m.content.isNotEmpty()) AssistAct("复制", "copy", copy)
-        if (m.content.isNotEmpty()) a.onShareCard?.let { AssistAct("台词卡", "share-card", it) }
-        if (m.content.isNotEmpty()) a.onShareScene?.let { AssistAct("场景图", "share-scene", it) }
-        if (!v.busy) {
-            if (!v.dim) a.onContinue?.let { AssistAct("继续生成", "continue", it) }
-            if (!v.dim) a.onRegenerate?.let { AssistAct(if (v.isLast) "重新生成" else "从这里重新生成", "regen", it) }
-            a.onEdit?.let { AssistAct("编辑", "edit", it) }
-            a.onDelete?.let { AssistAct("删除", "delete", it, danger = true) }
+        if (m.content.isNotEmpty()) ActionIconPainter(painterResource(R.drawable.ic_content_copy), "复制", "copy", copy)
+        if (!v.busy) a.onEdit?.let { ActionIcon(Icons.Filled.Create, "编辑", "edit", it) }
+        if (a.onShareCard != null || a.onShareScene != null || (!v.busy && a.onDelete != null)) {
+            Box {
+                ActionIcon(Icons.Filled.MoreVert, "更多操作", "more") { more = true }
+                DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                    if (m.content.isNotEmpty()) {
+                        a.onShareCard?.let {
+                            DropdownMenuItem(text = { Text("分享台词卡") }, modifier = Modifier.testTag("share-card"),
+                                onClick = { more = false; it() })
+                        }
+                        a.onShareScene?.let {
+                            DropdownMenuItem(text = { Text("分享场景图") }, modifier = Modifier.testTag("share-scene"),
+                                onClick = { more = false; it() })
+                        }
+                    }
+                    if (!v.busy) a.onDelete?.let {
+                        DropdownMenuItem(text = { Text("删除", color = Palette.Danger) },
+                            modifier = Modifier.testTag("delete"), onClick = { more = false; it() })
+                    }
+                }
+            }
         }
     }
 }
 
+/** 版本胶囊 ‹ 1/3 ›：三段各自可点，tag 不变（ver-prev / ver-label / ver-next） */
 @Composable
-private fun AssistAct(label: String, tag: String, onClick: () -> Unit, danger: Boolean = false) {
-    Text(
-        label,
-        fontSize = 12.sp,
-        color = if (danger) com.aichat.app.ui.theme.Palette.Danger else com.aichat.app.ui.theme.Palette.Fg3,
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp).testTag(tag),
-    )
+private fun VersionPill(k: Int, n: Int, dim: Boolean, a: MessageActions) {
+    Surface(
+        color = Palette.Surface2,
+        shape = RoundedCornerShape(999.dp),
+        modifier = Modifier.height(26.dp).alpha(if (dim) 0.55f else 1f).testTag(if (dim) "ver-frozen" else "ver-sw"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("‹", fontSize = 14.sp, color = if (k > 0) Palette.Fg2 else Palette.Fg3,
+                modifier = Modifier
+                    .clickable(enabled = k > 0) { a.onVersion?.invoke(k - 1) }
+                    .padding(start = 8.dp, end = 4.dp).testTag("ver-prev"))
+            Text("${k + 1}/$n", fontSize = 11.sp, color = Palette.Accent,
+                modifier = Modifier
+                    .clickable { a.onVersionMenu?.invoke() }
+                    .padding(horizontal = 2.dp).testTag("ver-label"))
+            Text("›", fontSize = 14.sp, color = if (k < n - 1) Palette.Fg2 else Palette.Fg3,
+                modifier = Modifier
+                    .clickable(enabled = k < n - 1) { a.onVersion?.invoke(k + 1) }
+                    .padding(start = 4.dp, end = 8.dp).testTag("ver-next"))
+        }
+    }
+}
+
+/** 文字胶囊：只在真正高频、且需要文字说明的动作上用（继续生成 / 重新生成） */
+@Composable
+private fun ActionPill(label: String, tag: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = Palette.Surface2,
+        shape = RoundedCornerShape(999.dp),
+        modifier = Modifier.height(28.dp).testTag(tag),
+    ) {
+        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 11.5.sp, color = Palette.Fg2, maxLines = 1)
+        }
+    }
+}
+
+/** 图标按钮：复制 / 编辑 / 更多，30dp 触摸区，按压有反馈 */
+@Composable
+private fun ActionIcon(icon: ImageVector, desc: String, tag: String, onClick: () -> Unit) {
+    val press = remember { MutableInteractionSource() }
+    Box(
+        Modifier.size(30.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
+            .clickable(interactionSource = press, indication = null, onClick = onClick).testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, desc, Modifier.size(16.dp), tint = Palette.Fg3) }
+}
+
+@Composable
+private fun ActionIconPainter(painter: Painter, desc: String, tag: String, onClick: () -> Unit) {
+    val press = remember { MutableInteractionSource() }
+    Box(
+        Modifier.size(30.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
+            .clickable(interactionSource = press, indication = null, onClick = onClick).testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Image(painter, desc, Modifier.size(15.dp), colorFilter = ColorFilter.tint(Palette.Fg3)) }
 }
 
 private val SmallPad = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
 
-@Composable
-private fun Act(label: String, tag: String, onClick: () -> Unit) =
-    TextButton(onClick = onClick, contentPadding = SmallPad, modifier = Modifier.testTag(tag)) { Text(label, fontSize = 12.sp) }
 
 /** 附件文件卡片：名称 · 大小 · 类型（扫描版 PDF 标注） */
 @Composable
