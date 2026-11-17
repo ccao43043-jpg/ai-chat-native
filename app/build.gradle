@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 125                  // 原生 v1.5.2：输入条动效 + 操作栏重排 + 流式逐字 + 新消息跟随 + 截断可见
-        versionName '1.5.2'
+        versionCode 126                  // 原生 v1.5.3：缓存策略选择 + 缓存体检 + 前缀稳定化；图片 token 按服务商计价 + Retry-After
+        versionName '1.5.3'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
