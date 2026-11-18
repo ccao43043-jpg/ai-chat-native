@@ -277,4 +277,12 @@ class RpCacheCoreTest {
         // 「是否超预算」与「临时裁剪窗口」必须同一把尺子，否则两个判断互相打架
         assertEquals(RpCacheCore.estimateItems(listOf(m), "gemini"), RpCacheCore.itemTokens(m, "gemini"))
     }
+
+    @Test
+    fun remainingTokensIsLimitMinusUsed() {
+        val p = RpCacheCore.plan(RpState.newState(), "你是助手。", listOf(jobj("id" to "u1", "role" to "user", "content" to "你好")))
+        // 召回装配要用这个数封顶；两个派生值必须自洽，否则「预算不足」的判定会凭空多出或少掉一块
+        assertEquals(p.limit - p.usedTokens, p.remainingTokens)
+        assertTrue(p.remainingTokens >= 0)
+    }
 }

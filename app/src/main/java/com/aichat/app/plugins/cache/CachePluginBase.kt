@@ -23,10 +23,8 @@ abstract class CachePluginBase(protected val host: PluginHost) : ChatPlugin {
     /** 协议层缓存标记：只有缓存插件允许改 body（S5） */
     override fun slots(): List<Slot> = listOf(Slot.S5_BODY)
 
-    override fun inactiveReason(conv: Conversation, settings: AppSettings): String {
-        val p = CachePolicy.providerOf(settings, conv)
-        return CachePolicy.pick(p, conv.model, settings, conv).reason
-    }
+    override fun inactiveReason(conv: Conversation, settings: AppSettings): String =
+        CachePolicy.planOf(conv, settings).reason
 
     /** 徽章收口到 cachemeter（PLAN-CONTEXT-ARCH §3.3）：仍写 stat/滚动率，但不再自己出徽章 */
     override fun headerBadges(conv: Conversation): List<Badge> = emptyList()

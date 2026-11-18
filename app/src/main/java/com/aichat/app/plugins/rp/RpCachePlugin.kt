@@ -76,8 +76,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // 千问显式缓存的 cache_control 断点由本插件打：CachePolicy 判 owner=rpcache 时，
         // 哪怕一个 RP 块都没有也要跑起来把断点打出去 —— 否则策略层说「交给 rpcache」，
         // 实际没有任何插件执行，纯聊天里千问一个断点都拿不到。
-        val p = CachePolicy.providerOf(settings, conv) ?: return false
-        return CachePolicy.pick(p, conv.model, settings, conv).owner == CachePolicy.OWNER_RPCACHE
+        return CachePolicy.planOf(conv, settings).owner == CachePolicy.OWNER_RPCACHE
     }
 
     /**
@@ -219,6 +218,14 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
 
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
+        // 预算余量交给下游装配（PluginRegistryImpl.assembleRecall 用它给召回封顶）。
+        // 召回是插件都跑完之后才拼上去的，规划时算不到它 —— 这里把「还剩多少」显式传下去，
+        // 否则召回会把贴着 limit 的请求顶出模型窗口。
+        meta["rpBudget"] = Js.toJson(jobj(
+            "limit" to p.limit,
+            "used" to p.usedTokens,
+            "remaining" to p.remainingTokens,
+        ))
         meta["rpcacheMarks"] = Js.toJson(jobj(
             "vendor" to cap.vendor,
             "kind" to cap.kind,

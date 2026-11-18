@@ -44,13 +44,22 @@ class RecallBus {
 
     fun clear(): RecallBus = apply { items.clear() }
 
+    /** 上一次 [render] 因为「跨来源近似重复」丢掉了几条（给体检面板用） */
+    var lastSoftDropped: Int = 0
+        private set
+
     /**
      * 去重 → 按优先级排序 → 按 token 预算截断 → 渲染成一段可注入文本。
      *
-     * 去重按「规范化后的文本」比：同一段资料既被资料库命中又被记忆命中时只留一份
-     * （保留优先级高的那条），避免同一个事实在提示词里出现两遍。
+     * 去重分两层：
+     * 1. **精确**：按规范化文本比，同一段资料既被资料库命中又被记忆命中时只留一份（保留优先级高的）。
+     * 2. **近似**（[SOFT_DUPE]）：跨来源时再比一次 bigram Jaccard。资料库的段落常和记忆里的短句
+     *    说的是同一件事，只是措辞不同 —— 精确去重抓不到，白花预算还让提示词变啰嗦。
+     *    只在**跨来源**时做（同来源交给精确去重），并且数字或否定词不同就视为不同事实
+     *    （「灯塔是红色」/「灯塔是白色」不能被合并）。
      */
     fun render(budgetTokens: Int = DEFAULT_BUDGET): String {
+        lastSoftDropped = 0
         val seen = LinkedHashMap<String, RecallItem>()
         for (it in items) {
             if (it.text.isBlank()) continue
@@ -63,6 +72,10 @@ class RecallBus {
         val picked = ArrayList<RecallItem>()
         var used = 0
         for (it in ordered) {
+            if (picked.any { p -> p.source != it.source && softSame(p.text, it.text) }) {
+                lastSoftDropped++
+                continue
+            }
             val t = it.resolvedTokens()
             if (used + t > budgetTokens && picked.isNotEmpty()) continue
             picked += it
@@ -98,5 +111,39 @@ class RecallBus {
 
         private fun normalize(text: String): String =
             text.trim().replace(Regex("[ \\t]+"), " ").replace(Regex("\n{2,}"), "\n")
+
+        /** 跨来源近似重复的相似度门槛（bigram Jaccard） */
+        const val SOFT_DUPE = 0.8
+
+        private fun grams(text: String): Set<String> {
+            val s = text.trim().lowercase().replace(Regex("\\s+"), "")
+            if (s.isEmpty()) return emptySet()
+            if (s.length <= 2) return setOf(s)
+            val out = HashSet<String>(s.length)
+            for (i in 0 until s.length - 1) out += s.substring(i, i + 2)
+            return out
+        }
+
+        private fun overlap(a: String, b: String): Double {
+            val ga = grams(a)
+            val gb = grams(b)
+            if (ga.isEmpty() || gb.isEmpty()) return 0.0
+            val hit = ga.count { it in gb }
+            return hit.toDouble() / (ga.size + gb.size - hit)
+        }
+
+        private val DIGITS = Regex("\\d+")
+        private val NEGATION = Regex("(不|没|未|别|勿|无|非|never|not|\\bno\\b)", RegexOption.IGNORE_CASE)
+
+        /** 数字集合或否定倾向不同 → 语义不同，不允许被近似去重掉 */
+        private fun differsInFacts(a: String, b: String): Boolean {
+            val na = DIGITS.findAll(a).map { it.value }.toSet()
+            val nb = DIGITS.findAll(b).map { it.value }.toSet()
+            if (na != nb) return true
+            return NEGATION.containsMatchIn(a) != NEGATION.containsMatchIn(b)
+        }
+
+        private fun softSame(a: String, b: String): Boolean =
+            overlap(a, b) >= SOFT_DUPE && !differsInFacts(a, b)
     }
 }

@@ -1,5 +1,6 @@
 package com.aichat.app.plugins.cache
 
+import com.aichat.app.domain.RequestContext
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.ProviderConfig
@@ -181,5 +182,39 @@ object CachePolicy {
     private fun isMiniMax(p: ProviderConfig): Boolean {
         val id = (p.presetId + " " + p.id + " " + p.baseUrl).lowercase()
         return id.contains("minimax")
+    }
+
+    // ---------------- 回合级 memo ----------------
+
+    /**
+     * 一段对话一轮只算一次路线。
+     *
+     * 以前 [pick] 一轮被调 5 次（cachemeter / 两个缓存插件的 autoActive 与 inactiveReason /
+     * rpcache 的 autoActive 与打点），每次都要重建 providerJs、跑 capability 判定；
+     * 更要紧的是**口径可能不一致** —— gcache 的 onBeforeRequest 里还自己又判了一次
+     * isOpenRouterGemini，于是「策略说走 gcache，插件自己说不是我的活」这种矛盾
+     * 在界面上看不出来，只表现为「开关开着但什么都没省」。
+     *
+     * memo 的范围就是一轮：`runBeforeRequest` 开头写入、finally 清除。
+     */
+    private val turnMemo = java.util.concurrent.ConcurrentHashMap<String, CachePlan>()
+
+    fun beginTurn(ctx: RequestContext): CachePlan {
+        val p = pick(ctx.provider, ctx.model, ctx.settings, ctx.conv)
+        turnMemo[ctx.conv.id] = p
+        return p
+    }
+
+    fun current(convId: String?): CachePlan? = if (convId.isNullOrEmpty()) null else turnMemo[convId]
+
+    fun clearTurn(convId: String?) {
+        if (!convId.isNullOrEmpty()) turnMemo.remove(convId)
+    }
+
+    /** 非回合场景（插件页、autoActive/inactiveReason）的统一入口：有 memo 用 memo，没有即时算 */
+    fun planOf(conv: Conversation?, settings: AppSettings?): CachePlan {
+        if (conv == null) return pick(providerOf(settings, null), null, settings, null)
+        current(conv.id)?.let { return it }
+        return pick(providerOf(settings, conv), conv.model, settings, conv)
     }
 }

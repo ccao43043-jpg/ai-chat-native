@@ -220,6 +220,7 @@ sendThenStop               AssertionError: Assert failed: The component is not d
 | B5 | 上下文管线结构性整顿（槽位契约 / 召回总线 / 单一缓存 owner / 角色生成分档 / 记忆四层 / 缓存插件骨架），见 [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) §8 | 已实施 M1–M7 | **v1.6.0** |
 | B3 | D7 文件分块检索（替代前缀截断） | 2–3 天 | v1.6.0 |
 | B4 | 路由埋点 → 观察两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | v1.6.x |
+| B6 | 召回纳入预算 · 缓存路线一轮只算一次 · 跨来源软去重 · 体检面板显示插件异常与装配说明 | 0.5 天 | ✅ 已完成（PR #112，577 单测） |
 
 **更正三条过期判断**（此前口头/文档说法与代码不符，避免重复劳动）：
 1. **D8 摘要最优停止已实现**（`RpCacheCore.kt:175 summaryTiming`，PR #78）——`RpCacheCore.kt:419` 那句「有意没搬 adaptiveSummary」是过期注释，B1 一并改掉。

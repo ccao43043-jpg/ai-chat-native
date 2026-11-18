@@ -2,6 +2,7 @@ package com.aichat.app.plugins
 
 import com.aichat.app.domain.*
 import com.aichat.app.domain.model.*
+import com.aichat.app.plugins.cache.CachePolicy
 import com.aichat.app.plugins.js.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,33 +96,48 @@ class PluginRegistryImpl(
     }
     override suspend fun runBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         convPlugins[ctx.conv.id] = (Js.fromJson(ctx.conv.extras["plugins"]) as? JObj) ?: JObj()
-        val act = active(ctx.settings, ctx.conv)
-        var cur = ctx.copy(activePlugins = act.map { it.id })
-        // 一槽一主（PLAN-CONTEXT-ARCH §3.2）：先把声明收上来，冲突只记账不改请求
-        val slots = SlotRegistry()
-        for (p in act) {
-            for (s in p.slots()) {
-                if (!slots.claim(s, p.id)) {
-                    val others = slots.ownersOf(s).filter { it != p.id }.joinToString("、")
-                    cur.trace.conflict("${s.code}（${s.label}）${others} 已拥有，${p.id} 也声明了")
+        // 一轮算一次缓存路线，之后各插件都读这一份（见 CachePolicy.beginTurn）。
+        // 以前 pick() 一轮被调 5 次、gcache 自己还有第二道门，三处判断能各说各话。
+        CachePolicy.beginTurn(ctx)
+        try {
+            val act = active(ctx.settings, ctx.conv)
+            var cur = ctx.copy(activePlugins = act.map { it.id })
+            // 一槽一主（PLAN-CONTEXT-ARCH §3.2）：先把声明收上来，冲突只记账不改请求
+            val slots = SlotRegistry()
+            for (p in act) {
+                for (s in p.slots()) {
+                    if (!slots.claim(s, p.id)) {
+                        val others = slots.ownersOf(s).filter { it != p.id }.joinToString("、")
+                        cur.trace.conflict("${s.code}（${s.label}）${others} 已拥有，${p.id} 也声明了")
+                    }
                 }
             }
+            for (p in act) {
+                val before = cur
+                cur = try {
+                    p.onBeforeRequest(cur, status)
+                } catch (e: Throwable) {
+                    pushErr(p.id, "onBeforeRequest", e.message ?: e.toString())
+                    // 同一件事记两处：errors 给顶栏红点（跨会话），trace 给「本轮谁炸了」的体检面板
+                    cur.trace.error(p.id, "onBeforeRequest", e.message ?: e.toString())
+                    cur
+                }
+                recordStep(before, cur, p)
+            }
+            cur = assembleRecall(cur)
+            finishTrace(cur)
+            // 给插件页留一份「本会话谁真跑了」的快照（进程内，不落盘）
+            runCatching {
+                val plan = (cur.meta["cachePlan"] as? JsonObject)
+                val owner = (plan?.get("owner") as? JsonPrimitive)?.content ?: ""
+                val reason = (plan?.get("reason") as? JsonPrimitive)?.content ?: ""
+                PluginActivation.record(ctx.conv, ctx.model, ctx.settings, this, System.currentTimeMillis(), owner, reason)
+            }
+            return cur
+        } finally {
+            // 不清理的话，UI 侧 planOf() 会读到上一轮的判断（设置改了却还按旧路线显示）
+            CachePolicy.clearTurn(ctx.conv.id)
         }
-        for (p in act) {
-            val before = cur
-            cur = try { p.onBeforeRequest(cur, status) } catch (e: Throwable) { pushErr(p.id, "onBeforeRequest", e.message ?: e.toString()); cur }
-            recordStep(before, cur, p)
-        }
-        cur = assembleRecall(cur)
-        finishTrace(cur)
-        // 给插件页留一份「本会话谁真跑了」的快照（进程内，不落盘）
-        runCatching {
-            val plan = (cur.meta["cachePlan"] as? JsonObject)
-            val owner = (plan?.get("owner") as? JsonPrimitive)?.content ?: ""
-            val reason = (plan?.get("reason") as? JsonPrimitive)?.content ?: ""
-            PluginActivation.record(ctx.conv, ctx.model, ctx.settings, this, System.currentTimeMillis(), owner, reason)
-        }
-        return cur
     }
 
     /** 比较插件调用前后的 systemPrompt 与末条 user，得出「谁动了哪一段、多少 token」 */
@@ -150,11 +166,30 @@ class PluginRegistryImpl(
         if (idx < 0) return ctx
         val tag = ctx.fragments.of(com.aichat.app.domain.Slot.S4_TAG).joinToString("\n") { it.text.trim() }.trim()
         val recallItems = ctx.fragments.of(com.aichat.app.domain.Slot.S3_RECALL)
-        val recall = if (recallItems.isEmpty()) "" else {
+        // 召回额度 = rpcache 规划后剩下的预算 − 状态行。
+        // rpcache 看不见召回（它先跑），所以余量必须由它写在 meta["rpBudget"] 里；
+        // 没有这个数时（非 RP 对话、或 rpcache 没跑）退回默认预算。
+        val tagTokens = TokenEstimator.text(tag)
+        val remaining = (ctx.meta["rpBudget"] as? JsonObject)
+            ?.get("remaining")?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+        val budget = when (remaining) {
+            null -> com.aichat.app.domain.RecallBus.DEFAULT_BUDGET
+            else -> (remaining - tagTokens).coerceIn(0, com.aichat.app.domain.RecallBus.DEFAULT_BUDGET)
+        }
+        ctx.trace.tagTokens = tagTokens
+        val recall = if (recallItems.isEmpty() || budget <= 0) {
+            if (recallItems.isNotEmpty()) {
+                ctx.trace.note("召回预算不足（剩余 ${remaining?.coerceAtLeast(0) ?: 0} token，状态行占 $tagTokens），本轮跳过 ${recallItems.size} 条召回")
+            }
+            ""
+        } else {
             val bus = com.aichat.app.domain.RecallBus()
             recallItems.forEach { bus.offer(com.aichat.app.domain.RecallItem(it.src, it.text, it.priority, it.tokens)) }
-            bus.render()
+            bus.render(budget).also {
+                if (bus.lastSoftDropped > 0) ctx.trace.note("跨来源重复被合并 ${bus.lastSoftDropped} 条")
+            }
         }
+        ctx.trace.recallTokens = TokenEstimator.text(recall)
         if (tag.isEmpty() && recall.isEmpty()) return ctx
         val msgs = ctx.messages.toMutableList()
         val m = msgs[idx]
