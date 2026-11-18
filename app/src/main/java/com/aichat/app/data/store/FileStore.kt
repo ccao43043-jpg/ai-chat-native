@@ -45,8 +45,28 @@ class JsonFileStore(override val dir: File) : FileStore {
             if (bak.exists()) bak.delete()
             if (!target.renameTo(bak)) target.delete()
         }
-        tmp.renameTo(target)
+        moveInto(tmp, target)
     }
+
+    /**
+     * 把 tmp 原子地换到目标位置。
+     *
+     * 原先直接 `tmp.renameTo(target)`：Android（Linux）上覆盖已存在文件是原子的，
+     * 但 Windows 与部分文件系统上**覆盖已存在文件会直接失败且返回 false**，
+     * 于是 `set()` 对已有文件（尤其是追加型的 .jsonl）静默不生效 —— 单测就是这样抓到的。
+     */
+    private fun moveInto(tmp: File, target: File): Boolean =
+        runCatching {
+            java.nio.file.Files.move(
+                tmp.toPath(), target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
+            true
+        }.getOrElse {
+            // 文件系统不支持 ATOMIC_MOVE 时退化成「先删再改名」，与 .bak 路径同样的取舍
+            runCatching { target.delete(); tmp.renameTo(target) }.getOrDefault(false)
+        }
 
     override fun append(name: String, text: String): Boolean = lock.withLock {
         runCatching { java.io.FileOutputStream(f(name), true).use { it.write(text.toByteArray(Charsets.UTF_8)) } }.isSuccess
@@ -58,7 +78,7 @@ class JsonFileStore(override val dir: File) : FileStore {
         val a = f(from); val b = f(to)
         if (!a.exists()) return false
         if (b.exists()) b.delete()
-        a.renameTo(b)
+        moveInto(a, b)
     }
     override fun list(): List<String> = dir.list()?.filterNot { it.endsWith(".tmp") } ?: emptyList()
 }
