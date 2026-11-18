@@ -53,7 +53,12 @@ android {
             if (hasKs) signingConfig signingConfigs.stable
         }
         release {
-            minifyEnabled false
+            // R8：release 包开混淆 + 资源裁剪，把 11.7 MB / 16 个 dex 的 debug 包压下来。
+            // 规则见 app/proguard-rules.pro（只保留序列化器与枚举，其余按可达性裁掉）。
+            // debug 构建不开，免得单测/instrumented 调试时栈被混淆。
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig hasKs ? signingConfigs.stable : signingConfigs.debug
         }
     }
