@@ -78,6 +78,8 @@ class ContextTrace {
 
     private val steps = ArrayList<Step>()
     private val conflicts = ArrayList<String>()
+    private val errors = ArrayList<String>()
+    private val notes = ArrayList<String>()
 
     var systemTokens: Int = 0
     var lastUserTokens: Int = 0
@@ -94,8 +96,25 @@ class ContextTrace {
         conflicts += text
     }
 
+    /**
+     * 插件抛异常。
+     *
+     * 以前这类失败只进 registry 的 errors 列表（顶栏红点，跨会话汇总），
+     * 体检面板看不到「这一轮具体哪个插件炸了、炸在哪一步」。
+     */
+    fun error(plugin: String, hook: String, message: String) {
+        errors += "$plugin · $hook · $message"
+    }
+
+    /** 装配阶段的说明（预算不足跳过召回、跨来源重复被合并……），给人看的，不参与请求 */
+    fun note(text: String) {
+        notes += text
+    }
+
     fun steps(): List<Step> = steps.toList()
     fun conflicts(): List<String> = conflicts.toList()
+    fun errors(): List<String> = errors.toList()
+    fun notes(): List<String> = notes.toList()
 
     /** 哪些插件声称拥有这段（用于面板「谁改的」一栏） */
     fun ownersOf(slot: Slot): List<String> =

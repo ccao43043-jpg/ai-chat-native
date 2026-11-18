@@ -124,6 +124,40 @@ fun ContextInspectorDialog(conv: Conversation?, onDismiss: () -> Unit) {
                             ) { Text(c, fontSize = 11.5.sp, color = Palette.Danger) }
                         }
                     }
+
+                    // 装配阶段的说明（预算不足跳过召回、跨来源重复被合并）：以前这些只活在代码里
+                    val notes = (trace["notes"] as? JsonArray)
+                        ?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+                    if (notes.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("本轮说明", fontSize = 12.sp, color = Palette.Fg2)
+                        notes.forEach { n ->
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(Palette.Surface2, RoundedCornerShape(Radii.Sm.dp))
+                                    .padding(8.dp)
+                                    .testTag("ctx-note"),
+                            ) { Text(n, fontSize = 11.5.sp, color = Palette.Fg2) }
+                        }
+                    }
+
+                    // 插件异常：以前只能翻 logcat
+                    val errs = (trace["errors"] as? JsonArray)
+                        ?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+                    if (errs.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("插件异常（${errs.size}）", fontSize = 12.sp, color = Palette.Danger)
+                        errs.forEach { e ->
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(Palette.Danger.copy(alpha = 0.12f), RoundedCornerShape(Radii.Sm.dp))
+                                    .padding(8.dp)
+                                    .testTag("ctx-error"),
+                            ) { Text(e, fontSize = 11.5.sp, color = Palette.Danger) }
+                        }
+                    }
                 }
             }
         }

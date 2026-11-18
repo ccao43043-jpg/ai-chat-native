@@ -35,7 +35,7 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
 
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
         val now = host.now()
-        val plan = CachePolicy.pick(ctx.provider, ctx.model, ctx.settings, ctx.conv)
+        val plan = CachePolicy.planOf(ctx.conv, ctx.settings)
         val state = try {
             RpState.normalizeState(Js.fromJson(ctx.conv.rpState))
         } catch (e: Throwable) {
@@ -215,6 +215,10 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
             ) as Any
         }.toTypedArray())
         o["conflicts"] = jarr(*t.conflicts().toTypedArray())
+        o["errors"] = jarr(*t.errors().toTypedArray())
+        o["notes"] = jarr(*t.notes().toTypedArray())
+        o["recallTokens"] = t.recallTokens
+        o["tagTokens"] = t.tagTokens
         o["sysTokens"] = t.systemTokens
         o["userTokens"] = t.lastUserTokens
         o["stableHash"] = t.stableHash

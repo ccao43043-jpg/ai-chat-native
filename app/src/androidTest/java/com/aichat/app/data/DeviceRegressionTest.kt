@@ -41,7 +41,14 @@ class DeviceRegressionTest {
             val rep = Js.toJsonObject(Js.parse(marker.readText()))!!["report"]!!.jsonObject
             File(out, "marker.json").writeText(marker.readText())
             assertEquals("corruptFiles", JsonArray(emptyList()), rep["corruptFiles"])
-            assertEquals("迁移报告的对话数 = 索引条数", g.chats.index.value.size, rep["conversations"]!!.jsonPrimitive.int)
+            // 迁移报告记的是「迁移那一刻迁进来几个对话」。这个回归常常不是紧接着迁移跑的
+            // （模拟器上装一次、迁一次，之后还会继续聊天），所以只能断言「迁进来的没丢」，
+            // 不能断言「等于现在的索引条数」——那样只要迁移后新建过一个对话就必红。
+            val migrated = rep["conversations"]!!.jsonPrimitive.int
+            assertTrue(
+                "迁移报告的对话数($migrated) 不应超过索引条数(${g.chats.index.value.size})：迁移不能凭空少掉对话",
+                migrated <= g.chats.index.value.size,
+            )
             assertTrue("备份 zip 存在", File(rep["backupPath"]!!.jsonPrimitive.content).exists())
             assertEquals("迁移无警告：${rep["warnings"]}", 0, rep["warnings"]!!.jsonArray.size)
         }

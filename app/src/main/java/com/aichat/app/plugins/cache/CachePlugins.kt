@@ -54,10 +54,12 @@ class GCachePluginImpl(host: PluginHost) : CachePluginBase(host), GCachePlugin {
     private fun convJs(conv: Conversation): JObj = jobj("id" to conv.id, "systemPrompt" to conv.systemPrompt, "plugins" to Js.fromJson(conv.extras["plugins"]))
 
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
-        CachePolicy.pick(CachePolicy.providerOf(settings, conv), conv.model, settings, conv).owner == CachePolicy.OWNER_GCACHE
+        CachePolicy.planOf(conv, settings).owner == CachePolicy.OWNER_GCACHE
 
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
-        if (!GCache.isOpenRouterGemini(PluginRegistryImpl.providerJs(ctx.provider), ctx.model)) return ctx
+        // 路线已由 CachePolicy 在回合开头判过一次（autoActive 为真才排进 active），
+        // 这里不再自己判第二遍 isOpenRouterGemini：两处判断不一致时，表现是
+        // 「开关开着、策略也说走 gcache，但插件静默空转」，界面上完全看不出来。
         val rpa = rpActive(ctx.settings, ctx.conv)
         return ctx.copy(meta = ctx.meta.plus("orGemini", cfgOf(ctx.settings)).plus("gcacheRp", GCache.isRpConv(convJs(ctx.conv), rpa)).plus("gcacheRpcache", rpa))
     }
@@ -174,7 +176,7 @@ class MmCachePluginImpl(host: PluginHost) : CachePluginBase(host), MmCachePlugin
     override val defaultEnabled = true
 
     override fun autoActive(conv: Conversation, settings: AppSettings): Boolean =
-        CachePolicy.pick(CachePolicy.providerOf(settings, conv), conv.model, settings, conv).owner == CachePolicy.OWNER_MMCACHE
+        CachePolicy.planOf(conv, settings).owner == CachePolicy.OWNER_MMCACHE
 
     fun cfgOf(settings: AppSettings): JObj = Js.assign(MmCache.DEFAULTS, host.config(settings, id))
     fun statOf(conv: Conversation): JObj {
@@ -185,7 +187,7 @@ class MmCachePluginImpl(host: PluginHost) : CachePluginBase(host), MmCachePlugin
         d["stat"] = s; return s
     }
     override suspend fun onBeforeRequest(ctx: RequestContext, status: (String?) -> Unit): RequestContext {
-        if (!MmCache.isOpenRouterMiniMax(PluginRegistryImpl.providerJs(ctx.provider), ctx.model)) return ctx
+        // 同 gcache：路线判定只留 CachePolicy 一处，这里不再重复判 isOpenRouterMiniMax
         return ctx.copy(meta = ctx.meta.plus("orMiniMax", cfgOf(ctx.settings)))
     }
     override fun transformRequest(req: BuiltRequest, ctx: RequestContext): BuiltRequest {

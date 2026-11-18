@@ -487,7 +487,19 @@ object RpCacheCore {
         val needConsolidate: Boolean,
         val batch: List<JObj>,
         val calib: Double,
-    )
+    ) {
+        /** 已用掉的预算（校准后的总量，含本轮输入）。 */
+        val usedTokens: Int get() = (tokens["total"] as? Number)?.toInt() ?: 0
+
+        /**
+         * 还能留给「每轮召回 + 状态行」的额度。
+         *
+         * 存在的理由：召回段是插件跑完之后才装配的（见 PluginRegistryImpl.assembleRecall），
+         * 规划时看不见它。没有这个数，一段 1200 token 的召回会把已经贴着 limit 的请求顶出窗口，
+         * 服务端只会报「超长」或者静默截断，界面上完全看不出来。
+         */
+        val remainingTokens: Int get() = maxOf(0, limit - usedTokens)
+    }
 
     /**
      * 规划本轮请求：算各层 token、判断是否超预算、要不要生成章节。

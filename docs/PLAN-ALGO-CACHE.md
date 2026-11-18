@@ -14,7 +14,7 @@
 **这条线不是「缺功能」，是「口径不统一 + 决策点拍死」。**
 
 已核实：过去几轮已经把大部分算法项做完了（统一 token 尺子、摘要最优停止、Beta 路由、索引缓存、自适应 TTL），
-**真正剩下的只有 5 件实事 + 3 件卫生工作**，合计约 **5–7 个工作日**：
+本文件剩下的实事按 B1–B6 分批推进（B1/B5/B6 已完成，见下表与 §7）；仍在排队的只有 **B2 预算系数能力表、B3 文件分块检索、B4 路由埋点与探索**，合计约 **5–7 个工作日**：
 
 | 批次 | 内容 | 工时 | 出口 |
 |---|---|---|---|
@@ -22,6 +22,8 @@
 | **B2** | 预算系数能力表参数化、`plan()` 单轮估算 memo | 1.5 天 | 可发 v1.5.4（带开关，默认保守） |
 | **B3** | **D7 文件分块检索**（替代前缀截断） | 2–3 天 | 可发 v1.6.0（用户可见，收益最大） |
 | **B4** | 路由埋点 → 数据两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | 视数据决定 |
+| **B5** | 缓存路线接回（千问显式/Anthropic 真打点、单徽章、`rpSegments`）+ R8 发布包 + 落盘与卫生补课 | 2 天 | ✅ **已完成**（PR #106–#110）→ v1.6.0 / v1.6.1 |
+| **B6** | 召回纳入预算、路线一轮只算一次、跨来源软去重、`ContextTrace` 记录异常与说明 | 0.5 天 | ✅ **已完成**（PR #112，577 单测全绿） |
 
 **本计划相对此前口头判断的更正**（重要，避免重复劳动）：
 D8「摘要最优停止」**已实现**（`RpCacheCore.summaryTiming`，PR #78）；D2「Beta 折扣路由」**已实现**（`Router.chooseUpstream`）；
@@ -306,34 +308,42 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 | 2026-11-17 | 首版。核实 16 项现状，识别 5 件实事（P1/P2/P3/P4/P6 主体）+ 3 件卫生/长线（P5/P7/P8），排入 B1–B4 |
 | 2026-11-17 | **B1 完成**（PR #98）：P1 图片 token 接入预算路径（`estimateItems`/`layerTokens`/`computeTrimWindow`/`applyTempTrim`/`itemTokens` 全部透传 provider，`RpCachePlugin` 传 presetId）；P4 `Retry-After`（秒数 + HTTP-date，封顶 60s）；P5 过期注释与 `TokenEstimator` 说明。单测 403 → **413**，golden 零改动。同时更正两处判断错误：`itemTokens` 不是死代码（§1 第 13 行）、`plan()` 里 `hist` 只算一次（§1 第 14 行 / §2 P6） |
 | 2026-11-17 | **B0 完成**（新增 §8）：缓存策略选择 + 缓存体检数据收集 + 前缀稳定化算法，单测 413 → **438** |
+| 2026-11-18 | **B5 完成**（PR #106 / #107 / #108 / #110）：千问显式缓存的执行者接回（`RpCachePlugin.autoActive` 认 `owner=rpcache`）、缓存徽章收口为单一口径 + 「断点未打出」原因、世界书前导空白容忍与「保存文本/要正文」提示、Anthropic 断点改由 `rpcache` 真打、`meta["rpSegments"]` 发布、TTL 建议与「不值得写」显示；release 包开 R8（11.70 MB → 2.23 MB、冷启动 3523 → 1177 ms）；落盘层补测并修 `FileStore` 覆盖写在 Windows 上静默失败。单测 438 → **558** |
+| 2026-11-18 | **B6 完成**（本轮，PR #112）：按第三方报告核实后做 4 件——召回纳入预算（`Plan.remainingTokens` → `meta["rpBudget"]` → `assembleRecall` 封顶）、缓存路线一轮只算一次（`CachePolicy.beginTurn/planOf` + 删 gcache 两道自查）、`RecallBus` 跨来源软去重（Jaccard ≥ 0.8 且数字/否定不冲突）、`ContextTrace` 记录插件异常与装配说明并在「上下文体检」面板展示。单测 558 → **577**；顺手修 `DeviceRegressionTest` 一条只在「迁移后立刻跑」才成立的断言 |
 
 ## 8. 缓存策略与体检（2026-11-17 落地）
 
-问题不是「没有缓存功能」，而是「六个缓存插件各改各的请求，且只在 OpenRouter/Gemini 这一条路上真的生效；其它服务商一分钱没省，也没人知道为什么没省」。
+问题不是「没有缓存功能」，而是「缓存相关的 5 个组件各改各的请求（外加 1 个只读观测器），且只有 OpenRouter/Gemini 这一条路真的生效；其它服务商一分钱没省，也没人知道为什么没省」。
 
 于是拆成三件事，全部是**纯函数 + 一个只读插件**，不改任何现有插件的改写逻辑：
 
 | 文件 | 作用 | 关键 API |
 |---|---|---|
-| `plugins/cache/CachePolicy.kt` | 每个会话选**唯一**一条缓存路线 | `pick(provider, model, settings, conv): CachePlan` |
+| `plugins/cache/CachePolicy.kt` | 每个会话选**唯一**一条缓存路线；一轮只算一次（`beginTurn`/`planOf`/`clearTurn`） | `pick(provider, model, settings, conv): CachePlan` |
 | `plugins/cache/CacheLedger.kt` | 每轮记一条样本 + 6 类 miss 归因 | `sample(...)` / `attribute(...)` / `hitRate(...)` / `summary(...)` |
 | `plugins/cache/CacheMeterPlugin.kt` | 只读插件：算路线、写账本、出入口令徽章 | `headerBadges` → 「缓存 68%」 |
 | `plugins/cache/PrefixStabilizer.kt` | 段级稳定性 → 期望命中率、断点位置、TTL 建议、值不值得写 | `stability` / `expectedLcp` / `breakpoints` / `CacheCostModel` |
 
-路线规则（`CachePolicy.pick`，自上而下第一条命中）：
+路线规则（`CachePolicy.pick`，自上而下第一条命中；**2026-11-18 已更新为现状**）：
 
 | 顺序 | 条件 | owner | 是否改请求 |
 |---|---|---|---|
-| 0 | `conv.extras.plugins.cachepolicy.owner` 有值 | 会话指定 | 看指定值 |
+| 0 | `conv.extras.plugins.cachepolicy.owner` 有值（`gcache`/`mmcache`/`rpcache`/`prefix`/`none` 都合法） | 会话指定 | 看指定值 |
 | 1 | 设置里关掉 `cachepolicy` | `none` | 否 |
 | 2 | `cacheAdapter=none`（用户明确关） | `none` | 否 |
 | 3 | MiniMax | `mmcache` | 是 |
 | 4 | OpenRouter / openai-compat 上的 Gemini | `gcache` | 是（全量改写） |
-| 5 | 原生 Anthropic | `prefix`（`breakpoints`） | 否 |
-| 6 | 原生 Gemini | `prefix`（`auto`，隐式缓存） | 否 |
-| 7 | 其它 OpenAI 兼容（OpenAI/DeepSeek/Qwen/Moonshot…） | `prefix`（`auto`，服务端自动前缀缓存） | 否 |
+| 5 | 千问显式缓存（`presetId∈{qwen,qwen-intl}` 或 baseUrl 含 `dashscope`/`aliyuncs`，且非 flash-character） | `rpcache`（`breakpoints`，打 `cache_control`） | 是 |
+| 6 | 原生 Anthropic | `rpcache`（`breakpoints`，打 `cache_control` + 历史断点） | 是 |
+| 7 | 原生 Gemini | `prefix`（`auto`，隐式缓存，动一下前缀就重建） | 否 |
+| 8 | 其它 OpenAI 兼容（OpenAI/DeepSeek/Moonshot…，服务端自动前缀缓存） | `prefix`（`auto`，只观测） | 否 |
 
-配套改动：`GCachePluginImpl` / `MmCachePluginImpl` 由「常开 + 自己内部再判」改成 **`perConversation = true` + `autoActive` 读 CachePolicy**——插件要么真的在干活，要么干净地不出现，不再有「在跑但什么都没做」的假象。
+配套改动：
+
+- `GCachePluginImpl` / `MmCachePluginImpl` 由「常开 + 自己内部再判」改成 **`perConversation = true` + `autoActive` 读 `CachePolicy.planOf`**——插件要么真的在干活，要么干净地不出现，不再有「在跑但什么都没做」的假象。
+- **路线判定只有一处**：gcache/mmcache 的 `onBeforeRequest` 删掉了各自的 `isOpenRouterGemini` / `isOpenRouterMiniMax` 自查（两处判断不一致时插件会静默空转）；协议闸留在 `GCache.resolveCacheAdapter`。
+- `RpCachePlugin.autoActive` 也认 `owner == rpcache`——千问显式与 Anthropic 的断点都由它执行，纯聊天（没有 RP 块）时它也必须上班。
+
 
 归因优先级：换模型 > 换服务商 > 空闲超 TTL > 前缀变短 > LCP 低 > 未知；**首轮不归因**（缓存还没建立，记成 unknown 会污染统计）。
 
@@ -341,3 +351,46 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 
 数据落在 `conv.extras.plugins.cachemeter`：`plan` / `summary` / `ledger`（最近 40 条）/ `stab`（段稳定度与断点建议）/ `gaps` / `ttlSuggest` / `worthWrite`。这些都是后续调参的输入，不参与决策。
 
+## 9. 运行时顺序与预算传导（2026-11-18 落地）
+
+一轮请求里「缓存相关」到底按什么顺序跑、谁改了什么、数据落在哪 —— 代码里散在 6 个文件，这里按**调用顺序**串一遍（行号见各文件）。
+
+```
+ChatEngine.turn()
+  └─ PluginRegistry.runBeforeRequest(ctx)
+       CachePolicy.beginTurn(ctx)                    // 本轮路线只算一次，存 turnMemo[convId]
+       for (p in activePlugins)                      // ORDER: knowledge → rpcache → rpmemory → usage → gcache → mmcache → affect → cachemeter
+            p.onBeforeRequest(ctx)
+              knowledge   : fragments += S3_RECALL（资料库命中）
+              rpcache     : 重写 system（S1 稳定前缀 + S2 低频增量）；落 CacheMarkers → opts.cacheControl / cacheSystemSplit / 末条 user.cacheMark
+                            meta["rpcache"] + meta["rpBudget"]{limit,used,remaining} + meta["rpcacheMarks"] + meta["rpSegments"]
+              rpmemory    : fragments += S3_RECALL（记忆召回）
+              gcache/mmcache : 仅在 owner 命中时改 body（OpenRouter/Gemini、MiniMax）
+              affect      : fragments += S4_TAG
+              cachemeter  : 读 planOf() 与 ctx.trace 快照 → convData["lastTrace"]（不改请求）
+       assembleRecall(ctx)                            // 只有 recall.unified=true 才装配
+            budget = min(剩余预算 or 1200, 1200) - 状态行 tokens
+            RecallBus.render(budget) → 去重 / 软去重 / 按优先级截断
+            ContextAssembler.assembleLastUser(原文, tag, recall) → 写回末条 user（其余消息不动）
+       finishTrace(ctx)                              // systemTokens / lastUserTokens / stableHash
+       CachePolicy.clearTurn(convId)
+  └─ DefaultProviderClient.stream()                   // 此时请求已定稿；缓存断点在这一刻已经写在 headers/body 里
+  └─ PluginRegistry.runAfterResponse()
+       cachemeter : CacheLedger.sample(...) → ledger/summary/ttlSuggest/worthWrite
+```
+
+三条不变量（都有单测守着）：
+
+1. **只改末条 user** —— 召回与状态行都拼在最后一条用户消息上，历史消息与 system 前缀不动。`systemPromptByteEqualWhenOnlyRecallChanges` / `onlyRecallChangesKeepsSystemByteEqual` / `emptyConversationStaysByteIdenticalEvenWhenRouteIsRpcache` 三条断言守着这件事。
+2. **只有 owner 改 body** —— `CachePlan.mutates` 只对 `gcache`/`mmcache`/`rpcache` 为真；`prefix`/`none` 路线的请求必须逐字节不变（`memorizes` 不是借口，改了就是我错了）。
+3. **预算在一处收口** —— 剩余预算只有 `Plan.remainingTokens` 一个来源，经 `meta["rpBudget"]` 传给召回装配；召回不够时**内容整段跳过并留说明**，绝不静默截断半条资料。
+
+数据落点一览：
+
+| 位置 | 内容 | 谁写 |
+|---|---|---|
+| `conv.extras.plugins.cachemeter` | `plan` / `ledger`（最近 40 条）/ `summary` / `stab` / `gaps` / `ttlSuggest` / `worthWrite` / `lastTrace` | cachemeter（只读观测） |
+| `conv.extras.plugins.cachepolicy` | `enabled` / `owner`（本会话覆盖） | 设置页 |
+| `conv.extras.plugins.gcache`（或 `mmcache`） | `stat` / `hist` / `session_id` / `decision` / `diag` | 各自的缓存插件 |
+| `meta.rpBudget` | 本轮剩余预算（一次性，不落盘） | rpcache |
+| `ctx.trace` | 每个插件的槽位声明、动了多少 token、异常与说明 | registry + 各插件 |
