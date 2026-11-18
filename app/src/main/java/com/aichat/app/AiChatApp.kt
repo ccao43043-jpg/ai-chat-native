@@ -37,6 +37,9 @@ class AppGraph(app: Application) {
 
     /** 旧版 NativeBridge 的 dataDir：filesDir/store —— 原地沿用，不搬家 */
     private val fileStore = JsonFileStore(File(app.filesDir, "store"))
+
+    /** B：图片外置 CAS（Message.images 存 img:<sha1> 引用，字节落 store/blobs/） */
+    private val blobs = com.aichat.app.data.store.BlobStore(fileStore)
     private val secretVault = SecretKeyVault(SecretStore(app))
     val data = DataGraph(
         store = fileStore, keys = secretVault, backupDir = File(app.filesDir, "backup"),
@@ -96,6 +99,7 @@ class AppGraph(app: Application) {
                 host,
                 ask = { conv, prompt -> askModel(conv, prompt) },
                 facts = { conv -> factsOf(conv) },
+                resolveImage = { ref -> blobs.dataUrl(ref) },
             )
         },
         memory = { host ->
@@ -157,7 +161,13 @@ class AppGraph(app: Application) {
         // W1：接联网搜索（app.js webSearch）。Key 由 AuthInjector 按 search:<provider> 注入；
         // 开关仍是 settings.searchOn，未配置 Key 时 ChatController 会先弹「去设置搜索」。
         search = com.aichat.app.net.DefaultSearchClient(secretVault),
+        blobs = blobs,
     )
+
+    init {
+        // B：UI 的 ImageLoader 是 object 拿不到 graph；挂一个 img: → data: 解析器供气泡显示
+        com.aichat.app.data.store.BlobGate.dataUrl = { ref -> blobs.dataUrl(ref) }
+    }
 
     /**
      * app.js `recordUsage`：把一次请求的用量追加到 usage-stats.jsonl（meta 不存在时先写）。

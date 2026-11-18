@@ -43,6 +43,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
      * 它属于低频层（≈ 摘要频率），所以进 system 静态段末尾，不破前缀。
      */
     private val facts: ((Conversation) -> String)? = null,
+    /** B：img:<sha1> → data: 解析（AppGraph 注入 BlobStore）；null = 原样使用（纯 data: 时代行为不变） */
+    private val resolveImage: ((String) -> String?)? = null,
 ) : ChatPlugin {
 
     override val id: String get() = "rpcache"
@@ -119,7 +121,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val items = ctx.messages.mapIndexed { i, m ->
             jobj(
                 "id" to (m.srcId ?: "i$i"), "role" to m.role.wire,
-                "content" to m.content, "images" to m.images,
+                "content" to m.content,
+                // B：img: 引用先归一成 data:，TokenEstimator 的尺寸解析照旧可用
+                "images" to (resolveImage?.let { r -> m.images.map { r(it) ?: it } } ?: m.images),
             )
         }
 
