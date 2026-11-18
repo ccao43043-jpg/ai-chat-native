@@ -162,12 +162,12 @@ class ChunkRetrievalTest {
     // 13. 开关解析 + needsChunking 判定
     @Test fun switchAndNeedsChunking() {
         fun plugins(files: JsonObject): JsonObject = JsonObject(mapOf("files" to files))
-        assertFalse(FileContext.chunkEnabled(null))
-        assertFalse(FileContext.chunkEnabled(JsonObject(emptyMap())))
-        assertFalse(FileContext.chunkEnabled(plugins(JsonObject(emptyMap()))))
+        assertTrue(FileContext.chunkEnabled(null))                                  // 缺省开
+        assertTrue(FileContext.chunkEnabled(JsonObject(emptyMap())))
+        assertTrue(FileContext.chunkEnabled(plugins(JsonObject(emptyMap()))))
         assertTrue(FileContext.chunkEnabled(plugins(JsonObject(mapOf("chunkRetrieval" to JsonPrimitive(true))))))
         assertTrue(FileContext.chunkEnabled(plugins(JsonObject(mapOf("chunkRetrieval" to JsonPrimitive("true"))))))
-        assertFalse(FileContext.chunkEnabled(plugins(JsonObject(mapOf("chunkRetrieval" to JsonPrimitive(false))))))
+        assertFalse(FileContext.chunkEnabled(plugins(JsonObject(mapOf("chunkRetrieval" to JsonPrimitive(false))))))  // 显式关
 
         val small = fileJson("a.txt", "hello")
         val big = fileJson("big.pdf", "字".repeat(40000))

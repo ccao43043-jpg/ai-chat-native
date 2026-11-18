@@ -43,10 +43,10 @@ object FileContext {
             (if (!question.isNullOrEmpty()) "用户的问题：$question" else "请先概括这些文件的主要内容。")
     }
 
-    /** D7 分块检索开关：settings.plugins["files"]["chunkRetrieval"]（缺省关；关时走旧路径，输出逐字节一致） */
+    /** D7 分块检索开关：settings.plugins["files"]["chunkRetrieval"]（缺省开；显式 false 关；关时走旧路径，输出逐字节一致） */
     fun chunkEnabled(plugins: JsonObject?): Boolean {
-        val f = plugins?.get("files") as? JsonObject ?: return false
-        val v = f["chunkRetrieval"] ?: return false
+        val f = plugins?.get("files") as? JsonObject ?: return true
+        val v = f["chunkRetrieval"] ?: return true
         return Js.truthy(v)
     }
 
