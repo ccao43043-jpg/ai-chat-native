@@ -275,4 +275,32 @@ class CachePolicyTest {
         assertEquals(18, CacheCostModel.expectedTurns(listOf(100.0)))
         assertEquals(CacheCostModel.MAX_TURNS, CacheCostModel.expectedTurns(listOf(1.0)))
     }
+    /**
+     * 会话覆盖必须认得 `rpcache` 这一档。
+     *
+     * 曾经漏了：`overrideOf` 的白名单里没有它、`planFor` 也没有分支，
+     * 于是「这个会话用 rpcache」被判非法退回自动判断，或直接变成 none（静默降级）。
+     */
+    @Test
+    fun sessionOverrideAcceptsRpcacheOwner() {
+        val p = provider(
+            id = "p-qwen", presetId = "qwen",
+            baseUrl = "https://dashscope.aliyuncs.com", models = listOf("qwen-plus"),
+        )
+        val c = conv(
+            "p-qwen", "qwen-plus",
+            buildJsonObject {
+                putJsonObject("plugins") {
+                    putJsonObject("cachepolicy") {
+                        put("owner", kotlinx.serialization.json.JsonPrimitive("rpcache"))
+                    }
+                }
+            },
+        )
+        val plan = CachePolicy.pick(p, "qwen-plus", AppSettings(providers = listOf(p)), c)
+        assertEquals(CachePolicy.OWNER_RPCACHE, plan.owner)
+        assertEquals(CachePolicy.MODE_BREAKPOINTS, plan.mode)
+        assertTrue("rpcache 会改请求（打 cache_control），mutates 必须为 true", plan.mutates)
+        assertTrue(plan.reason.contains("rpcache"))
+    }
 }

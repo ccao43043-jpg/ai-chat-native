@@ -96,7 +96,9 @@ object CachePolicy {
     fun overrideOf(conv: Conversation?): String? {
         val o = ((Js.fromJson(conv?.extras?.get("plugins")) as? JObj)?.get("cachepolicy") as? JObj)?.get("owner")
         val s = Js.str(Js.or(o, "")).trim().lowercase()
-        return if (s in setOf(OWNER_GCACHE, OWNER_MMCACHE, OWNER_PREFIX, OWNER_NONE)) s else null
+        // rpcache 也必须在这一档里：千问显式缓存与 Anthropic 断点都由它执行，
+        // 少了它，用户「这个会话用 rpcache」会被判非法 → 静默退回自动判断。
+        return if (s in setOf(OWNER_GCACHE, OWNER_MMCACHE, OWNER_RPCACHE, OWNER_PREFIX, OWNER_NONE)) s else null
     }
 
     fun pick(
@@ -164,6 +166,7 @@ object CachePolicy {
     private fun planFor(owner: String, reason: String): CachePlan = when (owner) {
         OWNER_GCACHE -> CachePlan(OWNER_GCACHE, MODE_FULL, 240L, MIN_CACHE_TOKENS, reason)
         OWNER_MMCACHE -> CachePlan(OWNER_MMCACHE, MODE_FULL, 240L, MIN_CACHE_TOKENS, reason)
+        OWNER_RPCACHE -> CachePlan(OWNER_RPCACHE, MODE_BREAKPOINTS, PREFIX_TTL_SEC, MIN_CACHE_TOKENS, reason)
         OWNER_PREFIX -> CachePlan(OWNER_PREFIX, MODE_AUTO, PREFIX_TTL_SEC, MIN_CACHE_TOKENS, reason)
         else -> CachePlan(OWNER_NONE, MODE_OFF, 0, 0, reason)
     }
