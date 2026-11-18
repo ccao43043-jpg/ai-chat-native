@@ -140,9 +140,11 @@ object CachePolicy {
             return CachePlan(OWNER_RPCACHE, MODE_BREAKPOINTS, cap.ttl * 1000L, MIN_CACHE_TOKENS, "千问显式缓存（RP 缓存优化器打点）")
         }
 
-        // 原生 Anthropic：显式 cache_control 断点，服务端按断点缓存
+        // 原生 Anthropic：显式 cache_control 断点。执行者必须是 rpcache ——
+        // 它算得到 system 各段的边界与长度，也统一改 opts；prefix 路线只观测不改请求，
+        // 挂在那里等于没有执行者（实测一个断点都没打出去）。
         if (provider.type == ProviderType.ANTHROPIC) {
-            return CachePlan(OWNER_PREFIX, MODE_BREAKPOINTS, PREFIX_TTL_SEC, MIN_CACHE_TOKENS, "Anthropic 断点缓存")
+            return CachePlan(OWNER_RPCACHE, MODE_BREAKPOINTS, PREFIX_TTL_SEC, MIN_CACHE_TOKENS, "Anthropic 断点缓存（RP 缓存优化器打点）")
         }
 
         // 原生 Gemini：隐式缓存，服务端自动命中，请求不能动（动了反而打断缓存）

@@ -228,6 +228,12 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             "history" to (markers.historyIndex >= 0),
             "count" to markers.count,
         ))
+        // 结构化分层交给下游（旧版 rp-plugin.js:375 的 `ctx.meta.rpSegments`）。
+        // gcache 靠它把 system 拆成「静态段 / 参考段」；这段以前只在 JS 里写过，
+        // 原生侧一直没写 —— gcache 的分层分析永远拿到空值，只能整段猜。
+        meta["rpSegments"] = Js.toJson(RpCacheCore.buildSystemSegments(st2, base, factsText).map { seg ->
+            jobj("layer" to seg.layer, "kind" to seg.kind, "title" to seg.title, "gl" to seg.gl, "text" to seg.text)
+        })
         return ctx.copy(systemPrompt = p.system, messages = marked, opts = outOpts, meta = JsonObject(meta))
     }
 

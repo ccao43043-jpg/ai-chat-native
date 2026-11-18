@@ -84,7 +84,15 @@ object CacheMarkers {
         return MarkerPlan(system = system, systemSplit = split, historyIndex = histIdx, count = count)
     }
 
-    /** 哪些服务商需要显式断点。目前只有千问（dashscope）的显式缓存。 */
+    /**
+     * 哪些服务商要我们亲手打显式断点。
+     *
+     * - 千问（dashscope）显式缓存：`cache_control` + system 切分
+     * - 原生 Anthropic：`cache_control` 断点（系统块 + 历史锚点）
+     *
+     * 之前只有千问一支：策略层把 Anthropic 判成 `owner=prefix`「只观测」，
+     * 而 prefix 路线根本没有执行者 —— Anthropic 的断点一个都没打出去过。
+     */
     fun needsExplicitMarkers(vendor: String?, kind: String?): Boolean =
-        vendor == "qwen" && kind == "explicit"
+        (vendor == "qwen" && kind == "explicit") || vendor == "anthropic"
 }
