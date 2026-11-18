@@ -39,6 +39,14 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee /tmp/apk.log
 
+      # release 构建要跑 R8：规则写错（裁掉序列化器/枚举）只会在运行时炸，
+      # 所以每次 CI 都编一次 release，把「混淆把功能弄坏」挡在合并前。
+      # CI 没有 keystore.properties，这里签名回落本机 debug 证书，只为验证能编出来。
+      - name: 编译 release APK（R8）
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee /tmp/rel.log
+
       - name: 上传测试报告
         if: failure()
         uses: actions/upload-artifact@v4
@@ -52,7 +60,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
 
       # 拿不到 Actions 日志时的退路：失败就把尾部推到 ci-logs 分支
@@ -64,7 +74,8 @@ jobs:
           mkdir -p .ci
           tail -c 150000 /tmp/test.log > .ci/test.log 2>/dev/null || true
           tail -c 150000 /tmp/apk.log > .ci/build.log 2>/dev/null || true
+          tail -c 150000 /tmp/rel.log > .ci/rel.log 2>/dev/null || true
           git checkout -B ci-logs
-          git add -f .ci/test.log .ci/build.log 2>/dev/null || true
+          git add -f .ci/test.log .ci/build.log .ci/rel.log 2>/dev/null || true
           git commit -m "ci failure log $(date -u +%FT%TZ)" || true
           git push -f origin ci-logs || true
