@@ -102,6 +102,7 @@ fun InputBar(
     modifier: Modifier = Modifier,
     files: List<JsonObject> = emptyList(),
     onFiles: (List<JsonObject>) -> Unit = {},
+    fileSourceMax: Int = FileText.DEFAULT_FILE_MAX,
     tools: InputTools = InputTools(),
 ) {
     val ctx = LocalContext.current
@@ -128,7 +129,7 @@ fun InputBar(
             reading += uris.size
             for (u in uris) {
                 try {
-                    val r = readAttachment(ctx, u)
+                    val r = readAttachment(ctx, u, fileSourceMax)
                     if (r.images.isNotEmpty()) onImages((cur.images + r.images).take(MAX_IMAGES))
                     r.file?.let { onFiles(cur.files + it) }
                     r.notice?.let(onToast)
@@ -333,7 +334,7 @@ private fun displayName(ctx: Context, u: Uri): String? = runCatching {
     ctx.contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
 }.getOrNull() ?: u.lastPathSegment
 
-private suspend fun readAttachment(ctx: Context, u: Uri): Attachment {
+private suspend fun readAttachment(ctx: Context, u: Uri, sourceMax: Int = FileText.DEFAULT_FILE_MAX): Attachment {
     val name = displayName(ctx, u) ?: "文件"
     val mime = ctx.contentResolver.getType(u)
     if (FileText.classifyFile(name, mime) == "image") {
@@ -356,7 +357,7 @@ private suspend fun readAttachment(ctx: Context, u: Uri): Attachment {
             else "「$name」是扫描版 PDF，没有可提取的文字，请先用 OCR 转成文字版")
     }
     if (ex.text.isBlank()) throw IllegalArgumentException("没有提取到文字")
-    val json = FileText.toFileJson(name, bytes.size.toLong(), ex)
+    val json = FileText.toFileJson(name, bytes.size.toLong(), ex, sourceMax)
     val trunc = (json["truncated"] as? JsonPrimitive)?.content == "true"
-    return Attachment(json, emptyList(), if (trunc) "「$name」较长，只发送前 ${FileText.DEFAULT_FILE_MAX} 字" else null)
+    return Attachment(json, emptyList(), if (trunc) "「$name」较长，只发送前 $sourceMax 字" else null)
 }
