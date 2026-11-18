@@ -1,5 +1,6 @@
 package com.aichat.app.data.store
 
+import com.aichat.app.domain.Diag
 import com.aichat.app.data.json.Js
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -27,7 +28,7 @@ class StoreJs(val fs: FileStore, private val now: () -> Long = System::currentTi
         val v = try { raw(name) } catch (e: Exception) { return def } ?: return def
         return try { Js.parse(v) } catch (e: Js.ParseError) {
             val corrupt = name + ".corrupt-" + now()
-            try { rename(name, corrupt) } catch (_: Exception) {}
+            try { rename(name, corrupt) } catch (t: Exception) { Diag.warn("Store", "损坏文件改名失败，原文件保持不动：$corrupt", t) }
             var restored = ""; var value = def
             try {
                 val b = raw("$name.bak")

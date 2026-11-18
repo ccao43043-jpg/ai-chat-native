@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aichat.app.domain.Diag
 import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.ui.common.LocalUiDeps
@@ -192,7 +193,7 @@ private fun ProviderEditScreen(p: ProviderConfig, isNew: Boolean, editor: Provid
                                     val applied = ModelCatalog.applyFloorToMeta(JsonObject(next), id, floor as? JsonObject, eps)
                                     if (applied != null) { next.clear(); applied.forEach { (k, v) -> next[k] = v } }
                                     ok++
-                                } catch (_: Exception) {}
+                                } catch (t: Exception) { Diag.warn("ModelCatalog", "服务商 $id 的价格下限写回失败（其余服务商继续）", t) }
                             }
                             meta = JsonObject(next)
                             toast(if (ok > 0) "价格已刷新（$ok）" else "刷新失败")

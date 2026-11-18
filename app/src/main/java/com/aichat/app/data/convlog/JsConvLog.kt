@@ -1,5 +1,6 @@
 package com.aichat.app.data.convlog
 
+import com.aichat.app.domain.Diag
 import com.aichat.app.data.json.Js
 import com.aichat.app.data.json.Js.arr
 import com.aichat.app.data.json.Js.clone
@@ -711,7 +712,7 @@ class JsConvLog(
         if (!truthy(rec) || !truthy(prop(rec, "dev"))) {
             val rnd = java.lang.Long.toString((random() * 2176782336.0).toLong(), 36).padStart(6, '0').takeLast(6)
             rec = JsObj("dev" to "dev-" + java.lang.Long.toString(now(), 36) + rnd)
-            try { store.set(DEVICE_FILE, rec) } catch (_: Exception) {}
+            try { store.set(DEVICE_FILE, rec) } catch (t: Exception) { Diag.warn("Device", "设备 id 写入失败，本次会话用临时 id（下次启动会再生成）", t) }
         }
         return prop(rec, "dev")
     }
@@ -822,7 +823,7 @@ class JsConvLog(
     }
 
     @Synchronized fun removeFiles(store: StoreJs, id: String) {
-        filesOf(id).forEach { n -> try { store.del(n) } catch (_: Exception) {} }
+        filesOf(id).forEach { n -> try { store.del(n) } catch (t: Exception) { Diag.warn("ConvLog", "删除附件文件失败，可能在 store 目录留下孤儿文件：$n", t) } }
         sessionMap(store).remove(id)
     }
 
