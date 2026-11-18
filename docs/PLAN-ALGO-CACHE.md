@@ -14,7 +14,7 @@
 **这条线不是「缺功能」，是「口径不统一 + 决策点拍死」。**
 
 已核实：过去几轮已经把大部分算法项做完了（统一 token 尺子、摘要最优停止、Beta 路由、索引缓存、自适应 TTL），
-本文件剩下的实事按 B1–B6 分批推进（B1/B5/B6 已完成，见下表与 §7）；仍在排队的只有 **B2 预算系数能力表、B3 文件分块检索、B4 路由埋点与探索**，合计约 **5–7 个工作日**：
+本文件剩下的实事按 B1–B6 分批推进（B1/B5/B6 已完成，见下表与 §7）；仍在排队的只有 **B2 预算系数能力表、B4 路由埋点与探索**（B3 文件分块检索已于 v1.7.0 完成，PR #114）：
 
 | 批次 | 内容 | 工时 | 出口 |
 |---|---|---|---|
@@ -47,7 +47,7 @@ D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）�
 | 9 | 路由 Beta 折扣 | ✅ 已完成 | `net/Router.kt:251 chooseUpstream`：`:266 hitQuantile(st.a, st.b, zPessimistic)`、`:286 stickyIdleMs`、`:291-296` 切换成本折现 |
 | 10 | 路由探索 / 统计衰减 | ❌ 未做 | `chooseUpstream` 全程无 epsilon/UCB，`UpstreamStats.a/b` 无时间衰减（`lastAt` 只用于 idle 判定） |
 | 11 | 重试退避 | ✅ 已完成（P4，PR #98） | `net/NetRetry.kt` `backoff` 保留（Full Jitter），新增 `parseRetryAfter(headers, nowMs)` / `parseRetryAfterValue(raw, nowMs)`（认秒数与 HTTP-date）/ `delayFor(attempt, kind, retryAfterMs, rnd)` = `minOf(MAX_DELAY_MS = 60_000, maxOf(backoff, retryAfter))`；`domain/Contracts.kt` 的 `Error` 增 `retryAfterMs: Long? = null`；`DefaultProviderClient` 在 429/503 读 `Retry-After` 头；`DefaultChatEngine` 改用 `delayFor` |
-| 12 | 文件上下文 | ❌ 纯前缀截断（D7） | `data/files/FileText.kt:167 fun capText(text, max)` = `text.substring(0, max)`；`:174-181 buildFileContext` 按 `remain` 依次截断 |
+| 12 | 文件上下文 | ✅ 分块检索（D7/B3，v1.7.0） | 入库上限随开关放大到 120k；engine `ChunkRetrieval` 滑窗切块（1200/重叠150）+ BM25F 挑选（复用 RetrievalCore）+【片段 n/N】注入，请求体压回 30000 预算；`files.chunkRetrieval` 缺省开、显式 false 回旧路径（逐字节一致，golden 未动） |
 | 13 | 死代码 | ✅ 无（原判断有误，已更正） | 复核后 `itemTokens` **不是**死代码：`computeTrimWindow` 的前缀和就靠它（`prefix[i + 1] = prefix[i] + itemTokens(un[i], provider)`）。P5 改为「与 `estimateItems` 同一把尺子」，**没有删除** |
 | 14 | 单轮重复估算 | ⚠️ 少量（原判断有误，已更正） | 复核：`plan()` 内 `hist` 只算 1 次、`unsummarized` 只算 1 次，原写「hist 被算 3 次」不成立（`:402`/`:405` 在 `layerTokens`、`:598` 在裁剪段的不同列表上）。真正的重复是**同一条带图消息**被 `estimateItems`（预算）与 `itemTokens`（前缀和）各算一次 → 图片像素尺寸被反复解码，优化点应落在 `TokenEstimator.image` 的尺寸缓存 |
 | 15 | 自适应 TTL / 阈值 / sessionId | ✅ 已完成 | `plugins/cache/GCache.kt:146 adaptiveMinTokens`、`:219 TTL_EFF_DEFAULT = 240`、`:16` 默认 `sessionId = true` |
@@ -124,7 +124,7 @@ fun profileOf(vendor: String?): BudgetProfile = when (vendor?.lowercase()) {
 
 ---
 
-### P3 · D7 文件分块检索（B3，2–3 天，本轮收益最大）
+### P3 · D7 文件分块检索（B3，2–3 天，本轮收益最大）——✅ 已完成（v1.7.0，PR #114；另有入库上限放大到 120k 的根因修正与 15 例单测，含干草堆回归）
 
 **问题**：`FileText.kt:167` 的 `capText` 是**从头上砍一刀**。一份 30 页 PDF 上传后，模型只看到前 1/3；
 用户问「第 20 页那个参数是多少」必然答错，且模型会自信地编。这是**功能性错误**，不是精度问题。
