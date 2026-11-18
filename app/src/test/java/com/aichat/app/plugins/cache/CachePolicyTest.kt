@@ -58,13 +58,26 @@ class CachePolicyTest {
         assertFalse("原生 Gemini 是隐式缓存，改请求反而会打断缓存", plan.mutates)
     }
 
+    /**
+     * Anthropic 必须由 rpcache 执行打点。
+     *
+     * 以前判给 `owner=prefix`，而 prefix 路线只观测不改请求 —— 等于没有执行者，
+     * 实测 Anthropic 请求里一个 `cache_control` 都没出去过。
+     */
     @Test
-    fun anthropicUsesBreakpoints() {
+    fun anthropicIsExecutedByRpcache() {
         val p = provider(presetId = "anthropic", type = ProviderType.ANTHROPIC, baseUrl = "https://api.anthropic.com", models = listOf("claude-sonnet-4-5"))
         val plan = CachePolicy.pick(p, "claude-sonnet-4-5", AppSettings(providers = listOf(p)), conv("p1", "claude-sonnet-4-5"))
-        assertEquals(CachePolicy.OWNER_PREFIX, plan.owner)
+        assertEquals(CachePolicy.OWNER_RPCACHE, plan.owner)
         assertEquals(CachePolicy.MODE_BREAKPOINTS, plan.mode)
-        assertFalse(plan.mutates)
+        assertTrue(plan.mutates)
+    }
+
+    @Test
+    fun anthropicMarkersAreRequestedByTheMarkerLayer() {
+        assertTrue(CacheMarkers.needsExplicitMarkers("anthropic", "explicit"))
+        assertTrue(CacheMarkers.needsExplicitMarkers("qwen", "explicit"))
+        assertFalse(CacheMarkers.needsExplicitMarkers("deepseek", "implicit"))
     }
 
     @Test

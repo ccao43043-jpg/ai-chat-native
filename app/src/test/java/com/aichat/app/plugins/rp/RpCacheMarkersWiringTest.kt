@@ -15,6 +15,8 @@ import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -117,5 +119,48 @@ class RpCacheMarkersWiringTest {
         assertEquals("没有 RP 内容时 system 必须逐字节不变", base.systemPrompt, out.systemPrompt)
         assertEquals("末条 user 也不能被改写", base.messages.last().content, out.messages.last().content)
         assertEquals("opts 不该被动过", base.opts, out.opts)
+    }
+    private val anthropic = ProviderConfig(
+        id = "p-anth", presetId = "anthropic", name = "Anthropic",
+        type = ProviderType.ANTHROPIC, baseUrl = "https://api.anthropic.com", models = listOf("claude-sonnet-4-5"),
+    )
+
+    private fun ctxAnthropic(c: Conversation) = RequestContext(
+        conv = c, provider = anthropic, model = "claude-sonnet-4-5",
+        systemPrompt = c.systemPrompt ?: "",
+        messages = c.messages.map { WireMessage(it.role, it.content, srcId = it.id) },
+        opts = ChatOptions(), settings = AppSettings(providers = listOf(anthropic)), lastUserId = "u1",
+    )
+
+    /**
+     * Anthropic 以前判给 `owner=prefix`「只观测」，而 prefix 路线没有执行者 ——
+     * 实测一个 `cache_control` 都没出去过。现在由 rpcache 打点，这里锁住行为。
+     */
+    @Test
+    fun longSystemOnAnthropicGetsCacheControl() = runTest {
+        val plugin = RpCachePlugin(host)
+        val long = "北境终年积雪，寒风常年不停。".repeat(150)
+        val c = conv(stateWithWorld(long)).copy(providerId = "p-anth", model = "claude-sonnet-4-5")
+        val out = plugin.onBeforeRequest(ctxAnthropic(c)) {}
+        assertTrue("Anthropic 也要真打上 cache_control", out.opts.cacheControl)
+        val marks = Js.fromJson(out.meta["rpcacheMarks"]) as JObj
+        assertTrue("打了点就要有计数", (marks["count"] as Number).toInt() > 0)
+    }
+
+    /**
+     * `ctx.meta["rpSegments"]` 以前只有 JS 写、原生从不写，
+     * gcache 的分层分析在原生侧永远拿到空值。这里锁住「必须发布且字段齐全」。
+     */
+    @Test
+    fun rpSegmentsArePublishedForDownstreamLayering() = runTest {
+        val plugin = RpCachePlugin(host)
+        val out = plugin.onBeforeRequest(ctx(conv(stateWithWorld("海边渔村，终年多雾。")))) {}
+        val raw = out.meta["rpSegments"]
+        assertNotNull("rpcache 必须发布 rpSegments（gcache 靠它分层）", raw)
+        val arr = raw!!.jsonArray
+        assertTrue("至少要有一段", arr.isNotEmpty())
+        assertTrue("每段都要有 kind/text/gl", arr.all { e ->
+            e.jsonObject.containsKey("kind") && e.jsonObject.containsKey("text") && e.jsonObject.containsKey("gl")
+        })
     }
 }

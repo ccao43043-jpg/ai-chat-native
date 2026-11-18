@@ -144,6 +144,10 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
                 else append("；断点未打出：system 只有 ").append((m["marksSys"] as? Number)?.toInt() ?: 0)
                     .append(" token（门槛 ").append(CacheMarkers.DEFAULT_MIN_TOKENS).append("）")
             }
+            // 这两项一直在算、从来没地方显示：用户看不到「隔多久一轮该缓存多久」和
+            // 「写缓存到底划不划算」，等于白算。
+            (m["ttlSuggest"] as? Number)?.toLong()?.takeIf { it > 0 }?.let { append("；建议 TTL ").append(it).append("s") }
+            if ((m["worthWrite"] as? Boolean) == false) append("；按当前前缀长度写缓存不划算")
         }
         return listOf(Badge(id, "缓存 $pct%", tone, detail, action = ID))
     }
