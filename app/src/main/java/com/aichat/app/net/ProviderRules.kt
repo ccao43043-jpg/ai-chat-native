@@ -101,6 +101,30 @@ object ProviderRules {
         return m.isNotEmpty() && REASONING_MODEL.containsMatchIn(m)
     }
 
+    /**
+     * OpenRouter 模型变体：`vendor/model:flex` → `vendor/model`（nitro/floor/flex/free… 一律剥）。
+     * 裸 slug 不含冒号；无冒号原样返回。用于 modelMeta 的**回退查找**——精确键优先，miss 才剥，
+     * 自定义服务商里真带冒号的模型 id 不受影响。
+     */
+    fun baseSlug(model: String?): String? {
+        val m = model?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val i = m.indexOf(':')
+        return if (i < 0) m else m.substring(0, i).takeIf { it.isNotEmpty() }
+    }
+
+    /** 精确键优先、miss 回退剥变体后缀——modelMeta 的统一查找入口（flex/nitro 等 :variant 串共享基础模型的元数据） */
+    fun metaFor(modelMeta: JsonObject?, model: String?): JsonObject? {
+        if (modelMeta == null || model.isNullOrEmpty()) return null
+        return modelMeta[model] as? JsonObject ?: baseSlug(model)?.let { modelMeta[it] as? JsonObject }
+    }
+
+    /** metaFor 的键版：返回「能查到 meta 的模型串」，都没有时原样返回（供内部重载用） */
+    private fun metaKeyFor(modelMeta: JsonObject?, model: String?): String? {
+        if (modelMeta == null || model.isNullOrEmpty()) return model
+        if (modelMeta[model] != null) return model
+        return baseSlug(model) ?: model
+    }
+
     /** resolveMaxTokens(provider, model, userMax)；userMax 允许 JS 原值（''、数字串、数字、null） */
     fun resolveMaxTokens(modelMeta: JsonObject?, model: String?, userMax: JsonElement?): Double {
         // typeof userMax === 'number' ? userMax : parseFloat(userMax)
@@ -125,10 +149,11 @@ object ProviderRules {
      */
     fun resolveMaxTokens(provider: ProviderConfig?, model: String?, userMax: Int?): Int {
         if (userMax != null && userMax > 0) {
-            return resolveMaxTokens(provider?.modelMeta, model, JsonPrimitive(userMax))
+            // 带 :variant 的模型串剥后缀查 meta（JsonElement 重载按传入串精确查 key；golden 输入不含变体，不受影响）
+            return resolveMaxTokens(provider?.modelMeta, metaKeyFor(provider?.modelMeta, model), JsonPrimitive(userMax))
                 .let { if (it >= Int.MAX_VALUE) Int.MAX_VALUE else it.toInt() }
         }
-        val meta = if (provider?.modelMeta != null && !model.isNullOrEmpty()) provider.modelMeta!![model] as? JsonObject else null
+        val meta = metaFor(provider?.modelMeta, model)
         val capNum = if (meta == null) Double.NaN else Js.toNumber(meta["maxOutput"])
         val modelCap = if (capNum > 0) capNum else 0.0
         val base = (if (isReasoningModel(model)) REASONING_DEFAULT_MAX_TOKENS else SAFE_DEFAULT_MAX_TOKENS).toDouble()

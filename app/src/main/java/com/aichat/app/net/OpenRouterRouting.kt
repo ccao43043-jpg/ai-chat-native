@@ -83,9 +83,9 @@ object OpenRouterRouting {
         return maxOf(0, Js.toInt32(sum * 0.5)).toDouble()
     }
 
-    /** endpoints：modelMeta[model]._endpoints || modelMeta[model].endpoints || [] */
+    /** endpoints：modelMeta[model]._endpoints || modelMeta[model].endpoints || []；带 :variant 的模型串回退到裸 slug 的 meta（flex 等变体沿用基础模型的端点价） */
     fun endpointsFor(provider: ProviderConfig, model: String): JsonElement {
-        val meta = provider.modelMeta[model] as? JsonObject
+        val meta = ProviderRules.metaFor(provider.modelMeta, model)
         return meta?.get("_endpoints")?.takeIf { Js.truthy(it) } ?: meta?.get("endpoints")?.takeIf { Js.truthy(it) } ?: JsonArray(emptyList())
     }
 }

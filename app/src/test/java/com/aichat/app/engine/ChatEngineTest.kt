@@ -154,6 +154,17 @@ class ChatEngineTest {
         assertEquals("true", (bot.extras["stopped"] as JsonPrimitive).content)
     }
 
+    @Test fun flexVariantModelFlowsVerbatim() = runBlocking {
+        val conv = setup()
+        server.handlers += ok()
+        // :flex 变体串原样落库、逐字进请求体（引擎不改模型串）
+        g.chats.save(conv.copy(model = "google/gemini-2.5-pro:flex"))
+        val engine = DefaultChatEngine(g.chats, g.settings, client, Plugins())
+        withTimeout(10_000) { engine.send(conv.id, "hi", emptyList()).toList() }
+        val body = server.requests.poll(1, TimeUnit.SECONDS)!!.body
+        assertTrue(body.contains("\"model\":\"google/gemini-2.5-pro:flex\""))
+    }
+
     @Test fun openRouterAffinityPinsUpstreamAndObserves() = runBlocking {
         val eps = Js.json.parseToJsonElement("""{"m":{"_endpoints":[{"tag":"deepinfra","pricing":{"prompt":"0.0000001","completion":"0.0000003","input_cache_read":"0.00000002"}},{"tag":"together","pricing":{"prompt":"0.0000002","completion":"0.0000002"}}]}}""") as JsonObject
         val conv = setup(meta = eps)
