@@ -1,6 +1,7 @@
 package com.aichat.app.engine
 
 import com.aichat.app.data.codec.MessageCodec
+import com.aichat.app.data.store.BlobStore
 import com.aichat.app.domain.BuiltRequest
 import com.aichat.app.domain.ChatEngine
 import com.aichat.app.domain.ChatOptions
@@ -64,6 +65,8 @@ class DefaultChatEngine(
     /** NetRetry 等待（测试注入）与抖动随机数 */
     private val sleep: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
     private val rnd: () -> Double = Math::random,
+    /** B：图片外置 CAS；null = 不做引用转换与懒迁移（测试 / 旧装配，行为与 1.6 一致） */
+    private val blobs: BlobStore? = null,
 ) : ChatEngine {
     private val running = ConcurrentHashMap<String, Job>()
 
@@ -75,7 +78,7 @@ class DefaultChatEngine(
         val okDocs = files.filter { it.text.isNotEmpty() || it.scanned }
         val text = Js.trim(userText)
         if (text.isEmpty() && images.isEmpty() && okDocs.isEmpty()) return@channelFlow fail("消息不能为空")
-        val user = Message(uid(), Role.USER, text, now(), images, okDocs.map { FileContext.encode(it) })
+        val user = Message(uid(), Role.USER, text, now(), images.map { img -> blobs?.let { toRef(it, img) } ?: img }, okDocs.map { FileContext.encode(it) })
         var title = conv.title
         if (title == "新对话") {
             val t = text.ifEmpty { okDocs.firstOrNull()?.let { "📄 " + it.name } ?: "" }
@@ -118,6 +121,21 @@ class DefaultChatEngine(
 
     private suspend fun ProducerScope<StreamEvent>.fail(msg: String) { send(StreamEvent.Error(0, msg, "")) }
 
+    /** B：消息里的 data: 图就地换成 img: 引用；无变化返回 null。读不出字节或写失败的原样保留，绝不丢图。 */
+    private fun migrateImages(c: Conversation, b: BlobStore): Conversation? {
+        var changed = false
+        val msgs = c.messages.map { m ->
+            if (m.images.none { it.startsWith("data:") }) m
+            else m.copy(images = m.images.map { img -> toRef(b, img).also { if (it != img) changed = true } })
+        }
+        return if (changed) c.copy(messages = msgs) else null
+    }
+
+    /** data: → img:<sha1>；非 data:（http 等）与失败路径一律原样返回。 */
+    private fun toRef(b: BlobStore, img: String): String =
+        if (!img.startsWith("data:")) img
+        else runCatching { b.bytes(img)?.let { b.put(it) } ?: img }.getOrDefault(img)
+
     /** app.js injectNowLine：system 含「本轮动态信息」时，本轮最后一条 user 消息尾部追加 [现在] 行（不写回历史） */
     internal fun injectNowLine(msgs: List<WireMessage>, sys: String?, nowLine: () -> String = { TimeLine.nowLine(now()) }): List<WireMessage> {
         if ((sys ?: "").indexOf(TimeLine.NOW_MARKER) < 0) return msgs
@@ -127,9 +145,11 @@ class DefaultChatEngine(
         return msgs.toMutableList().also { it[i] = m.copy(content = (if (m.content.isNotEmpty()) m.content + "\n\n" else "") + nowLine()) }
     }
 
-    private suspend fun ProducerScope<StreamEvent>.turn(conv0: Conversation, botIndex: Int?, continuing: Boolean) {
+    private suspend fun ProducerScope<StreamEvent>.turn(convIn: Conversation, botIndex: Int?, continuing: Boolean) {
         val settings = settingsRepo.settings.value
-        val provider = settings.providers.firstOrNull { it.id == conv0.providerId } ?: return fail("请先在设置里选择服务商")
+        val provider = settings.providers.firstOrNull { it.id == convIn.providerId } ?: return fail("请先在设置里选择服务商")
+        // B 懒迁移：历史里的 data: 图就地换 img: 引用（读不出 / 写失败的原样保留）；有变化才多一次 save，自然落盘
+        val conv0 = blobs?.let { migrateImages(convIn, it)?.also { c -> chats.save(c) } } ?: convIn
         val reuse = botIndex?.let { conv0.messages[it] }
         val lastUser = conv0.messages.lastOrNull { it.role == Role.USER && !Js.truthy(it.extras["imageGen"]) && it !== reuse }
         val prior = if (continuing) reuse!!.content else ""
@@ -152,7 +172,7 @@ class DefaultChatEngine(
         fun buildCtx(c: Conversation): RequestContext {
             val lu = c.messages.firstOrNull { it.id == lastUser?.id }
             val wire = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
-                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins)), it.images, srcId = it.id) }
+                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins)), it.images.map { img -> blobs?.dataUrl(img) ?: img }, srcId = it.id) }
             var sys = c.systemPrompt ?: ""
             var msgs = wire
             if (continuing && prior.isNotEmpty()) {

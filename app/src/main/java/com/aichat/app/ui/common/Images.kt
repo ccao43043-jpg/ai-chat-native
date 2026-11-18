@@ -48,8 +48,10 @@ object ImageLoader {
 
     suspend fun load(src: String, maxDim: Int = 2048): Bitmap? = cache.get(src) ?: withContext(Dispatchers.IO) {
         runCatching {
-            val bytes = if (src.startsWith("data:")) Base64.decode(src.substringAfter(","), Base64.DEFAULT)
-            else (URL(src).openConnection() as HttpURLConnection).run {
+            // B：img:<sha1> 引用先经 BlobGate 归一成 data:（AppGraph 启动时挂解析器；未挂则渲染占位）
+            val s = if (src.startsWith("img:")) com.aichat.app.data.store.BlobGate.dataUrl?.invoke(src) ?: return@runCatching null else src
+            val bytes = if (s.startsWith("data:")) Base64.decode(s.substringAfter(","), Base64.DEFAULT)
+            else (URL(s).openConnection() as HttpURLConnection).run {
                 connectTimeout = 15000; readTimeout = 30000; instanceFollowRedirects = true
                 try { inputStream.use { it.readBytes() } } finally { disconnect() }
             }
