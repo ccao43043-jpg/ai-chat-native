@@ -152,7 +152,7 @@ class DefaultChatEngine(
         fun buildCtx(c: Conversation): RequestContext {
             val lu = c.messages.firstOrNull { it.id == lastUser?.id }
             val wire = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
-                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now())), it.images, srcId = it.id) }
+                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins)), it.images, srcId = it.id) }
             var sys = c.systemPrompt ?: ""
             var msgs = wire
             if (continuing && prior.isNotEmpty()) {

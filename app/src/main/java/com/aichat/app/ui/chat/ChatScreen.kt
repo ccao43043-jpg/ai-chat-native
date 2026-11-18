@@ -60,6 +60,9 @@ import com.aichat.app.ui.library.TemplateSheet
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.pressScale
 import com.aichat.app.ui.conversation.ConversationDrawer
+import com.aichat.app.data.files.FileText
+import com.aichat.app.engine.ChunkRetrieval
+import com.aichat.app.engine.FileContext
 import com.aichat.app.ui.settings.SettingsDestination
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Row
@@ -449,6 +452,7 @@ fun ChatScreen(
                     onSend = { if (controller.send(input, st.draftImages, st.draftFiles)) { input = ""; controller.setDraftImages(emptyList()); controller.setDraftFiles(emptyList()) } },
                     onStop = controller::stop, onToast = controller::toast, modifier = Modifier.imePadding(),
                     files = st.draftFiles, onFiles = controller::setDraftFiles,
+                    fileSourceMax = if (FileContext.chunkEnabled(settings.plugins)) ChunkRetrieval.SOURCE_MAX else FileText.DEFAULT_FILE_MAX,
                     tools = InputTools(onPrompts = { sheet = 1 }, onTemplates = { sheet = 2 },
                         templateLabel = tplName?.let { listOfNotNull(tplEmoji.takeIf { e -> e.isNotEmpty() }, it).joinToString(" ") },
                         searchOn = settings.searchOn, onSearch = controller::setSearchOn))
