@@ -272,22 +272,36 @@ class ChatController(
     }
 
     /**
-     * 思考等级（per 对话，写进 conv.extras.thinkingLevel；`auto` 直接删掉这个键）。
+     * 思考等级（per 对话，写进 conv.extras.thinkingLevel）。
      *
-     * 存在对话上而不是服务商上：同一个模型换个对话想「这轮只问一句」很正常，
+     * 存对话上而不是服务商上：同一个模型换个对话想「这轮只问一句」很正常，
      * 而换模型/换服务商时也不该把用户选的档位悄悄丢掉（和 extras.temperature 同一套写法）。
+     *
+     * `auto` 也照原样存字符串（不删键）：删键在结构化 diff 里会落成 `"thinkingLevel": null`，
+     * 读回来是个 JsonNull，既不是「没有」也不是「auto」，还得再归一一次；存 "auto" 干净得多，
+     * 引擎侧本来就是 `takeIf { it != "auto" }` —— 请求体一个字段都不多写。
      */
     fun setThinkingLevel(level: String) {
         val c = _state.value.conv
         if (c == null) { toast("没有打开的对话"); return }
         val lv = ProviderRules.normalizeThinkingLevel(level)
-        val ex = if (lv == "auto") JsonObject(c.extras - "thinkingLevel")
-                 else JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
+        val ex = JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
         // 先乐观更新：点一下立刻能看见选中态，不等磁盘往返（弹层里那 5 个胶囊就是靠它刷新）
-        _state.update { if (it.convId == c.id) it.copy(conv = c.copy(extras = ex)) else it }
+        // 比对用 conv.id 而不是 convId：convId 只在「选中了某个对话」时才有值，恢复路径上可能对不上
+        _state.update { if (it.conv?.id == c.id) it.copy(conv = c.copy(extras = ex)) else it }
         val p = settings.value.providers.firstOrNull { it.id == c.providerId }
         toast("思考等级：" + ProviderRules.thinkingLabel(lv) + " → " + ProviderRules.thinkingWireHint(p, c.model, lv))
-        scope.launch { save(c.copy(extras = ex), touch = false) }
+        scope.launch {
+            save(c.copy(extras = ex), touch = false)
+            // 落盘回填（save 会 load 回来覆盖 state）万一把它冲掉了，这里补写一次并留痕：
+            // 用户看到的「退出再进变回自动」就是这条被冲掉的样子。
+            val back = (_state.value.conv?.takeIf { it.id == c.id }?.extras?.get("thinkingLevel") as? JsonPrimitive)?.content
+            if (back != lv) {
+                android.util.Log.w("ThinkingLevel", "回填丢失，补写：lv=$lv back=$back convId=${_state.value.convId} id=${c.id}")
+                _state.update { if (it.conv?.id == c.id) it.copy(conv = it.conv!!.copy(extras = ex)) else it }
+                save(c.copy(extras = ex), touch = false)
+            }
+        }
     }
 
     /** app.js applyTemplate：tpl=null 为清空；RP 对话先确认（RP_WARN）；已在使用时提示 */

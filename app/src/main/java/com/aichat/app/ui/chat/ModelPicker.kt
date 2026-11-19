@@ -99,7 +99,7 @@ private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit) {
     var picked by remember(level) { mutableStateOf(level) }
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)) {
         Text("思考等级", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Text("自动 = 不下发字段；只对本对话生效，思考型模型才认",
+        Text("自动 = 不下发字段；只对本对话生效" + if (level == "auto") "" else "（已存：" + ProviderRules.thinkingLabel(level) + "）",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             THINKING_LABELS.forEach { (key, label) ->

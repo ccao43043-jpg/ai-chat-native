@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 174                  // 原生 v1.7.4：思考等级选中态修好（点一下立刻变 + 提示实际下发字段）
-        versionName '1.7.4'
+        versionCode 175                  // 原生 v1.7.5：思考等级存的住（回填守卫 + auto 存字符串）
+        versionName '1.7.5'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
