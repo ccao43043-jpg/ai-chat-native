@@ -221,7 +221,7 @@ class DefaultChatEngine(
             ctx = ctx.copy(opts = ctx.opts.copy(orGemini = Js.truthy(ctx.meta["orGemini"]), orMiniMax = Js.truthy(ctx.meta["orMiniMax"])))
             // OpenRouter 缓存亲和路由（app.js 2213–2229）
             var routeSlug: String? = null
-            if (router != null) router.beforeSend(provider, ctx.model, ctx.messages, null, now())?.let { pick ->
+            if (router != null) router.beforeSend(provider, ctx.model, ctx.messages, null, now(), ctx.systemPrompt.length)?.let { pick ->
                 if (pick.slug != null) {
                     routeSlug = pick.slug
                     ctx = ctx.copy(opts = ctx.opts.copy(routeSlug = pick.slug, providerOrder = listOf(pick.slug)))

@@ -77,7 +77,7 @@ class RpMemoryPluginTest {
 
     @Test fun noEntriesLeavesRequestUntouched() = runTest {
         val store = storeWith(emptyList())
-        val p = RpMemoryPlugin(host(), store) { _, _ -> null }
+        val p = RpMemoryPlugin(host(), store) { _, _, _ -> null }
         val c = ctx(conv())
         assertSame(c, p.onBeforeRequest(c) {})
     }
@@ -89,7 +89,7 @@ class RpMemoryPluginTest {
                 jobj("id" to "e2", "type" to "event", "text" to "铁箱已经上锁", "keywords" to listOf("铁箱"), "seq" to 2, "pinned" to true),
             )
         )
-        val p = RpMemoryPlugin(host(), store) { _, _ -> null }
+        val p = RpMemoryPlugin(host(), store) { _, _, _ -> null }
         val c = ctx(conv())
         val out = p.onBeforeRequest(c) {}
 
@@ -117,7 +117,7 @@ class RpMemoryPluginTest {
         )
         store.save(Js.toJson(all) as JsonObject)
 
-        val p = RpMemoryPlugin(host(), store) { _, _ -> null }
+        val p = RpMemoryPlugin(host(), store) { _, _, _ -> null }
         val out = p.onBeforeRequest(ctx(conv(personaName = "小满"))) {}
         val u = out.messages[out.messages.indexOfLast { it.role == Role.USER }]
         assertTrue("角色卡桶应被共享到新对话", u.content.contains("[MEMORY_RECALL]"))
@@ -125,7 +125,7 @@ class RpMemoryPluginTest {
 
     @Test fun noUserMessageIsNoOp() = runTest {
         val store = storeWith(listOf(jobj("id" to "e1", "type" to "fact", "text" to "x", "keywords" to listOf("x"), "seq" to 1)))
-        val p = RpMemoryPlugin(host(), store) { _, _ -> null }
+        val p = RpMemoryPlugin(host(), store) { _, _, _ -> null }
         val c = ctx(conv()).let { it.copy(messages = it.messages.filter { m -> m.role == Role.ASSISTANT }) }
         assertSame(c, p.onBeforeRequest(c) {})
     }
@@ -135,7 +135,7 @@ class RpMemoryPluginTest {
         val store = JsonDocStore(fs, "rp-memory.json")
         store.save(bucketJson(emptyList(), lastTurn = 0))
         var asked = 0
-        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, prompt ->
+        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, prompt, _ ->
             asked++
             assertTrue("抽取提示里应带最近对话", prompt.contains("最近对话"))
             """[{"type":"fact","text":"主角叫阿浦","keywords":["阿浦"]}]"""
@@ -163,7 +163,7 @@ class RpMemoryPluginTest {
         val fs = com.aichat.app.data.store.MemFileStore()
         val store = JsonDocStore(fs, "rp-memory.json")
         store.save(bucketJson(emptyList(), lastTurn = 0))
-        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, _ -> throw IllegalStateException("boom") }
+        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, _, _ -> throw IllegalStateException("boom") }
         val c = ctx(conv(turns = 6))
         p.onAfterResponse(TurnResult(ok = true, httpStatus = 200, usage = null, assistant = c.conv.messages.last()), c)
 
@@ -186,7 +186,7 @@ class RpMemoryPluginTest {
         val store = JsonDocStore(fs, "rp-memory.json")
         store.save(bucketJson(emptyList(), lastTurn = 0))
         var asked = 0
-        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, _ -> asked++; "[]" }
+        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, _, _ -> asked++; "[]" }
         p.onAfterResponse(TurnResult(ok = false, httpStatus = 500, usage = null, assistant = Message(id = "x", role = Role.ASSISTANT, content = "")), ctx(conv(turns = 5)))
         Thread.sleep(120)
         assertEquals("失败的一轮不触发抽取", 0, asked)
@@ -197,7 +197,7 @@ class RpMemoryPluginTest {
         val store = JsonDocStore(fs, "rp-memory.json")
         store.save(bucketJson(emptyList(), lastTurn = 0))
         var asked = 0
-        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, pr ->
+        val p = RpMemoryPlugin(host(jobj("interval" to 5)), store) { _, pr, _ ->
             asked++
             """[{"type":"fact","text":"主角叫阿浦","keywords":["阿浦"]}]"""
         }

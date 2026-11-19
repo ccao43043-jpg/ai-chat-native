@@ -255,8 +255,5 @@ class AffectPlugin @Suppress("UNUSED_PARAMETER") constructor(private val host: P
         "[AFFECT] mood=" + (Js.str(st?.let { (it as? Map<*, *>)?.get("mood") }).ifEmpty { "平静" }) +
             " relation=" + Affect.relationOf(st)
 
-    private fun fixedProtocol(): String =
-        "[AFFECT_RULE] relation 五档含义：疏远(1)/戒备(2)/熟悉(3)/亲近(4)/亲密(5)。" +
-            "回复最末尾单独一行输出 <state>{\"a\":好感变化-2~2整数,\"m\":\"" + Affect.MOODS.joinToString("|") +
-            "\",\"why\":\"a≠0 时摘用户原话 ≤12 字作依据\"}</state>，正文不要提及该标签或状态。"
+    private fun fixedProtocol(): String = Affect.protocolText()
 }

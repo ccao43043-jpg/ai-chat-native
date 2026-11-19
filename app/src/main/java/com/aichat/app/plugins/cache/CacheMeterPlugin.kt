@@ -50,11 +50,19 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
         val idleSec = if (lastAt > 0L && now > lastAt) (now - lastAt) / 1000.0 else null
         val prevSys = d["lastSys"] as? String ?: ""
         val prevLen = (d["lastLen"] as? Number)?.toInt() ?: 0
-        val lcp = when {
+        // C7：LCP 改成「层块 hash」逐块比，不再只比前 4000 字符。
+        // 旧实现把 system 截到 SYS_SNAPSHOT=4000 再比，而 RP 的 system 基本都超 4000，
+        // 章节 / 事实 / 记忆恰好在 4000 之后 —— 于是「前 4000 字只追加」永远返回 0.95，
+        // 面板说「前缀稳定」、账单说命中崩了。块指纹不受长度限制，也不落正文。
+        val blocks = PrefixStabilizer.fingerprint(ctx.systemPrompt)
+        val prevBlocks = PrefixStabilizer.blocksOf(d["lastBlocks"])
+        val lcpInfo = when {
+            prevBlocks.isNotEmpty() -> PrefixStabilizer.lcpOf(prevBlocks, blocks)
             prevSys.isEmpty() -> null
-            prevSys == ctx.systemPrompt -> 1.0
-            else -> lcpRatio(prevSys, ctx.systemPrompt, prevLen)
+            prevSys == ctx.systemPrompt -> jobj("lcp" to 1.0, "matched" to 0, "total" to 0, "blocks" to 0, "firstDiff" to 0)
+            else -> jobj("lcp" to lcpRatio(prevSys, ctx.systemPrompt, prevLen), "legacy" to true)
         }
+        val lcp = (lcpInfo?.get("lcp") as? Number)?.toDouble()
         val gaps = ((d["gaps"] as? List<*>)?.mapNotNull { (it as? Number)?.toDouble() } ?: emptyList())
             .let { if (idleSec != null && idleSec > 0) (it + idleSec).takeLast(8) else it }
 
@@ -72,6 +80,9 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
         d["stab"] = PrefixStabilizer.summary(segs, stability)
         d["gaps"] = jarr(*gaps.toTypedArray())
         d["lastAt"] = now
+        // lastBlocks 是主口径（块 hash，任意长度都看得见）；lastSys 只留作升级前旧数据的兜底。
+        d["lastBlocks"] = jarr(*blocks.toTypedArray())
+        d["lcpInfo"] = lcpInfo ?: JObj()
         d["lastSys"] = ctx.systemPrompt.take(SYS_SNAPSHOT)
         d["lastLen"] = ctx.systemPrompt.length
         d["hist"] = jarr(*PrefixStabilizer.historyPush(hist, segs).toTypedArray())
@@ -87,6 +98,10 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
         val marks = (ctx.meta["rpcacheMarks"] as? JsonObject)?.let { Js.fromJson(it) as? JObj }
         d["marks"] = marks ?: jobj("applied" to false, "count" to 0)
         d["marksSys"] = RpCacheCore.estimateTokens(ctx.systemPrompt)
+        // gcache 在 ORDER 里排在本插件之前，它的记录已经落盘（回放条数 / 本轮是否提交章节）
+        val gs = host.convData(ctx.conv, GCache.ID)
+        d["replayState"] = gs["replay"] ?: JObj()
+        d["rpCommit"] = (gs["rpCommit"] as? Boolean) == true
 
         return ctx.copy(meta = JsonObject(LinkedHashMap(ctx.meta).also { it["cachePlan"] = Js.toJson(plan.toJs()) }))
     }
@@ -148,6 +163,26 @@ class CacheMeterPlugin(private val host: PluginHost) : ChatPlugin {
             // 「写缓存到底划不划算」，等于白算。
             (m["ttlSuggest"] as? Number)?.toLong()?.takeIf { it > 0 }?.let { append("；建议 TTL ").append(it).append("s") }
             if ((m["worthWrite"] as? Boolean) == false) append("；按当前前缀长度写缓存不划算")
+            // C7：前缀到底断在第几层块——只有这个数字能解释「面板说稳、账单说崩」。
+            val li = m["lcpInfo"] as? JObj
+            val lp = (li?.get("lcp") as? Number)?.toDouble()
+            val nb = (li?.get("blocks") as? Number)?.toInt() ?: 0
+            if (lp != null && lp < 0.999 && nb > 0) {
+                val fd = (li?.get("firstDiff") as? Number)?.toInt() ?: 0
+                append("；期望前缀 ").append((lp * 100).roundToInt()).append("%，断在第 ")
+                    .append(fd + 1).append("/").append(nb).append(" 层块")
+            }
+            // 历史到底进没进缓存：回放开着且历史被回放，断点后面的内容才是「上一轮的字节」；
+            // 压缩关掉不等于回放也关——这两件事以前绑在一起，正是命中率崩掉的根。
+            val rs = m["replayState"] as? JObj
+            if (rs != null) {
+                val on = (rs["on"] as? Boolean) == true
+                val nsent = (rs["sent"] as? Number)?.toInt() ?: 0
+                if (on) append("；历史回放中（已记 ").append(nsent).append(" 轮实际送出）")
+                else append("；历史回放关闭（历史按原文发送）")
+                if ((rs["compress"] as? Boolean) == false) append("，Zip 未启用")
+            }
+            if ((m["rpCommit"] as? Boolean) == true) append("；本轮刚提交章节（固定层已变，断点照写）")
         }
         return listOf(Badge(id, "缓存 $pct%", tone, detail, action = ID))
     }

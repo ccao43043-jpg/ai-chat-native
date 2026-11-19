@@ -97,13 +97,13 @@ class AppGraph(app: Application) {
         rpcache = { host ->
             com.aichat.app.plugins.rp.RpCachePlugin(
                 host,
-                ask = { conv, prompt -> askModel(conv, prompt) },
+                ask = { conv, prompt, model -> askModel(conv, prompt, model) },
                 facts = { conv -> factsOf(conv) },
                 resolveImage = { ref -> blobs.dataUrl(ref) },
             )
         },
         memory = { host ->
-            com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt -> askModel(conv, prompt) }
+            com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt, _ -> askModel(conv, prompt) }
         },
     )
 
@@ -131,11 +131,18 @@ class AppGraph(app: Application) {
      * 插件用的「顺手问一次模型」（旧版 host.callModel）：用当前对话的服务商与模型，
      * 非流式、温度 0、maxTokens 2048 —— 与 rpmemory.js 的 `maxTokens: 2048` 对齐。
      * 失败返回 null（调用方负责把 lastError 记下来并推进 lastTurn，避免每轮重试烧钱）。
+     *
+     * [overrideModel] 非空时用它代替对话模型（`settings.summary_model`，省钱档摘要）。
      */
-    private suspend fun askModel(conv: com.aichat.app.domain.model.Conversation, prompt: String): String? = runCatching {
+    private suspend fun askModel(
+        conv: com.aichat.app.domain.model.Conversation,
+        prompt: String,
+        overrideModel: String? = null,
+    ): String? = runCatching {
         val s = data.settings.settings.value
         val p = s.providers.firstOrNull { it.id == conv.providerId } ?: return@runCatching null
-        val model = conv.model.ifEmpty { return@runCatching null }
+        val model = overrideModel?.takeIf { it.isNotEmpty() } ?: conv.model
+        if (model.isEmpty()) return@runCatching null
         val req = providerClient.buildChatRequest(
             p, model,
             listOf(com.aichat.app.domain.WireMessage(com.aichat.app.domain.model.Role.USER, prompt)),

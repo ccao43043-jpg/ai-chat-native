@@ -33,8 +33,14 @@ import kotlinx.serialization.json.doubleOrNull
  */
 class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
     private val host: PluginHost,
-    /** 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。 */
-    private val ask: (suspend (Conversation, String) -> String?)? = null,
+    /**
+     * 摘要用的「顺手问一次模型」；null = 不生成章节（只做裁剪）。
+     *
+     * 第三个参数是**模型覆盖**：`settings.summary_model` 非空时用它（便宜的模型做摘要），
+     * 为空则用对话本身的模型。以前这个设置项只存在于默认值里、全仓没有任何读取点，
+     * 用户以为改了模型、实际一直在用主模型抽摘要。
+     */
+    private val ask: (suspend (Conversation, String, String?) -> String?)? = null,
     /**
      * L1「已确立事实」账本（结构化记忆里的事实三元组）。
      *
@@ -105,6 +111,13 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         return blocks.any { b -> b is Map<*, *> && Js.str(b["content"]).isNotEmpty() }
     }
 
+    /**
+     * `settings.summary_model`：非空则摘要/合并走这个模型（用便宜模型抽摘要的常见用法）。
+     * 空 = 用对话本身的模型。这个设置项以前只躺在 [RpState.DEFAULT_SETTINGS] 里没人读。
+     */
+    private fun summaryModel(st: JObj?): String? =
+        Js.str((st?.get("settings") as? Map<*, *>)?.get("summary_model")).ifEmpty { null }
+
     /** 有块内容、或世界书里有条目（含常驻条目）才值得往下走。 */
     private fun shouldEngage(st: JObj): Boolean =
         hasAnyBlock(st) || RpLoreCore.loreOf(st).isNotEmpty()
@@ -142,21 +155,37 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val provId = ctx.provider.presetId.ifEmpty { ctx.provider.id }
         val calKey = jobj("provider" to provId, "model" to ctx.model)
         val factsText = factsFor(ctx.conv)
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
+        // C5：好感度协议是固定文本，必须进 system 静态层（lore 之后、facts 之前）。
+        // 以前它由 affect 插件追加在 system 最末尾 —— 落在长期记忆（dynamic）之后，
+        // gcache 的分层据此判 ordered=false，「在记忆前劈开前缀」永不触发。
+        // activePlugins 是「本轮启用集合」，由 PluginRegistryImpl 一次算好，与本插件先后无关。
+        val affectOn = ctx.activePlugins.contains("affect")
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
         var stBase = stFired
         var summaryFail: String? = null
+        var committed = false
         if (p0.needSummary && ask != null) {
             val r = summarize(ctx.conv, stFired, p0)
-            if (r != null) stBase = r else summaryFail = "summary_failed"
+            if (r != null) { stBase = r; committed = true } else summaryFail = "summary_failed"
         }
         val pRaw = if (stBase !== stFired) {
-            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText)
+            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn)
         } else p0
 
-        val (st2, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
+        val (stTrim, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
+
+        // C2：摘要失败要退避 —— 失败时 lastSummaryRound 不推进，不记标记就会**每轮**重试一次
+        // 摘要调用；连续失败按 2/4/8 轮退避，成功后清零。
+        val roundsAll = RpCacheCore.roundsOf(itemsLore)
+        val st2 = when {
+            summaryFail != null -> RpCacheCore.noteSummaryFail(stTrim, host.now(), roundsAll)
+            committed -> RpCacheCore.clearSummaryFail(stTrim)
+            else -> stTrim
+        }
+        if (summaryFail == null && !RpCacheCore.summaryRetryAllowed(stTrim, roundsAll)) summaryFail = "summary_backoff"
 
         // 按 plan 的结果挑消息：被裁掉的整条不发；最后一条 user 用 finalUserContent 改写
         val keepIds = p.hist.map { Js.str(it["id"]) }.toHashSet()
@@ -200,10 +229,10 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         val histTok = TokenEstimator.messages(p.hist.map { m ->
             jobj("role" to m["role"], "content" to m["content"], "images" to m["images"])
         }, provId)
-        val stableTok = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base) + RpCacheCore.summaryText(st2))
+        val stableTok = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base, affect = affectOn) + RpCacheCore.summaryText(st2))
         val markers = CacheMarkers.plan(
             sysTokens = RpCacheCore.estimateTokens(p.system),
-            staticTokens = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base)),
+            staticTokens = RpCacheCore.estimateTokens(RpCacheCore.staticText(st2, base, affect = affectOn)),
             memoryTokens = RpCacheCore.estimateTokens(RpCacheCore.memoryText(st2)),
             summaryTokens = RpCacheCore.estimateTokens(RpCacheCore.summaryText(st2)),
             historyTokens = histTok,
@@ -222,6 +251,9 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
 
         val meta = LinkedHashMap(ctx.meta)
         meta["rpcache"] = Js.toJson(trace)
+        // C4：本轮是否刚提交了一章。static_hash 因此必变，gcache 的「固定层刚变→不写断点」
+        // 会把这一轮变成零缓存；下游要用这个标志把「章节提交」与「用户改了角色卡」区分开。
+        meta["rpCommit"] = JsonPrimitive(committed)
         // 预算余量交给下游装配（PluginRegistryImpl.assembleRecall 用它给召回封顶）。
         // 召回是插件都跑完之后才拼上去的，规划时算不到它 —— 这里把「还剩多少」显式传下去，
         // 否则召回会把贴着 limit 的请求顶出模型窗口。
@@ -242,7 +274,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // 结构化分层交给下游（旧版 rp-plugin.js:375 的 `ctx.meta.rpSegments`）。
         // gcache 靠它把 system 拆成「静态段 / 参考段」；这段以前只在 JS 里写过，
         // 原生侧一直没写 —— gcache 的分层分析永远拿到空值，只能整段猜。
-        meta["rpSegments"] = Js.toJson(RpCacheCore.buildSystemSegments(st2, base, factsText).map { seg ->
+        meta["rpSegments"] = Js.toJson(RpCacheCore.buildSystemSegments(st2, base, factsText, affect = affectOn).map { seg ->
             jobj("layer" to seg.layer, "kind" to seg.kind, "title" to seg.title, "gl" to seg.gl, "text" to seg.text)
         })
         return ctx.copy(systemPrompt = p.system, messages = marked, opts = outOpts, meta = JsonObject(meta))
@@ -263,7 +295,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
                 batch,
                 RpCacheCore.memoryText(st).ifEmpty { null },
             )
-            val text = runCatching { a(conv, prompt) }.getOrNull() ?: return null
+            val text = runCatching { a(conv, prompt, summaryModel(st)) }.getOrNull() ?: return null
             val r = RpChapterCore.consolidate(
                 st = st,
                 content = text,
@@ -281,7 +313,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             batch,
             RpCacheCore.memoryText(st).ifEmpty { null },
         )
-        val text = runCatching { a(conv, prompt) }.getOrNull() ?: return null
+        val text = runCatching { a(conv, prompt, summaryModel(st)) }.getOrNull() ?: return null
         return commit(st, p, text)
     }
 
@@ -307,7 +339,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
                 val chapters = RpCacheCore.chaptersOf(st)
                 if (chapters.size < 2) throw IllegalStateException("只有 ${chapters.size} 章，不需要合并")
                 val prompt = RpChapterCore.buildConsolidatePrompt(chapters, emptyList(), RpCacheCore.memoryText(st).ifEmpty { null })
-                val text = a(conv, prompt) ?: throw IllegalStateException("模型没有返回内容")
+                val text = a(conv, prompt, summaryModel(st)) ?: throw IllegalStateException("模型没有返回内容")
                 val r = RpChapterCore.consolidate(
                     st = st,
                     content = text,
@@ -326,7 +358,7 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
                 val prompt = RpChapterCore.buildSummaryPrompt(
                     RpCacheCore.chaptersOf(st), p.batch, RpCacheCore.memoryText(st).ifEmpty { null },
                 )
-                val text = a(conv, prompt) ?: throw IllegalStateException("模型没有返回内容")
+                val text = a(conv, prompt, summaryModel(st)) ?: throw IllegalStateException("模型没有返回内容")
                 val next = commit(st, p, text, source = "manual") ?: throw IllegalStateException("摘要未通过质量检查（八分区不全或内容太短），已丢弃")
                 ManualChapter(next, Js.str((RpCacheCore.chaptersOf(next).lastOrNull())?.get("no")).toIntOrNull() ?: 0, false)
             }

@@ -536,4 +536,17 @@ object Affect {
         }
         return n
     }
+
+    /**
+     * `[AFFECT_RULE]` 固定协议文本（每轮逐字节相同，属 system 静态层）。
+     *
+     * 它曾由 [com.aichat.app.plugins.affect.AffectPlugin] 追加在 system 最末尾 ——
+     * 也就是「长期记忆之后」，于是 gcache 的分层看到「dynamic 后又出现 static」，
+     * `ordered=false`，「在记忆前劈开前缀」的分支永不触发。现在改由 rpcache 放进
+     * system 静态层（常驻世界书之后、事实账本之前），顺序才是「只降不升」。
+     */
+    fun protocolText(): String =
+        "[AFFECT_RULE] relation 五档含义：疏远(1)/戒备(2)/熟悉(3)/亲近(4)/亲密(5)。" +
+            "回复最末尾单独一行输出 <state>{\"a\":好感变化-2~2整数,\"m\":\"" + MOODS.joinToString("|") +
+            "\",\"why\":\"a≠0 时摘用户原话 ≤12 字作依据\"}</state>，正文不要提及该标签或状态。"
 }

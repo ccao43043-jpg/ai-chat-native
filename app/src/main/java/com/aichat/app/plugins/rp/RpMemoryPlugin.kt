@@ -38,7 +38,7 @@ class RpMemoryPlugin(
     private val host: PluginHost,
     private val store: JsonDocStore,
     /** 用「当前模型」跑一次抽取请求；返回 null 表示没有可用服务商/失败。 */
-    private val ask: suspend (Conversation, String) -> String?,
+    private val ask: suspend (Conversation, String, String?) -> String?,
 ) : ChatPlugin {
 
     override val id: String = "rpmemory"
@@ -144,7 +144,7 @@ class RpMemoryPlugin(
                 msgs.map { m -> m.extras.toMutableMap() + mapOf("role" to m.role.wire, "content" to m.content) },
                 entries,
             )
-            val raw = ask(conv, prompt) ?: throw IllegalStateException("没有可用的服务商或模型")
+            val raw = ask(conv, prompt, null) ?: throw IllegalStateException("没有可用的服务商或模型")
             val items = RpMemoryCore.parseExtraction(raw)
             val turns = userTurns(conv)
             val ledgerIn = (bucket["ledger"] as? List<*>)?.mapNotNull { it as? JObj }

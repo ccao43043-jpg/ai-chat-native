@@ -78,8 +78,11 @@ object OpenRouterRouting {
         observeRoute(state, model, slug, usage?.prompt?.toDouble(), usage?.hit?.toDouble(), null, now, extraLatencyMs)
 
     /** app.js：prefixEst = max(0, Σ content.length × 0.5 | 0)（UTF-16 长度，同 JS） */
-    fun prefixEstimate(messages: List<WireMessage>): Double {
-        val sum = messages.fold(0.0) { s, m -> s + m.content.length }
+    fun prefixEstimate(messages: List<WireMessage>, systemChars: Int = 0): Double {
+        // C6：system 也是前缀的一部分。以前只累加 messages（此时 system 还没并进去），
+        // 于是 RP 对话里 3k+ token 的固定层被漏算，路由按「空前缀」选上游 —— 而缓存是按
+        // 上游（模型部署）分片的，选错就等于整段命中作废。
+        val sum = messages.fold(0.0) { s, m -> s + m.content.length } + maxOf(0, systemChars)
         return maxOf(0, Js.toInt32(sum * 0.5)).toDouble()
     }
 
@@ -106,11 +109,11 @@ class AffinityRouter(
     data class Pick(val slug: String?, val view: JsonObject?, val affinityOff: Boolean, val plan: OpenRouterRouting.RoutePlan)
 
     /** app.js 2213–2229 */
-    fun beforeSend(provider: ProviderConfig, model: String, messages: List<WireMessage>, calib: JsonObject?, nowMs: Long): Pick? {
+    fun beforeSend(provider: ProviderConfig, model: String, messages: List<WireMessage>, calib: JsonObject?, nowMs: Long, systemChars: Int = 0): Pick? {
         if (!ProviderRules.isOpenRouterProvider(provider)) return null
         synchronized(lock) {
             val plan = OpenRouterRouting.plan(provider, model, OpenRouterRouting.endpointsFor(provider, model), st,
-                calib = calib, prefixTokens = OpenRouterRouting.prefixEstimate(messages), routerOpts = opts.copy(now = nowMs.toDouble()))
+                calib = calib, prefixTokens = OpenRouterRouting.prefixEstimate(messages, systemChars), routerOpts = opts.copy(now = nowMs.toDouble()))
             if (!plan.slug.isNullOrEmpty()) {
                 val prev = st.models[model]?.current
                 if (!prev.isNullOrEmpty() && prev != plan.slug) Router.recordSwitch(st, model, prev, plan.slug, nowMs.toDouble())

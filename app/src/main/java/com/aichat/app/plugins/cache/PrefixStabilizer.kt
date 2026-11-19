@@ -117,6 +117,73 @@ object PrefixStabilizer {
         return if (out.size <= max) out else out.takeLast(max).sorted()
     }
 
+    // ───────── 前缀指纹（层块级 LCP）─────────
+
+    /** 层块数上限：再多也只把尾部并成一块，避免把 conv 文件写炸 */
+    const val BLOCK_MAX = 64
+
+    /** 层块标题行（`[AFFECT_RULE]` / `[LONG_TERM_MEMORY]` / `[CHAPTER_SUMMARY #001]`…） */
+    private val TAG_HEAD = Regex("^\\[[A-Z][A-Z0-9_ ]{0,40}(?: #\\d+)?\\]$")
+
+    /**
+     * 把 system 打成一串「层块指纹」：只留 `{h, t}`（hash + token 估算），**不落正文**。
+     *
+     * 为什么不用整段文本比 LCP：旧实现只存前 4000 字符（`CacheMeterPlugin.SYS_SNAPSHOT`），
+     * 而 RP 的 system 基本都超过 4000，章节 / 事实 / 记忆恰好在 4000 之后——于是「前 4000 字
+     * 只追加」永远返回 0.95，面板说稳、账单说炸。按层块比 hash 就不受长度限制。
+     *
+     * 切块规则：先按空行，再把块内以 `[TAG]` 开头的标题行切开（rpcache 的层用 `\n\n` 连接，
+     * affect 用 `\n` 追加，两者都能切开）。
+     */
+    fun fingerprint(text: String, max: Int = BLOCK_MAX): List<JObj> {
+        if (text.isEmpty()) return emptyList()
+        val raw = ArrayList<String>()
+        text.split("\n\n").forEach { part ->
+            if (part.isEmpty()) return@forEach
+            val buf = StringBuilder()
+            part.split("\n").forEach { line ->
+                if (TAG_HEAD.matches(line) && buf.isNotEmpty()) {
+                    raw.add(buf.toString()); buf.setLength(0)
+                }
+                if (buf.isNotEmpty()) buf.append('\n')
+                buf.append(line)
+            }
+            if (buf.isNotEmpty()) raw.add(buf.toString())
+        }
+        val merged = if (raw.size <= max) raw else raw.take(max - 1) + raw.drop(max - 1).joinToString("\n\n")
+        return merged.map { blk -> jobj("h" to hashOf(blk), "t" to RpCacheCore.estimateTokens(blk)) }
+    }
+
+    /**
+     * 逐块比 hash，取**从头连续相同**的那一段，按 token 加权。
+     * 返回 `{lcp, matched, total, blocks, firstDiff}`，`firstDiff` = 第一个不同的块下标（0 基），
+     * 面板据此说「断在第 N 块」，而不是只给一个数字。
+     */
+    fun lcpOf(prev: List<JObj>, cur: List<JObj>): JObj {
+        val total = prev.sumOf { (it["t"] as? Number)?.toInt() ?: 0 }.coerceAtLeast(1)
+        var matched = 0
+        var i = 0
+        while (i < prev.size && i < cur.size) {
+            val a = Js.str(prev[i]["h"]); if (a.isEmpty() || a != Js.str(cur[i]["h"])) break
+            matched += (prev[i]["t"] as? Number)?.toInt() ?: 0
+            i++
+        }
+        return jobj(
+            "lcp" to (matched.toDouble() / total.toDouble()).coerceIn(0.0, 1.0),
+            "matched" to matched, "total" to total, "blocks" to prev.size, "firstDiff" to i,
+        )
+    }
+
+    /** 落盘的块指纹列表 → JObj 列表（内存里是 JObj，读盘回来是 JsonObject，两种都认） */
+    @Suppress("UNCHECKED_CAST")
+    fun blocksOf(v: Any?): List<JObj> {
+        val list = v as? List<*> ?: return emptyList()
+        return list.mapNotNull { x ->
+            val o = x as? JObj
+            if (o != null) o else (x as? kotlinx.serialization.json.JsonObject)?.let { Js.fromJson(it) as? JObj }
+        }
+    }
+
     /** 给 UI / 账本用的一页摘要 */
     fun summary(segs: List<Seg>, stab: Map<String, Double>): JObj {
         val ordered = orderByStability(segs, stab)

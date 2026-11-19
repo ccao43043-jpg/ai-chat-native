@@ -71,8 +71,14 @@ class GCachePluginImpl(host: PluginHost) : CachePluginBase(host), GCachePlugin {
         val adapter = GCache.resolveCacheAdapter(PluginRegistryImpl.providerJs(ctx.provider), ctx.model)
         val full = GCache.cacheAdapterFull(adapter)
         val hyOn = o["hybrid"] != false && !ctx.metaJs("gcacheRpcache").truthy()
+        // RP 对话里 hybrid 被关（历史由 rpcache 压缩管理，不能让 Zip 再改写一遍），但断点仍要落在
+        // 历史末尾：histBreak 让 GCache.autoHist 不再依赖 hybrid。用户显式 hybrid:false 时两者都关。
+        val histBreak = o["hybrid"] != false
+        // sent 回放（上一轮实际送出的字节 -> 本轮历史）与 Zip 压缩解耦：zip 关掉时回放仍然要做，
+        // 否则历史里那条 user 会从「带 [现在]/动态层的版本」退回原文，前缀在第一条历史处断裂。
+        val replayOn = o["hybrid"] != false
         val hd = host.convData(conv, id)
-        if (hyOn) hd["hybrid"] = if (hd["hybrid"].truthy() && hd["hybrid"]["v"].truthy()) hd["hybrid"] else GCache.emptyHybrid()
+        if (hyOn || replayOn) hd["hybrid"] = if (hd["hybrid"].truthy() && hd["hybrid"]["v"].truthy()) hd["hybrid"] else GCache.emptyHybrid()
         val now = host.now().toDouble()
         val idleSec = if (s["lastT"].truthy()) (now - s["lastT"].d()) / 1000 else null
         val ttlEff = GCache.TTL_EFF_DEFAULT.toDouble()
@@ -80,9 +86,17 @@ class GCachePluginImpl(host: PluginHost) : CachePluginBase(host), GCachePlugin {
         val cacheStats = jobj("hitRate" to rr?.let { it / 100 }, "hitSamples" to (s["roll"].a() ?: jarr()).count { it.truthy() && it["known"].truthy() })
         val segs = if (ctx.metaJs("gcacheRpcache").truthy() && ctx.metaJs("rpSegments").truthy()) ctx.metaJs("rpSegments") else null
         val r = GCache.applyToRequest(req.toJs(), o, jobj("adapter" to adapter, "sessionId" to if (full) GCache.sessionIdFor(conv.id) else "", "rp" to ctx.metaJs("gcacheRp").truthy(),
-            "prevStaticHash" to s["static_hash"], "hybrid" to if (hyOn) hd["hybrid"] else null, "ids" to ctx.messages.map { it.srcId }.toMutableList<Any?>(),
+            "prevStaticHash" to s["static_hash"], "hybrid" to if (hyOn || replayOn) hd["hybrid"] else null, "histBreak" to histBreak,
+            "compress" to hyOn, "replay" to replayOn,
+            // C4：rpcache 本轮刚提交章节时 static_hash 必变，把「刚提交」传下去，
+            // 让 decide/decideHistory 照写断点，而不是把这一轮白送成零缓存。
+            "commit" to ctx.metaJs("rpCommit"),
+            "ids" to ctx.messages.map { it.srcId }.toMutableList<Any?>(),
             "idleSec" to idleSec, "ttlEff" to ttlEff, "segments" to segs, "cacheStats" to cacheStats))
         s["hybridInfo"] = r["hybrid"] ?: jobj("off" to if (o["hybrid"] == false) "setting" else "rpcache")
+        // 回放/提交态落盘：面板要能回答「历史到底进没进缓存」「提交轮是不是白打了一轮」
+        s["replay"] = r["replay"] ?: JObj()
+        s["rpCommit"] = ctx.metaJs("rpCommit").truthy()
         s["requests"] = s["requests"].d() + 1
         if (s["lastT"].truthy()) pushGap(s, Js.round((now - s["lastT"].d()) / 100) / 10)
         val outReq = r["req"].o()!!
@@ -108,6 +122,10 @@ class GCachePluginImpl(host: PluginHost) : CachePluginBase(host), GCachePlugin {
         if (layers != null) {
             val route = r["route"]
             s["static_hash"] = layers["static_hash"]; s["decision"] = r["decision"]["reason"]; s["session_id"] = r["session_id"]; s["layered"] = layers["layered"]
+            // 动态层（长期记忆等）在 system 末尾、断点之前：它一变，之后的整段历史都要重写。
+            // 频次 ≈ 摘要频次，代价是一轮全价，但用户至少能看见「为什么这一轮掉下来了」。
+            if (layers["dynamic_hash"].truthy() && s["dyn_hash"].truthy() && s["dyn_hash"] != layers["dynamic_hash"]) s["dynChangedAt"] = host.now()
+            s["dyn_hash"] = layers["dynamic_hash"]
             s["hist"] = Js.slice((s["hist"].a() ?: jarr()) + listOf<Any?>(jobj("t" to host.now(), "static_hash" to layers["static_hash"], "prefix_hash" to GCache.hash(prefix),
                 "model" to route["model"], "provider" to route["provider"], "session_id" to r["session_id"], "tokens" to GCache.estTokens(layers["staticText"]))), -GCache.ROLL_N)
             val mem = memOf(conv); val l0 = GCache.extractL0(layers)

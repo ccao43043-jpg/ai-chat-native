@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 171                  // 原生 v1.7.1：OpenRouter Flex 档（模型选择器 :flex 变体开关）
-        versionName '1.7.1'
+        versionCode 172                  // 原生 v1.7.2：Gemini 缓存命中率修复（断点落点/回放解耦/摘要退避）
+        versionName '1.7.2'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

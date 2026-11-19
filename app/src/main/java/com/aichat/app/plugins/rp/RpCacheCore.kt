@@ -1,6 +1,7 @@
 package com.aichat.app.plugins.rp
 
 import com.aichat.app.plugins.TokenEstimator
+import com.aichat.app.plugins.affect.Affect
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
@@ -53,7 +54,7 @@ object RpCacheCore {
      *   所以放在静态层末尾 —— 改一次只毒化它之后的部分，而不是整个前缀。
      *   为空时逐字节等于 1.5.3 的输出（golden 靠这条保持不变）。
      */
-    fun staticText(st: JObj?, baseSystem: Any?, facts: String? = null): String {
+    fun staticText(st: JObj?, baseSystem: Any?, facts: String? = null, affect: Boolean = false): String {
         val parts = ArrayList<String>()
         val b = canonicalize(baseSystem)
         if (b.isNotEmpty()) parts.add(b)
@@ -64,6 +65,11 @@ object RpCacheCore {
         // 常驻世界书条目属于「几乎不改」的层，排在静态块之后（JS 的 staticText 同序）
         val lore = RpLoreCore.constantLoreText(st)
         if (lore.isNotEmpty()) parts.add(lore)
+        // C5：`[AFFECT_RULE]` 是固定文本，以前被 affect 插件追加在 system **最末尾**
+        // （长期记忆之后）——那会让分层看到「dynamic 之后又 static」，于是 gcache 的
+        // 「在记忆前劈开」分支永不触发，断点只能落整条 system。
+        // 收进静态层（lore 之后、facts 之前），层序才保持「变更频率从低到高」。
+        if (affect && !b.contains("[AFFECT_RULE]")) parts.add(Affect.protocolText())
         val f = factsText(facts)
         if (f.isNotEmpty()) parts.add(f)
         return parts.joinToString("\n\n")
@@ -107,21 +113,21 @@ object RpCacheCore {
     }
 
     /** C-2：层序按变更频率从低到高，memory 变动不再毒化 summary 缓存。 */
-    fun buildSystem(st: JObj?, baseSystem: Any?, facts: String? = null): String =
-        listOf(staticText(st, baseSystem, facts), summaryText(st), memoryText(st))
+    fun buildSystem(st: JObj?, baseSystem: Any?, facts: String? = null, affect: Boolean = false): String =
+        listOf(staticText(st, baseSystem, facts, affect), summaryText(st), memoryText(st))
             .filter { it.isNotEmpty() }
             .joinToString("\n\n")
 
     /** system 里「static + summary」这一段稳定前缀，供第二个缓存断点使用。 */
-    fun systemStablePrefix(st: JObj?, baseSystem: Any?, facts: String? = null): String =
-        listOf(staticText(st, baseSystem, facts), summaryText(st))
+    fun systemStablePrefix(st: JObj?, baseSystem: Any?, facts: String? = null, affect: Boolean = false): String =
+        listOf(staticText(st, baseSystem, facts, affect), summaryText(st))
             .filter { it.isNotEmpty() }
             .joinToString("\n\n")
 
     data class Segment(val layer: String, val kind: String, val title: String, val gl: String, val text: String)
 
     /** 结构化分段：`segments.joinToString("\n\n") == buildSystem`。 */
-    fun buildSystemSegments(st: JObj?, baseSystem: Any?, facts: String? = null): List<Segment> {
+    fun buildSystemSegments(st: JObj?, baseSystem: Any?, facts: String? = null, affect: Boolean = false): List<Segment> {
         val out = ArrayList<Segment>()
         val b = canonicalize(baseSystem)
         if (b.isNotEmpty()) out.add(Segment("L1", "static", "base", "-", b))
@@ -132,6 +138,8 @@ object RpCacheCore {
         val sm = summaryText(st)
         val lore = RpLoreCore.constantLoreText(st)
         if (lore.isNotEmpty()) out.add(Segment("L1", "static", "LORE", "D", lore))
+        // 与 staticText 同序：AFFECT_RULE 排在 facts 之前（C5）
+        if (affect && !b.contains("[AFFECT_RULE]")) out.add(Segment("L1", "static", "AFFECT_RULE", "D", Affect.protocolText()))
         val f = factsText(facts)
         if (f.isNotEmpty()) out.add(Segment("L1", "static", "FACTS", "D", f))
         if (sm.isNotEmpty()) out.add(Segment("L3", "static", "CHAPTER_SUMMARY", "S", sm))
@@ -414,11 +422,12 @@ object RpCacheCore {
     }
 
     /** 估算各层 token（用于界面与预算判断）。 */
-    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>, provider: String? = null, facts: String? = null): JObj {
+    fun layerTokens(st: JObj?, baseSystem: Any?, items: List<Any?>, provider: String? = null, facts: String? = null,
+                    affect: Boolean = false): JObj {
         val input = items.lastOrNull() as? JObj
         val hist = if (input != null && Js.str(input["role"]) == "user") items.dropLast(1) else items
         return jobj(
-            "static" to estimateTokens(staticText(st, baseSystem, facts)),
+            "static" to estimateTokens(staticText(st, baseSystem, facts, affect)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
             "history" to estimateItems(hist, provider),
@@ -454,6 +463,32 @@ object RpCacheCore {
         .toSet()
 
     fun roundsOf(items: List<JObj>): Int = items.count { Js.str(it["role"]) == "user" }
+
+    // ------------------------------------------------ 摘要失败的退避（C2）
+    /**
+     * 摘要失败时 `lastSummaryRound` 不推进，于是下一轮会再要一次摘要 ——
+     * 模型持续失败就变成**每轮**都白烧一次调用。这里记连续失败次数并退避：
+     * 1 次 → 等 2 轮，2 次 → 4 轮，3 次及以上 → 8 轮，成功后清零。
+     */
+    fun summaryRetryAllowed(st: JObj?, rounds: Int): Boolean {
+        val r = (st ?: return true)["summaryRetry"] as? JObj ?: return true
+        return rounds >= numOf(r["nextRound"], 0)
+    }
+
+    fun noteSummaryFail(st: JObj, at: Long, rounds: Int): JObj {
+        val r = st["summaryRetry"] as? JObj
+        val n = minOf(3, numOf(r?.get("n"), 0) + 1)
+        val wait = 1 shl n
+        return JObj(st.toMutableMap().also {
+            it["summaryRetry"] = jobj("n" to n, "at" to at.toDouble(), "nextRound" to (rounds + wait), "wait" to wait)
+        })
+    }
+
+    /** 摘要成功后清掉退避标记；本来没有就原样返回（避免每轮都改一次状态）。 */
+    fun clearSummaryFail(st: JObj): JObj {
+        if (st["summaryRetry"] == null) return st
+        return JObj(st.toMutableMap().also { it.remove("summaryRetry") })
+    }
 
     /**
      * 单条消息的 token 估算（JS itemTokens：内容 + 4 结构开销 + 图片）。
@@ -512,6 +547,8 @@ object RpCacheCore {
         provider: String? = null,
         /** L1 事实账本（见 [factsText]）；null = 不带，输出与 1.5.3 逐字节一致 */
         facts: String? = null,
+        /** 好感度协议进静态层（C5）。false = 与 1.5.3 逐字节一致，由 affect 插件自行追加 */
+        affect: Boolean = false,
     ): Plan {
         val st = RpState.normalizeState(st0)
         val s = (st["settings"] as? JObj) ?: JObj()
@@ -534,10 +571,10 @@ object RpCacheCore {
             start = if (i >= 0) i else minOf(numOf(win["startOrdinal"], 0), maxOf(0, unsummarized.size - 1))
         }
         val hist = unsummarized.drop(start)
-        val system = buildSystem(st, baseSystem, facts)
+        val system = buildSystem(st, baseSystem, facts, affect)
 
         val raw = linkedMapOf(
-            "static" to estimateTokens(staticText(st, baseSystem, facts)),
+            "static" to estimateTokens(staticText(st, baseSystem, facts, affect)),
             "memory" to estimateTokens(memoryText(st)),
             "summary" to estimateTokens(summaryText(st)),
             "history" to estimateItems(hist, provider),
@@ -566,7 +603,7 @@ object RpCacheCore {
 
         var reason: String? = null
         val summaryOn = sum["enabled"] != false
-        if (summaryOn && batch.isNotEmpty()) {
+        if (summaryOn && batch.isNotEmpty() && summaryRetryAllowed(st, rounds)) {
             if (overBudget) {
                 reason = "budget"
             } else {
@@ -617,6 +654,14 @@ object RpCacheCore {
             fixed + ((prefix[un.size] - prefix[users[j]]) * p.calib).roundToInt() <= p.limit
 
         var j = maxOf(0, users.size - keep)
+        // C2：临时裁剪的起点一旦定了就钉住（`st.overflow.tempStartId`），不要每轮重算。
+        // 每轮重算 ⇒ 起点随预算漂移 ⇒ 前缀每轮变一次、缓存整段作废；钉住的代价只是
+        // 多送几条上一轮刚好装得下的旧消息，比零命中便宜得多。装不下时才重新算。
+        val pinnedId = Js.str((st["overflow"] as? JObj)?.get("tempStartId"))
+        if (pinnedId.isNotEmpty()) {
+            val pj = users.indexOfFirst { Js.str(un[it]["id"]) == pinnedId }
+            if (pj >= 0 && fits(pj)) return TrimWindow(pinnedId, users[pj], users[pj])
+        }
         if (users.isNotEmpty() && !fits(j)) {
             var lo = j
             var hi = users.size - 1

@@ -258,7 +258,7 @@ class RpCachePluginTest {
         }
         val c = conv(Js.toJson(st) as JsonObject).copy(messages = msgs)
         var asked = 0
-        val plugin = RpCachePlugin(host, ask = { _, prompt ->
+        val plugin = RpCachePlugin(host, ask = { _, prompt, _ ->
             asked++
             assertTrue("摘要提示词里应带本批旧对话", prompt.contains("本批旧对话"))
             GOLDEN_SUMMARY

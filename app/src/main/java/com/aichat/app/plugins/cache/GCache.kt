@@ -147,10 +147,14 @@ object GCache {
         val base = minCacheTokens(model).toDouble()
         val n = if (stats.truthy()) Js.i32(stats["hitSamples"]) else 0
         val h = if (stats.truthy()) stats["hitRate"] else null
-        if (!(n >= 4) || h == null) return base
+        // C3：门槛只做「温和上调」，且要求样本够多、命中确实很差。
+        // 旧实现 <40% ×1.5 / <55% ×1.25 会形成正反馈——断点没打出去 → 命中低 → 门槛更高 →
+        // 更打不出去，最后锁死在隐式缓存上，而且一旦升上去就没有回落条件。
+        // 现在：样本 <8 不动；仅 <35% 升 1.25 倍（封顶）；≥35% 立即回到基线，不保留中间档，
+        // 宁可小幅震荡也不要单向锁死。
+        if (!(n >= 8) || h == null) return base
         val hd = h.d(); if (hd.isNaN() || hd.isInfinite()) return base
-        if (hd < 0.40) return Js.round(base * 1.5)
-        if (hd < 0.55) return Js.round(base * 1.25)
+        if (hd < 0.35) return Js.round(base * 1.25)
         return base
     }
     fun isFlashLite(model: Any?): Boolean { val m = Js.str(Js.or(model, "")); return Js.test(Js.re("flash[-_]?lite|lite", "i"), m) && !Js.test(Js.re("pro", "i"), m) }
@@ -170,7 +174,12 @@ object GCache {
             return jobj("explicit" to false, "reason" to "固定前缀约 " + have + " Token < 门槛 " + Js.numToString(need) + "，走隐式缓存（不填充凑门槛）" + (if (note != null) "；$note" else ""))
         }
         if (!info["prevStaticHash"].truthy()) return jobj("explicit" to false, "reason" to "首轮先走隐式缓存，确认前缀稳定后再写显式缓存")
-        if (info["prevStaticHash"] != info["static_hash"]) return jobj("explicit" to false, "reason" to "固定层刚发生变化，本轮不写显式缓存")
+        if (info["prevStaticHash"] != info["static_hash"]) {
+            // C4：章节刚提交时 static_hash 必变，若照样按「不写」处理，这一轮就是零缓存。
+            // 前缀反正已经变了、旧条目用不上，写新断点从下一轮起就能命中新前缀。
+            if (info["commit"].truthy()) return jobj("explicit" to true, "reason" to "本章刚提交、固定层已变；本轮照写断点（下一轮起命中新前缀）")
+            return jobj("explicit" to false, "reason" to "固定层刚发生变化，本轮不写显式缓存")
+        }
         return jobj("explicit" to true, "reason" to "固定前缀约 " + have + " Token 且稳定，启用显式断点")
     }
     fun decideHistory(cfg: JObj, info: JObj): JObj {
@@ -180,7 +189,11 @@ object GCache {
             return jobj("explicit" to false, "reason" to "固定前缀+历史约 " + have + " Token < 门槛 " + Js.numToString(need) + "，走隐式缓存" + (if (note != null) "；$note" else ""))
         }
         if (!info["prevStaticHash"].truthy()) return jobj("explicit" to false, "reason" to "首轮先走隐式缓存，确认前缀稳定后再写显式缓存")
-        if (info["prevStaticHash"] != info["static_hash"]) return jobj("explicit" to false, "reason" to "固定层刚发生变化，本轮不写显式缓存")
+        if (info["prevStaticHash"] != info["static_hash"]) {
+            // C4：见 decide —— 章节提交轮照写断点，历史因此还能进缓存。
+            if (info["commit"].truthy()) return jobj("explicit" to true, "history" to true, "reason" to "本章刚提交、固定层已变；本轮照写断点（下一轮起命中新前缀）")
+            return jobj("explicit" to false, "reason" to "固定层刚发生变化，本轮不写显式缓存")
+        }
         return jobj("explicit" to true, "history" to true, "reason" to "固定前缀+历史约 " + have + " Token 且固定层稳定，断点放在本轮 user 之前（历史进缓存）")
     }
 
@@ -461,6 +474,12 @@ object GCache {
         val ha = stat["hitAttr"]
         if (ha.truthy() && ha["text"].truthy()) issues += ha["text"]
         if (stat["lastDiff"].truthy()) issues += "最近前缀变化位置 #" + Js.str(stat["lastDiff"]["pos"]) + (if (ha.truthy() && ha["code"] == "prefix_broken") "（firstDiff）" else "")
+        // 历史有没有进缓存：只看 system 命中长度恒等于固定前缀，就是断点没落到历史末尾。
+        val rp = stat["replay"] as? JObj
+        if (rp != null && rp["on"].truthy() == false) issues += "历史回放关闭：每条历史按原文发送，上一轮请求的字节无法复现，前缀在第一条历史处断裂"
+        if (stat["rpCommit"].truthy()) issues += "本轮刚提交章节：固定层已变，断点照写（下一轮起命中新前缀）"
+        // 动态层（长期记忆）在断点之前：它一变，历史整段重写。低频但代价明确，值得写在诊断里。
+        if (stat["dynChangedAt"].truthy()) { val at = stat["dynChangedAt"].d(); if (at > 0 && h.isNotEmpty() && h.last()["t"].d() - at < 10 * 60 * 1000) issues += "动态层（长期记忆等）近期有变更：断点之后的历史需要重写一遍，下一轮恢复" }
         if (issues.isEmpty()) issues += "未发现明显原因：可能是供应商侧缓存未命中或刚写入"
         return jobj("level" to "low", "rate" to rate, "issues" to issues)
     }
@@ -501,7 +520,13 @@ object GCache {
         }
         var hybrid: JObj? = null
         val stH = extra["hybrid"].o()
-        if (stH != null && cfg["hybrid"] != false) {
+        // 回放（日期归一 + 动态层外置 + sent 回放）与 Zip 压缩解耦：
+        // rpcache 接管历史时会关掉 hybrid（历史不能被 Zip 改写），但「上一轮实际送出的字节」
+        // 依然要回放成本轮的历史，否则本轮历史 != 上一轮请求的前缀，前缀在第一条历史处就断。
+        // extra.compress 缺省跟随 cfg.hybrid；extra.replay 缺省 true（显式 false 才关）。
+        val compressOn = cfg["hybrid"] != false && extra["compress"] != false
+        val replayOn = extra["replay"] != false
+        if (stH != null && (compressOn || replayOn)) {
             val st = stH
             for (i in 0 until k) { val c = msgs[i]["content"]; if (c is String) (msgs[i] as JObj)["content"] = normalizeDates(c) }
             var lastUser = msgs.size - 1; if (lastUser < k || msgs[lastUser]["role"] != "user") lastUser = -1
@@ -517,7 +542,8 @@ object GCache {
             var ord = 0
             val histSrc = Js.slice(msgs, k, if (lastUser > 0) lastUser else msgs.size)
             val hist = histSrc.mapIndexed { i, m -> hwOutbound(st, m, if (m["role"] == "user") sentKey(ids.getOrNull(k + i), ord++) else null) }
-            val w = hwApply(hist, st, Js.or(cfg["summaryStrategy"], "semantic"), extra["idleSec"], if (extra["ttlEff"] != null) extra["ttlEff"] else TTL_EFF_DEFAULT.toDouble())
+            val w = if (compressOn) hwApply(hist, st, Js.or(cfg["summaryStrategy"], "semantic"), extra["idleSec"], if (extra["ttlEff"] != null) extra["ttlEff"] else TTL_EFF_DEFAULT.toDouble()) else null
+            if (w == null) hwMigrateSent(st)
             var sentUser: Any? = null
             if (tail != null) {
                 val orig = tail["content"]
@@ -526,18 +552,25 @@ object GCache {
                     sentUser = su; hwRecordSent(st, sentKey(ids.getOrNull(lastUser), ord), orig, su["content"])
                 } else sentUser = tail
             }
+            val histOut: List<Any?> = w?.get("messagesForRequest")?.a() ?: hist
             while (msgs.size > k) msgs.removeAt(msgs.size - 1)
-            msgs.addAll(w["messagesForRequest"].a()!! + (if (sentUser != null) listOf(sentUser) else emptyList()))
-            hybrid = jobj("prefixChanged" to w["prefixChanged"], "summaryCreated" to w["summaryCreated"], "earlyCompressed" to w["earlyCompressed"].truthy(), "rawTurns" to w["rawTurns"],
+            msgs.addAll(histOut + (if (sentUser != null) listOf(sentUser) else emptyList()))
+            if (w != null) hybrid = jobj("prefixChanged" to w["prefixChanged"], "summaryCreated" to w["summaryCreated"], "earlyCompressed" to w["earlyCompressed"].truthy(), "rawTurns" to w["rawTurns"],
                 "totalTurns" to w["totalTurns"], "untilNext" to w["untilNext"], "summaries" to st["summaries"].a()!!.size, "movedDynamic" to dyn.isNotEmpty())
         }
         val prefix = msgs.take(k).joinToString("\n\u0000\n") { partsText(it["content"]) }
         val layers = if (extra["segments"].truthy()) layersFromSegments(prefix, extra["segments"]) else analyzeLayers(prefix)
         var lastU = -1; for (i in msgs.indices.reversed()) if (msgs[i]["role"] == "user") { lastU = i; break }
-        val autoHist = cfg["mode"] == "auto" && hybrid != null && cfg["autoTarget"] != "prefix" && lastU > k
+        // 断点落点不该绑在 hybrid 上：rpcache 接管历史时会关掉 hybrid（历史归它管，不能被 Zip 改写），
+        // 但历史依然「整段稳定、只追加」，正是最该进缓存的东西。绑死 hybrid 的后果是 autoHist=false
+        // → decide() → 断点退回 :559 的 msgs[k-1]（system），只有 system 进缓存：线上实测命中长度
+        // 恒等于 system 长度（3385/4012/4015/5014/5021），与 prompt 增长无关，命中率被钉在 43.7%。
+        // 现在改由调用方用 extra.histBreak 声明「历史由我负责且稳定」（CachePlugins 在 RP 对话里传）。
+        val histBreak = hybrid != null || extra["histBreak"].truthy()
+        val autoHist = cfg["mode"] == "auto" && histBreak && cfg["autoTarget"] != "prefix" && lastU > k
         val decision = if (autoHist)
-            decideHistory(cfg, jobj("model" to body["model"], "cacheText" to msgs.take(lastU).joinToString("\n") { partsText(it["content"]) }, "static_hash" to layers["static_hash"], "prevStaticHash" to extra["prevStaticHash"], "cacheStats" to extra["cacheStats"]))
-        else decide(cfg, jobj("model" to body["model"], "staticText" to if (layers["dynamicText"].truthy()) layers["staticText"] else prefix, "static_hash" to layers["static_hash"], "prevStaticHash" to extra["prevStaticHash"], "cacheStats" to extra["cacheStats"]))
+            decideHistory(cfg, jobj("model" to body["model"], "cacheText" to msgs.take(lastU).joinToString("\n") { partsText(it["content"]) }, "static_hash" to layers["static_hash"], "prevStaticHash" to extra["prevStaticHash"], "cacheStats" to extra["cacheStats"], "commit" to extra["commit"]))
+        else decide(cfg, jobj("model" to body["model"], "staticText" to if (layers["dynamicText"].truthy()) layers["staticText"] else prefix, "static_hash" to layers["static_hash"], "prevStaticHash" to extra["prevStaticHash"], "cacheStats" to extra["cacheStats"], "commit" to extra["commit"]))
         if (full && cfg["mode"] != "off" && msgs.isNotEmpty()) {
             msgs.forEach { stripCC(it as JObj) }
             if (decision["explicit"].truthy()) {
@@ -567,7 +600,8 @@ object GCache {
         val route = routeOf(body)
         val outReq = Js.assign(req); outReq["headers"] = headers; outReq["body"] = Js.stringify(body)
         return jobj("req" to outReq, "applied" to applied, "prefix" to prefix, "layers" to layers, "decision" to decision, "session_id" to Js.or(body["session_id"], ""),
-            "route" to route, "hybrid" to hybrid, "adapter" to adapter)
+            "route" to route, "hybrid" to hybrid, "adapter" to adapter,
+            "replay" to jobj("on" to (stH != null && replayOn), "compress" to compressOn, "sent" to Js.keys((stH?.get("sent") as? JObj) ?: JObj()).size))
     }
 
     fun usageInfo(u: Map<String, Any?>?): JObj? = CacheCommonImpl.usageInfo(u)
