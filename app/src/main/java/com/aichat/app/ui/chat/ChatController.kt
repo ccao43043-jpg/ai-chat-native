@@ -278,13 +278,16 @@ class ChatController(
      * 而换模型/换服务商时也不该把用户选的档位悄悄丢掉（和 extras.temperature 同一套写法）。
      */
     fun setThinkingLevel(level: String) {
-        scope.launch {
-            val c = _state.value.conv ?: return@launch
-            val lv = ProviderRules.normalizeThinkingLevel(level)
-            val ex = if (lv == "auto") JsonObject(c.extras - "thinkingLevel")
-                     else JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
-            save(c.copy(extras = ex), touch = false)
-        }
+        val c = _state.value.conv
+        if (c == null) { toast("没有打开的对话"); return }
+        val lv = ProviderRules.normalizeThinkingLevel(level)
+        val ex = if (lv == "auto") JsonObject(c.extras - "thinkingLevel")
+                 else JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
+        // 先乐观更新：点一下立刻能看见选中态，不等磁盘往返（弹层里那 5 个胶囊就是靠它刷新）
+        _state.update { if (it.convId == c.id) it.copy(conv = c.copy(extras = ex)) else it }
+        val p = settings.value.providers.firstOrNull { it.id == c.providerId }
+        toast("思考等级：" + ProviderRules.thinkingLabel(lv) + " → " + ProviderRules.thinkingWireHint(p, c.model, lv))
+        scope.launch { save(c.copy(extras = ex), touch = false) }
     }
 
     /** app.js applyTemplate：tpl=null 为清空；RP 对话先确认（RP_WARN）；已在使用时提示 */

@@ -220,6 +220,25 @@ object ProviderRules {
         if (lv == "off") return null
         return buildJsonObject { put("reasoning_effort", lv) }
     }
+    /** 档位的中文名（UI/提示用） */
+    fun thinkingLabel(level: String?): String = when (normalizeThinkingLevel(level)) {
+        "off" -> "关"; "low" -> "低"; "medium" -> "中"; "high" -> "高"; else -> "自动"
+    }
+
+    /**
+     * 这档位最终会写成什么字段（给人看的提示，不参与请求）。未下发时说明原因：
+     * 自动 / 模型认不出 / 这类接口没有关闭字段。
+     */
+    fun thinkingWireHint(p: ProviderConfig?, model: String?, level: String?): String {
+        val lv = normalizeThinkingLevel(level)
+        if (lv == "auto") return "不下发（各模型默认）"
+        if (!supportsThinking(p, model)) return "不下发（这个模型认不出思考档位）"
+        if (isQwenEndpoint(p)) return "enable_thinking=" + (lv != "off")
+        if (isOpenRouterProvider(p)) return if (lv == "off") "reasoning.enabled=false" else "reasoning.effort=$lv"
+        if (lv == "off") return "不下发（这类接口没有关闭字段）"
+        return "reasoning_effort=$lv"
+    }
+
     /** 原生 Gemini 的 `generationConfig.thinkingConfig`（null = 不发） */
     fun geminiThinkingConfig(model: String?, level: String?): JsonObject? {
         val lv = normalizeThinkingLevel(level)

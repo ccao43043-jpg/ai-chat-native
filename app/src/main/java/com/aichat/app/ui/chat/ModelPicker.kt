@@ -1,6 +1,10 @@
 package com.aichat.app.ui.chat
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -88,19 +95,31 @@ fun ModelPicker(
 /** 思考等级：5 档小胶囊。`自动` = 请求体不加任何字段（各模型自己的默认）。 */
 @Composable
 private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit) {
+    // 点了立刻变：不依赖保存往返（弹层常在磁盘写完前就关了，等 state 回来会有「点了没反应」的手感）
+    var picked by remember(level) { mutableStateOf(level) }
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)) {
         Text("思考等级", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Text("自动 = 不下发字段；只对本轮对话生效，思考型模型才认",
+        Text("自动 = 不下发字段；只对本对话生效，思考型模型才认",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             THINKING_LABELS.forEach { (key, label) ->
-                val sel = level == key
-                Text(label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (sel) FontWeight.SemiBold else null,
-                    color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f).clickable { onPick(key) }.padding(vertical = 6.dp)
-                        .testTag("thinking-" + key))
+                val sel = picked == key
+                Box(
+                    Modifier.weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .border(1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Button) { picked = key; onPick(key) }
+                        .padding(vertical = 9.dp)
+                        .testTag("thinking-" + key),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

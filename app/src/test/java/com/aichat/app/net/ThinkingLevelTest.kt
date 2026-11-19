@@ -45,6 +45,32 @@ class ThinkingLevelTest {
         GeminiCompat.buildBody(p, model, listOf(WireMessage(Role.USER, "hi")), "",
             ChatOptions(stream = false, thinkingLevel = level))
 
+    // ---------------- 提示文案（点击后 toast 用的那句） ----------------
+
+    @Test
+    fun wireHintTellsWhatIsActuallySent() {
+        assertEquals("reasoning.effort=high", ProviderRules.thinkingWireHint(or(), "google/gemini-3.8-flash-20260902", "high"))
+        assertEquals("reasoning.enabled=false", ProviderRules.thinkingWireHint(or(), "google/gemini-3.8-flash-20260902", "off"))
+        assertEquals("不下发（各模型默认）", ProviderRules.thinkingWireHint(or(), "google/gemini-3.8-flash-20260902", "auto"))
+        // 认不出的模型：一定要说清「不下发」，否则用户以为点坏了
+        assertTrue(ProviderRules.thinkingWireHint(or(), "google/gemini-3.8-flash-20260902", "high").startsWith("reasoning."))
+        assertTrue(ProviderRules.thinkingWireHint(or("some/unknown-model"), "some/unknown-model", "high").contains("认不出"))
+        assertEquals("reasoning_effort=medium", ProviderRules.thinkingWireHint(openai(), "o3-mini", "medium"))
+        assertTrue(ProviderRules.thinkingWireHint(openai(), "gpt-4o", "high").contains("认不出"))
+        assertEquals("enable_thinking=true", ProviderRules.thinkingWireHint(qwen(), "qwen3-max", "high"))
+    }
+
+    @Test
+    fun labelIsChinese() {
+        assertEquals("自动", ProviderRules.thinkingLabel(null))
+        assertEquals("自动", ProviderRules.thinkingLabel("auto"))
+        assertEquals("关", ProviderRules.thinkingLabel("off"))
+        assertEquals("低", ProviderRules.thinkingLabel("low"))
+        assertEquals("中", ProviderRules.thinkingLabel("medium"))
+        assertEquals("高", ProviderRules.thinkingLabel("high"))
+        assertEquals("自动", ProviderRules.thinkingLabel("HIGH?"))
+    }
+
     // ---------------- 契约 1：auto 不动请求体 ----------------
 
     @Test
