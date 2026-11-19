@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aichat.app.net.ProviderRules
 import com.aichat.app.ui.common.ConfirmDialog
 import com.aichat.app.ui.common.EditorAction
 import com.aichat.app.ui.common.FullScreenEditor
@@ -92,6 +93,8 @@ fun ChatScreen(
     val deps = LocalUiDeps.current
     val st by controller.state.collectAsStateWithLifecycle()
     val index by controller.index.collectAsStateWithLifecycle()
+    // 思考等级单独订阅：它不会被 conv 快照回写覆盖，弹层高亮以它为准
+    val thinking by controller.thinking.collectAsStateWithLifecycle()
     val settings by controller.settings.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -608,8 +611,14 @@ fun ChatScreen(
         onPick = { p, m -> controller.setModel(p, m); picker = false },
         onManage = { picker = false; onOpenSettings(SettingsDestination.Providers) },
         onDismiss = { picker = false },
-        currentThinking = Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null },
-        onThinkingLevel = { controller.setThinkingLevel(it) })
+        currentThinking = thinking[st.convId] ?: Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null },
+        onThinkingLevel = { controller.setThinkingLevel(it) },
+        debugLine = run {
+            // 两边不一致才显示：内存表是本轮真正生效的值，conv 里是最近一次落盘回填的值
+            val m = thinking[st.convId]
+            val c = Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null }
+            if (m != null && c != m) "内存=" + ProviderRules.thinkingLabel(m) + " / 对话=" + ProviderRules.thinkingLabel(c ?: "auto") else null
+        })
     viewing?.let { ImageViewer(it) { viewing = null } }
 }
 

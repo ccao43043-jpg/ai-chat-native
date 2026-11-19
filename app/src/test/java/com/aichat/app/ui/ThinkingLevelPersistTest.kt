@@ -66,6 +66,23 @@ class ThinkingLevelPersistTest {
     }
 
     @Test
+    fun staleConvSnapshotDoesNotResetTheLevel() {
+        runBlocking {
+            val (c, g) = make()
+            val conv = g.chats.create("openrouter", "google/gemini-3.8-flash-20260902")
+            c.select(conv.id)
+            until { c.state.value.conv?.id == conv.id }
+
+            c.setThinkingLevel("high")
+            assertEquals("high", c.thinking.value[conv.id])
+
+            // 模拟「一条更早开始、更晚结束的保存」把 state.conv 盖成旧快照（没有 thinkingLevel）
+            val stale = conv.copy(title = conv.title)
+            assertEquals("高亮读内存表，不被旧快照带跑", "high", c.thinkingLevelOf(conv.id, stale))
+        }
+    }
+
+    @Test
     fun autoIsStoredAsAutoNotDeleted() {
         runBlocking {
             val (c, g) = make()

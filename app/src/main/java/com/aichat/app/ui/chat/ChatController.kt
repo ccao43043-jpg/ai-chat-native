@@ -58,6 +58,20 @@ class ChatController(
     private val _streams = MutableStateFlow<Map<String, Streaming>>(emptyMap())
     val streams: StateFlow<Map<String, Streaming>> = _streams.asStateFlow()
 
+    /**
+     * 思考等级（按对话 id）：弹层的高亮直接读这里，而不是只读 `state.conv.extras`。
+     *
+     * 为什么单独存一份：`conv` 是整份快照，任何一条「保存→重读磁盘→回写 conv」的协程只要比
+     * 用户那一下晚结束，就会把刚选的档位盖回旧值（用户看到的正是「点完有蓝框，关掉再进变回自动」）。
+     * 这份 map 只在「选中档位」「切到某个对话时从磁盘播种」两处变化，不会被那些快照覆盖。
+     */
+    private val _thinking = MutableStateFlow<Map<String, String>>(emptyMap())
+    val thinking: StateFlow<Map<String, String>> = _thinking.asStateFlow()
+
+    /** 某个对话此刻生效的思考等级（先看内存表，再回落到对话 extras；都没有 = auto） */
+    fun thinkingLevelOf(convId: String?, conv: Conversation?): String? =
+        (convId?.let { _thinking.value[it] }) ?: Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null }
+
     /** 单个对话的流式热流；未在流式时发 null。UI 里 remember(convId) 后 collect */
     fun streamOf(convId: String?): Flow<Streaming?> = _streams.map { it[convId] }.distinctUntilChanged()
 
@@ -117,6 +131,9 @@ class ChatController(
                 return@launch
             }
             _state.update { if (it.convId == id) it.copy(conv = c) else it }
+            // 从磁盘播种一次（只补空缺，不覆盖本次会话里已经点过的档位）
+            val disk = Js.str(c?.extras?.get("thinkingLevel")).ifEmpty { null }
+            if (disk != null) _thinking.update { m -> if (m.containsKey(id)) m else m + (id to disk) }
         }
     }
 
@@ -286,6 +303,8 @@ class ChatController(
         if (c == null) { toast("没有打开的对话"); return }
         val lv = ProviderRules.normalizeThinkingLevel(level)
         val ex = JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
+        // 内存表现在就是「真相」：后续任何一次 conv 快照回写都盖不掉它
+        _thinking.update { it + (c.id to lv) }
         // 先乐观更新：点一下立刻能看见选中态，不等磁盘往返（弹层里那 5 个胶囊就是靠它刷新）
         // 比对用 conv.id 而不是 convId：convId 只在「选中了某个对话」时才有值，恢复路径上可能对不上
         _state.update { if (it.conv?.id == c.id) it.copy(conv = c.copy(extras = ex)) else it }
@@ -300,6 +319,11 @@ class ChatController(
                 android.util.Log.w("ThinkingLevel", "回填丢失，补写：lv=$lv back=$back convId=${_state.value.convId} id=${c.id}")
                 _state.update { if (it.conv?.id == c.id) it.copy(conv = it.conv!!.copy(extras = ex)) else it }
                 save(c.copy(extras = ex), touch = false)
+            }
+            // 磁盘上没写进去时也别让内存表说谎（下次进来仍按内存表显示，但至少留痕）
+            val disk = runCatching { deps.chats.load(c.id)?.extras?.get("thinkingLevel") }.getOrNull()
+            if ((disk as? JsonPrimitive)?.content != lv) {
+                android.util.Log.w("ThinkingLevel", "磁盘未写入：lv=$lv disk=$disk id=${c.id}")
             }
         }
     }

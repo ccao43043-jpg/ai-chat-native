@@ -51,13 +51,15 @@ fun ModelPicker(
     onDismiss: () -> Unit,
     currentThinking: String? = null,
     onThinkingLevel: (String) -> Unit = {},
+    /** 只在「内存表」和「对话里的值」不一致时传：把双方原样显示出来，方便一眼定位是谁丢了 */
+    debugLine: String? = null,
 ) {
     // Flex 只改变「点选时提交的模型串」；开关按当前选中播种，本次弹层内有效
     var flexOn by remember { mutableStateOf(currentModel?.endsWith(":flex") == true) }
     val level = ProviderRules.normalizeThinkingLevel(currentThinking)
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("model-picker")) {
         LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding()) {
-            item(key = "think") { ThinkingLevelRow(level, onThinkingLevel) }
+            item(key = "think") { ThinkingLevelRow(level, onThinkingLevel, debugLine) }
             providers.filter { p -> p.models.any { it.isNotBlank() } }.forEach { p ->
                 val isOr = ProviderRules.isOpenRouterProvider(p)
                 item(key = "h-" + p.id) {
@@ -94,13 +96,17 @@ fun ModelPicker(
 
 /** 思考等级：5 档小胶囊。`自动` = 请求体不加任何字段（各模型自己的默认）。 */
 @Composable
-private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit) {
+private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit, debug: String? = null) {
     // 点了立刻变：不依赖保存往返（弹层常在磁盘写完前就关了，等 state 回来会有「点了没反应」的手感）
     var picked by remember(level) { mutableStateOf(level) }
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)) {
         Text("思考等级", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text("自动 = 不下发字段；只对本对话生效" + if (level == "auto") "" else "（已存：" + ProviderRules.thinkingLabel(level) + "）",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (debug != null) {
+            Text(debug, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("thinking-debug"))
+        }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             THINKING_LABELS.forEach { (key, label) ->
                 val sel = picked == key
