@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 178                  // 原生 v1.7.8：操作栏不再被用量文字挤没
-        versionName '1.7.8'
+        versionCode 179                  // 原生 v1.7.9：操作栏整行横向滑动（按钮不再被挤小）
+        versionName '1.7.9'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

@@ -140,7 +140,10 @@ fun MessageItem(
                     )
                 }
             }
-            ActionBar(m, view, copy, actions)
+            // 用户消息的操作栏同样横向滑动：宽度够照旧右对齐，超出就从左起可滑
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Row(Modifier.horizontalScroll(rememberScrollState())) { ActionBar(m, view, copy, actions) }
+            }
         }
         return
     }
@@ -195,24 +198,19 @@ fun MessageItem(
                 listOfNotNull(u.prompt?.let { "入 $it" }, u.completion?.let { "出 $it" }, u.hit?.takeIf { it > 0 }?.let { "命中 $it" })
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
             }).joinToString("  ")
+            // 操作栏 + 用量文字整行横向滑动：Row 放进 scroll 之后子项按自身宽度量（不受父宽限制），
+            // 于是按钮永远保持原尺寸，不会因为用量数字变长被压成 0 宽；放不下的部分滑一下就能看到。
             Row(
-                Modifier.fillMaxWidth().padding(start = 32.dp),
+                Modifier.fillMaxWidth().padding(start = 32.dp).horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 操作栏先量、先拿宽度。以前是「用量文字」先量（它没有 weight，Term 又排在前面先拿满宽），
-                // 于是 prompt 数字从 4 位涨到 6 位、又多了「命中 ……」之后，这一整排被压到 0 宽 ——
-                // 版本切换 ‹ 1/3 › 和「重新生成」就是那样被挤没的。现在反过来：按钮按需自宽，
-                // 剩多少给用量文字，不够就省略号，永远不会再压掉按钮。
-                Box(Modifier.horizontalScroll(rememberScrollState())) {
-                    ActionBar(m, view, copy, actions)
-                }
+                ActionBar(m, view, copy, actions)
                 if (info.isNotEmpty()) Text(
                     info,
                     style = MaterialTheme.typography.labelSmall,
                     color = com.aichat.app.ui.theme.Palette.Fg3,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
