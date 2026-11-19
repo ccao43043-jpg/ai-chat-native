@@ -75,6 +75,8 @@ object OpenAiCompat {
         body["stream"] = JsonPrimitive(stream)
         val th: Boolean? = opts.thinking ?: when (provider.thinking) { "on" -> true; "off" -> false; else -> null }
         if (th != null && ProviderRules.isQwenEndpoint(provider)) body["enable_thinking"] = JsonPrimitive(th)
+        // 思考等级（auto 返回 null，请求体不被改动）：显式档位优先于上面的 provider 开关
+        ProviderRules.thinkingPatch(provider, model, opts.thinkingLevel)?.forEach { (k, v) -> body[k] = v }
         if (stream && ProviderRules.streamUsageEnabled(provider)) body["stream_options"] = buildJsonObject { put("include_usage", true) }
         if (temp != null) body["temperature"] = Js.number(temp)
         if (opts.maxTokens != null && opts.maxTokens != 0) body["max_tokens"] = JsonPrimitive(opts.maxTokens)

@@ -180,4 +180,55 @@ object ProviderRules {
         if (!(a > 0)) return lo
         return maxOf(lo, Math.floor(a * 0.8))
     }
+
+    // ---------------- 思考等级 ----------------
+    /** 界面上的 5 档；`auto` = 不写任何字段（各模型按自己默认，请求与旧版逐字节一致） */
+    val THINKING_LEVELS = listOf("auto", "off", "low", "medium", "high")
+    fun normalizeThinkingLevel(v: String?): String {
+        val s = (v ?: "").trim().lowercase(Locale.ROOT)
+        return if (s in THINKING_LEVELS) s else "auto"
+    }
+    /** 等级 → Gemini `thinkingBudget`（0 = 关闭思考、-1 = 动态）。auto 返回 null（不发字段） */
+    fun thinkingBudget(level: String?): Int? = when (normalizeThinkingLevel(level)) {
+        "off" -> 0; "low" -> 1024; "medium" -> 8192; "high" -> 24576; else -> null
+    }
+    /** Gemini 3 起 thinkingConfig 换成 `thinkingLevel`（low/high），2.5 系仍是 `thinkingBudget` */
+    private val RE_GEMINI3 = Regex("(?i)gemini-[3-9]")
+    fun isGemini3(model: String?): Boolean = RE_GEMINI3.containsMatchIn(model ?: "")
+    /**
+     * 这个 provider + model 认不认「思考等级」。认不出来就一律不发——把 `reasoning_effort`
+     * 塞给一个不认识的模型会被部分网关直接 400，代价远大于「档位不生效」。
+     */
+    fun supportsThinking(p: ProviderConfig?, model: String?): Boolean =
+        isReasoningModel(model) || isQwenEndpoint(p)
+
+    /**
+     * 思考等级 → OpenAI 兼容请求体字段（null = 一个字段都不发）。
+     *  - OpenRouter：统一 `reasoning`（effort / enabled:false），由它翻译成各家方言（Gemini → thinkingBudget）
+     *  - Qwen 百炼：只认开关，档位归一到 `enable_thinking`
+     *  - 其它 OpenAI 兼容（o 系列 / *-reasoner）：`reasoning_effort`；`off` 不发——那边没有可靠的关闭字段，
+     *    硬发 "minimal" 会被老模型 400
+     */
+    fun thinkingPatch(p: ProviderConfig?, model: String?, level: String?): JsonObject? {
+        val lv = normalizeThinkingLevel(level)
+        if (lv == "auto" || !supportsThinking(p, model)) return null
+        if (isQwenEndpoint(p)) return buildJsonObject { put("enable_thinking", JsonPrimitive(lv != "off")) }
+        if (isOpenRouterProvider(p)) return buildJsonObject {
+            put("reasoning", if (lv == "off") buildJsonObject { put("enabled", false) }
+                           else buildJsonObject { put("effort", lv) })
+        }
+        if (lv == "off") return null
+        return buildJsonObject { put("reasoning_effort", lv) }
+    }
+    /** 原生 Gemini 的 `generationConfig.thinkingConfig`（null = 不发） */
+    fun geminiThinkingConfig(model: String?, level: String?): JsonObject? {
+        val lv = normalizeThinkingLevel(level)
+        if (lv == "auto") return null
+        if (isGemini3(model)) return buildJsonObject {
+            // Gemini 3 只能在 low/high 之间选，且关不掉思考：off 退化成 low
+            put("thinkingLevel", if (lv == "low" || lv == "off") "low" else "high")
+        }
+        val b = thinkingBudget(lv) ?: return null
+        return buildJsonObject { put("thinkingBudget", b) }
+    }
 }

@@ -136,6 +136,7 @@ object AnthropicCompat {
 /**
  * buildChatRequest 的 gemini 分支（:streamGenerateContent?alt=sse / :generateContent）。键序同 JS：contents, systemInstruction, generationConfig。
  * JS 这一分支没有 thinkingConfig；Gemini 显式缓存（cachedContent）由 gcache 插件经 bodyPatch 写入，不在这里。
+ * 唯一的有意分歧：`opts.thinkingLevel` 非 auto 时会在 generationConfig 里写 `thinkingConfig`（JS 没有这个选项）。
  */
 object GeminiCompat {
     fun buildBody(provider: ProviderConfig, model: String, messages: List<WireMessage>, systemPrompt: String,
@@ -163,6 +164,8 @@ object GeminiCompat {
         if (temp != null) gc["temperature"] = Js.number(temp)
         if (opts.maxTokens != null && opts.maxTokens != 0) gc["maxOutputTokens"] = JsonPrimitive(opts.maxTokens)
         if (opts.jsonMode) gc["responseMimeType"] = JsonPrimitive("application/json")
+        // 思考等级：auto → null，不写字段（与旧版逐字节一致）；2.5 系用 thinkingBudget，3 起用 thinkingLevel
+        ProviderRules.geminiThinkingConfig(model, opts.thinkingLevel)?.let { gc["thinkingConfig"] = it }
         if (gc.isNotEmpty()) body["generationConfig"] = JsonObject(gc)
         return JsonMergePatch.applyObject(JsonObject(body), bodyPatch)
     }

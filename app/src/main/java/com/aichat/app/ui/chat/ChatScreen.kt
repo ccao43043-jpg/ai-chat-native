@@ -607,7 +607,9 @@ fun ChatScreen(
     if (picker) ModelPicker(settings.providers, target?.first?.id, target?.second,
         onPick = { p, m -> controller.setModel(p, m); picker = false },
         onManage = { picker = false; onOpenSettings(SettingsDestination.Providers) },
-        onDismiss = { picker = false })
+        onDismiss = { picker = false },
+        currentThinking = Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null },
+        onThinkingLevel = { controller.setThinkingLevel(it) })
     viewing?.let { ImageViewer(it) { viewing = null } }
 }
 

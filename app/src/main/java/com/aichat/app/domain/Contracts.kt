@@ -89,6 +89,11 @@ data class ChatOptions(
     val temperature: Double? = null,
     val maxTokens: Int? = null,
     val thinking: Boolean? = null,
+    /**
+     * 思考等级：auto | off | low | medium | high（null ≙ auto）。
+     * auto 时请求体一个字段都不加，与旧版逐字节一致；具体落到哪个字段由 ProviderRules.thinkingPatch 决定。
+     */
+    val thinkingLevel: String? = null,
     val jsonMode: Boolean = false,
     val convId: String? = null,           // OpenRouter session_id = orSessionIdFor(convId,'or')
     val cacheControl: Boolean = false,

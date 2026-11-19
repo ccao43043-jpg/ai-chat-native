@@ -8,6 +8,7 @@ import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.Role
 import com.aichat.app.domain.model.Usage
 import com.aichat.app.data.files.FileText
+import com.aichat.app.net.ProviderRules
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.rp.RpState
@@ -267,6 +268,22 @@ class ChatController(
             deps.settings.update { it.copy(lastProviderId = providerId, lastModel = model) }
             val c = _state.value.conv ?: return@launch
             save(c.copy(providerId = providerId, model = model), touch = false)
+        }
+    }
+
+    /**
+     * 思考等级（per 对话，写进 conv.extras.thinkingLevel；`auto` 直接删掉这个键）。
+     *
+     * 存在对话上而不是服务商上：同一个模型换个对话想「这轮只问一句」很正常，
+     * 而换模型/换服务商时也不该把用户选的档位悄悄丢掉（和 extras.temperature 同一套写法）。
+     */
+    fun setThinkingLevel(level: String) {
+        scope.launch {
+            val c = _state.value.conv ?: return@launch
+            val lv = ProviderRules.normalizeThinkingLevel(level)
+            val ex = if (lv == "auto") JsonObject(c.extras - "thinkingLevel")
+                     else JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
+            save(c.copy(extras = ex), touch = false)
         }
     }
 
