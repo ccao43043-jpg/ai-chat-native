@@ -199,16 +199,20 @@ fun MessageItem(
                 Modifier.fillMaxWidth().padding(start = 32.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.weight(1f).clipToBounds()) {
+                // 操作栏先量、先拿宽度。以前是「用量文字」先量（它没有 weight，Term 又排在前面先拿满宽），
+                // 于是 prompt 数字从 4 位涨到 6 位、又多了「命中 ……」之后，这一整排被压到 0 宽 ——
+                // 版本切换 ‹ 1/3 › 和「重新生成」就是那样被挤没的。现在反过来：按钮按需自宽，
+                // 剩多少给用量文字，不够就省略号，永远不会再压掉按钮。
+                Box(Modifier.horizontalScroll(rememberScrollState())) {
                     ActionBar(m, view, copy, actions)
                 }
                 if (info.isNotEmpty()) Text(
                     info,
                     style = MaterialTheme.typography.labelSmall,
                     color = com.aichat.app.ui.theme.Palette.Fg3,
-
                     maxLines = 1,
-                    modifier = Modifier.padding(start = 8.dp),
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
                 )
             }
         }
