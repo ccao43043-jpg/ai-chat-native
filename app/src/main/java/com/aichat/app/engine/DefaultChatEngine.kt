@@ -184,8 +184,9 @@ class DefaultChatEngine(
             return RequestContext(c, provider, c.model, sys, msgs,
                 ChatOptions(stream = settings.stream, temperature = temp, maxTokens = ProviderRules.resolveMaxTokens(provider, c.model, settings.maxTokens),
                     convId = c.id,
-                    // 思考等级是「每个对话」的：换模型/换服务商不该把它丢掉，写法同上面的 temperature 覆盖
-                    thinkingLevel = ProviderRules.normalizeThinkingLevel(Js.str(c.extras["thinkingLevel"])).takeIf { it != "auto" }), settings, lu?.id)
+                    // 思考等级按「模型」记（settings.extras.thinkingLevels）；没设过才回落到旧版写在对话里的值
+                    thinkingLevel = ProviderRules.resolveLevel(settings.extras, c.providerId, c.model, Js.str(c.extras["thinkingLevel"]))
+                        .takeIf { it != "auto" }), settings, lu?.id)
         }
         var ctx = buildCtx(conv)
 

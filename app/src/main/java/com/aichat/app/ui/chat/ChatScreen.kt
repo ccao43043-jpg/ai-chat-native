@@ -611,14 +611,11 @@ fun ChatScreen(
         onPick = { p, m -> controller.setModel(p, m); picker = false },
         onManage = { picker = false; onOpenSettings(SettingsDestination.Providers) },
         onDismiss = { picker = false },
-        currentThinking = thinking[st.convId] ?: Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null },
-        onThinkingLevel = { controller.setThinkingLevel(it) },
-        debugLine = run {
-            // 两边不一致才显示：内存表是本轮真正生效的值，conv 里是最近一次落盘回填的值
-            val m = thinking[st.convId]
-            val c = Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null }
-            if (m != null && c != m) "内存=" + ProviderRules.thinkingLabel(m) + " / 对话=" + ProviderRules.thinkingLabel(c ?: "auto") else null
-        })
+        // 档位属于「模型」：按 服务商+模型 查，跨对话共享，所以切对话不会变回自动。
+        // 先看即时覆盖层（点一下立刻变蓝），再回落到 settings 里存的值
+        currentThinking = thinking[ProviderRules.thinkingKey(target?.first?.id, target?.second)]
+            ?: controller.thinkingLevelOf(target?.first?.id, target?.second),
+        onThinkingLevel = { controller.setThinkingLevel(it) })
     viewing?.let { ImageViewer(it) { viewing = null } }
 }
 

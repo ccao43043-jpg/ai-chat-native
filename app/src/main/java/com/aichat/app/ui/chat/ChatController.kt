@@ -59,18 +59,19 @@ class ChatController(
     val streams: StateFlow<Map<String, Streaming>> = _streams.asStateFlow()
 
     /**
-     * 思考等级（按对话 id）：弹层的高亮直接读这里，而不是只读 `state.conv.extras`。
+     * 思考等级（**按模型**：服务商 + 模型名一份，跨对话共享）的即时覆盖层。
      *
-     * 为什么单独存一份：`conv` 是整份快照，任何一条「保存→重读磁盘→回写 conv」的协程只要比
-     * 用户那一下晚结束，就会把刚选的档位盖回旧值（用户看到的正是「点完有蓝框，关掉再进变回自动」）。
-     * 这份 map 只在「选中档位」「切到某个对话时从磁盘播种」两处变化，不会被那些快照覆盖。
+     * 真相存在 `settings.extras.thinkingLevels`（见 [ProviderRules.withLevel]），落盘由 settings 仓库负责；
+     * 这里只是为了「点一下立刻变蓝」：settings 的 update 要等一次磁盘写，弹层不应当为此卡一下。
+     * 键是 `providerId|model`，与存储键同一套（[ProviderRules.thinkingKey]）。
      */
     private val _thinking = MutableStateFlow<Map<String, String>>(emptyMap())
     val thinking: StateFlow<Map<String, String>> = _thinking.asStateFlow()
 
-    /** 某个对话此刻生效的思考等级（先看内存表，再回落到对话 extras；都没有 = auto） */
-    fun thinkingLevelOf(convId: String?, conv: Conversation?): String? =
-        (convId?.let { _thinking.value[it] }) ?: Js.str(conv?.extras?.get("thinkingLevel")).ifEmpty { null }
+    /** 某个模型此刻生效的档位（先看覆盖层，再回落到 settings，最后才是 auto） */
+    fun thinkingLevelOf(providerId: String?, model: String?): String =
+        _thinking.value[ProviderRules.thinkingKey(providerId, model)]
+            ?: ProviderRules.levelFor(settings.value.extras, providerId, model)
 
     /** 单个对话的流式热流；未在流式时发 null。UI 里 remember(convId) 后 collect */
     fun streamOf(convId: String?): Flow<Streaming?> = _streams.map { it[convId] }.distinctUntilChanged()
@@ -131,9 +132,6 @@ class ChatController(
                 return@launch
             }
             _state.update { if (it.convId == id) it.copy(conv = c) else it }
-            // 从磁盘播种一次（只补空缺，不覆盖本次会话里已经点过的档位）
-            val disk = Js.str(c?.extras?.get("thinkingLevel")).ifEmpty { null }
-            if (disk != null) _thinking.update { m -> if (m.containsKey(id)) m else m + (id to disk) }
         }
     }
 
@@ -289,42 +287,28 @@ class ChatController(
     }
 
     /**
-     * 思考等级（per 对话，写进 conv.extras.thinkingLevel）。
+     * 思考等级。**按模型存**（服务商 + 模型名一份，写进 `settings.extras.thinkingLevels`）：
+     * 思考深度是模型的属性，不是这段对话的属性 —— 同一个模型什么时候聊都该是同一个档位，
+     * 换个对话不该重置，重启也不该丢。
      *
-     * 存对话上而不是服务商上：同一个模型换个对话想「这轮只问一句」很正常，
-     * 而换模型/换服务商时也不该把用户选的档位悄悄丢掉（和 extras.temperature 同一套写法）。
+     * 落盘：交给 settings 仓库（`deps.settings.update`），它是整份设置文件；
+     * 对话不再承担存储（1.7.5 及更早写在 `conv.extras.thinkingLevel`，引擎仍读它做兜底）。
      *
-     * `auto` 也照原样存字符串（不删键）：删键在结构化 diff 里会落成 `"thinkingLevel": null`，
-     * 读回来是个 JsonNull，既不是「没有」也不是「auto」，还得再归一一次；存 "auto" 干净得多，
-     * 引擎侧本来就是 `takeIf { it != "auto" }` —— 请求体一个字段都不多写。
+     * `auto` 也照原样存字符串：删键会落成 JSON null，读回来「既非有值也非缺键」，还得再归一一次。
      */
     fun setThinkingLevel(level: String) {
         val c = _state.value.conv
         if (c == null) { toast("没有打开的对话"); return }
         val lv = ProviderRules.normalizeThinkingLevel(level)
-        val ex = JsonObject(c.extras + ("thinkingLevel" to JsonPrimitive(lv)))
-        // 内存表现在就是「真相」：后续任何一次 conv 快照回写都盖不掉它
-        _thinking.update { it + (c.id to lv) }
-        // 先乐观更新：点一下立刻能看见选中态，不等磁盘往返（弹层里那 5 个胶囊就是靠它刷新）
-        // 比对用 conv.id 而不是 convId：convId 只在「选中了某个对话」时才有值，恢复路径上可能对不上
-        _state.update { if (it.conv?.id == c.id) it.copy(conv = c.copy(extras = ex)) else it }
+        val key = ProviderRules.thinkingKey(c.providerId, c.model)
+        // 先盖一层即时值：点一下马上变蓝，不等 settings 那次磁盘写
+        _thinking.update { it + (key to lv) }
         val p = settings.value.providers.firstOrNull { it.id == c.providerId }
         toast("思考等级：" + ProviderRules.thinkingLabel(lv) + " → " + ProviderRules.thinkingWireHint(p, c.model, lv))
         scope.launch {
-            save(c.copy(extras = ex), touch = false)
-            // 落盘回填（save 会 load 回来覆盖 state）万一把它冲掉了，这里补写一次并留痕：
-            // 用户看到的「退出再进变回自动」就是这条被冲掉的样子。
-            val back = (_state.value.conv?.takeIf { it.id == c.id }?.extras?.get("thinkingLevel") as? JsonPrimitive)?.content
-            if (back != lv) {
-                android.util.Log.w("ThinkingLevel", "回填丢失，补写：lv=$lv back=$back convId=${_state.value.convId} id=${c.id}")
-                _state.update { if (it.conv?.id == c.id) it.copy(conv = it.conv!!.copy(extras = ex)) else it }
-                save(c.copy(extras = ex), touch = false)
-            }
-            // 磁盘上没写进去时也别让内存表说谎（下次进来仍按内存表显示，但至少留痕）
-            val disk = runCatching { deps.chats.load(c.id)?.extras?.get("thinkingLevel") }.getOrNull()
-            if ((disk as? JsonPrimitive)?.content != lv) {
-                android.util.Log.w("ThinkingLevel", "磁盘未写入：lv=$lv disk=$disk id=${c.id}")
-            }
+            deps.settings.update { s -> s.copy(extras = ProviderRules.withLevel(s.extras, c.providerId, c.model, lv)) }
+            // 写完之后把自己这层覆盖撤掉，之后一律以 settings 为准（避免这层旧值盖住别处改的设置）
+            _thinking.update { m -> m - key }
         }
     }
 

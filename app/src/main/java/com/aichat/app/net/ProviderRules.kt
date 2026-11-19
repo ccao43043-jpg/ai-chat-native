@@ -250,4 +250,40 @@ object ProviderRules {
         val b = thinkingBudget(lv) ?: return null
         return buildJsonObject { put("thinkingBudget", b) }
     }
+
+    // ---- 思考等级的存储：**按模型**（服务商 + 模型名）一份，跨对话共享 ----
+
+    /** 存储键。用 `|` 分隔：服务商 id 是 uuid/slug，模型名里不会有它，冲突概率可忽略 */
+    fun thinkingKey(providerId: String?, model: String?): String = (providerId ?: "") + "|" + (model ?: "")
+
+    private fun levelsOf(extras: JsonObject): JsonObject =
+        extras["thinkingLevels"] as? JsonObject ?: JsonObject(emptyMap())
+
+    /**
+     * 某个模型当前生效的档位。
+     *
+     * 返回值语义：`"auto"` = 没设过或显式设成自动。要区分这两种情况用 [hasLevel]。
+     */
+    fun levelFor(extras: JsonObject, providerId: String?, model: String?): String =
+        normalizeThinkingLevel((levelsOf(extras)[thinkingKey(providerId, model)] as? JsonPrimitive)?.content)
+
+    /** 这个模型有没有明确设过（含设成 auto） */
+    fun hasLevel(extras: JsonObject, providerId: String?, model: String?): Boolean =
+        levelsOf(extras).containsKey(thinkingKey(providerId, model))
+
+    /** 写回一个模型的档位（`auto` 也照原样存，好区分「显式自动」与「从没设过」） */
+    fun withLevel(extras: JsonObject, providerId: String?, model: String?, level: String?): JsonObject {
+        val levels = JsonObject(
+            levelsOf(extras) + (thinkingKey(providerId, model) to JsonPrimitive(normalizeThinkingLevel(level)))
+        )
+        return JsonObject(extras + ("thinkingLevels" to levels))
+    }
+
+    /**
+     * 一次请求该用哪个档位：**模型设置优先**；模型从没设过才回落到旧版写在对话里的值
+     * （1.7.5 及更早把档位存进 `conv.extras.thinkingLevel`，留着兼容，用户升级后配置不丢）。
+     */
+    fun resolveLevel(extras: JsonObject, providerId: String?, model: String?, convLevel: String?): String =
+        if (hasLevel(extras, providerId, model)) levelFor(extras, providerId, model)
+        else normalizeThinkingLevel(convLevel)
 }
