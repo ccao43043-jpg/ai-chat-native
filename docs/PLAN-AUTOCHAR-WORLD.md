@@ -1,9 +1,25 @@
 # 角色生成 Skill 分档：有世界 vs 无世界
 
-> **状态**：✅ 已实施（S1–S3，2026-11-18；接线见 [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) §8 M3/M5）
+> **状态：部分完成。** 2026-11-20 PST 核对 main `5e4502a` / v1.7.9：S1/S2 与首条提示条已落地，**S3 原计划并未全部完成**。
+> 当前优先级见 [MASTER-PLAN.md](MASTER-PLAN.md) #18；接线历史见 [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) §8 M3/M5。
 > **触发**：用户观察 —— 「这个角色卡在专场聊天的时候有用，但是在世界观已经设定好的那个世界里面，它就没有用处了。」
 
 ---
+
+## 当前实现核对（2026-11-20 PST）
+
+| 部分 | 代码 / 自动化证据 | 状态与边界 |
+|---|---|---|
+| S1/S2 作用域、提示词与写入白名单 | `AutoChar.kt`（`ea7f949`）；`AutoCharWorldTest`、`AutoCharServiceTest` | 核心已完成，世界只写 character/可选 fewshot，保留已有角色守卫；真实模型语义不冲突仍待人工验收 |
+| S3 首条消息提示条、请求与写回 | `AutoCharService.kt` / `ChatScreen.kt` / `AiChatApp.uiDeps`（`365d0de`） | 已接入真实请求回调，成功只保存 rpState；不是单纯无人调用的纯函数 |
+| S3 RP 面板独立按钮 | `RpPanel.kt` 与 `ChatScreen` 调用点 | **未实现**，不是随时可从面板生成 |
+| S3 设置页 auto/ask/off | `autoCharMode` 模型/codec/offer 已有，设置 UI 无三档消费者 | **未完成**；auto/ask 当前同走提示条，不是 auto 自动发起生成；off 的 offer 受保护，不能据此断言所有生成入口全路径禁用 |
+| S3 忽略/换世界/重复提示闭环 | `ChatScreen.onDismiss` 仅清本地 autoOffer；写回未保存 autoChar.asked/worldId | **未完成**；计划中的「换世界重新 offer」与已询问记录仍是目标 |
+| 丢弃内容可见性 | service Outcome 有 dropped；UI 只显示概括 message | 明细未展示，不算完成原 §8 要求 |
+
+本轮同 SHA JVM CI 成功，模拟器 12 例成功；**没有 AutoChar 真机/真实模型专项验收证据**。不能把存在作用域单测等同 S3 全验收。详见 [审计快照](ASSESS-2026-11-20.md)。
+
+**阅读边界**：下文 §0–§9 是 2026-11-18 的问题背景、目标方案与原验收清单；其中「现在」「零调用」、拟议按钮/API 和测试名是设计时快照，已被本节当前实现说明覆盖。保留原方案用于核查未完成承诺，不重新申请或宣称全部实施。
 
 ## 0 一页结论
 
@@ -24,7 +40,7 @@
 
 ---
 
-## 1 现状：代码就是这么写的
+## 1 原始问题快照（实施前代码，非当前实现）
 
 ### 1.1 触发条件只看「是不是 RP 模板 + 有没有角色」
 
@@ -238,7 +254,9 @@ RP 面板 → 分层设定 → 底部新增一行按钮：**「用 AI 生成角�
 
 ---
 
-## 5 测试清单（`app/src/test/java/com/aichat/app/plugins/rp/AutoCharScopeTest.kt`）
+## 5 原测试目标清单（不是全部已存在的测试）
+
+实际文件为 [`AutoCharWorldTest.kt`](../app/src/test/java/com/aichat/app/plugins/rp/AutoCharWorldTest.kt) 与 [`AutoCharServiceTest.kt`](../app/src/test/java/com/aichat/app/plugins/rp/AutoCharServiceTest.kt)；原计划的 `AutoCharScopeTest.kt` 未创建。下表中的 `worldSwitchReopensOffer` 等仍是目标，不应按方法名存在来计数。
 
 | # | 用例 | 断言 |
 |---|---|---|
@@ -258,9 +276,9 @@ RP 面板 → 分层设定 → 底部新增一行按钮：**「用 AI 生成角�
 
 | 阶段 | 内容 | 工时 | 可独立验证 |
 |---|---|---|---|
-| **S1** | `WorldContext` + `Scope` + `buildCharacterPrompt` + `scopeOf` | 0.5 天 | 单测 1、2 |
-| **S2** | `mergeIntoState` 白名单与守卫 + `dropped` 记录 | 0.5 天 | 单测 3、4、5、6 |
-| **S3** | 接线：首条消息询问 + RP 面板按钮 + `shouldOffer` 分档 + 设置页开关 | 0.5–1 天 | 单测 7、8、9 + 真机走查 |
+| **S1** | `WorldContext` + `Scope` + `buildCharacterPrompt` + `scopeOf` | 原估 0.5 天 | 已实现；实际用例见 §当前实现核对 |
+| **S2** | 白名单与守卫 + `dropped` 记录（实际 API 为 `filterFields/applyToState`） | 原估 0.5 天 | 已实现核心；不等于真实模型语义验收 |
+| **S3** | 接线：首条消息询问 + RP 面板按钮 + `shouldOffer` 分档 + 设置页开关 | 原估 0.5–1 天 | 部分实现；面板/设置/询问闭环与专项真机验收未完成 |
 | 合计 | | **1.5–2 天** | 可并入 v1.6.0 |
 
 S1/S2 是纯函数，不需要动 UI，可以先合并；S3 才碰 `ChatController` / `RpPanel` / `SettingsScreen`。
@@ -286,7 +304,7 @@ S1/S2 是纯函数，不需要动 UI，可以先合并；S3 才碰 `ChatControll
 
 ---
 
-## 9 代码位置索引
+## 9 原计划代码位置索引（历史改动意图，当前实现以上表为准）
 
 | 文件 | 作用 | 本计划要改 |
 |---|---|---|

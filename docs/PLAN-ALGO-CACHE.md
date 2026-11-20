@@ -1,8 +1,9 @@
 # 算法与缓存优化 · 详细改进计划
 
 > **状态**：✅ 活跃（算法/缓存唯一细化文档；**优先级仍以 MASTER-PLAN 为准**）
-> 版本：2026-11-17 首版
-> 基线：`main @ a25e309`（v1.5.2）
+> 版本：2026-11-17 首版；**2026-11-20 PST 复核 main `5e4502a` / v1.7.9**。
+> 原始设计基线：`a25e309`（v1.5.2）；旧行号/工时/单测数是当时记录，不是当前计数。
+> 当前执行状态见 [MASTER-PLAN.md](MASTER-PLAN.md) §2；逐项代码/测试/CI 证据见 [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md)。
 > 定位：本文是 [`MASTER-PLAN.md`](MASTER-PLAN.md) §2 中「〔算法〕」与「advisory 缓存专项」两条线的**细化执行计划**；
 > 优先级仍以 MASTER-PLAN 为准，本文只回答「具体怎么改、改哪里、怎么验」。
 > 关联：[`OPTIMIZATION-ADVISORY.md`](OPTIMIZATION-ADVISORY.md) §10/§11、[`REVIEW-2026-11-16.md`](REVIEW-2026-11-16.md)。
@@ -14,21 +15,21 @@
 **这条线不是「缺功能」，是「口径不统一 + 决策点拍死」。**
 
 已核实：过去几轮已经把大部分算法项做完了（统一 token 尺子、摘要最优停止、Beta 路由、索引缓存、自适应 TTL），
-本文件剩下的实事按 B1–B6 分批推进（B1/B5/B6 已完成，见下表与 §7）；仍在排队的只有 **B2 预算系数能力表、B4 路由埋点与探索**（B3 文件分块检索已于 v1.7.0 完成，PR #114）：
+本文件按 B1–B6 保留实施细节（B1/B3/B5/B6 核心已落地；默认开关和验收边界另记，见下表与 §7）；仍在排队的只有 **B2 预算系数能力表、B4 路由埋点与探索**（B3 文件分块检索已于 v1.7.0 完成，PR #114）：
 
 | 批次 | 内容 | 工时 | 出口 |
 |---|---|---|---|
-| **B1** | 图片按服务商计价接入预算路径、`Retry-After`、死代码与过期注释清理 | 0.75 天 | ✅ **已完成**（PR #98，413 单测全绿）→ 可发 v1.5.3 |
-| **B2** | 预算系数能力表参数化、`plan()` 单轮估算 memo | 1.5 天 | 可发 v1.5.4（带开关，默认保守） |
-| **B3** | **D7 文件分块检索**（替代前缀截断） | 2–3 天 | 可发 v1.6.0（用户可见，收益最大） |
+| **B1** | 图片按服务商计价接入预算路径、`Retry-After`、估算口径与过期注释清理 | 0.75 天 | ✅ **已完成**（PR #98，413 单测全绿）→ 已进入后续发布 |
+| **B2** | 预算系数能力表参数化、`plan()` 单轮估算 memo | 1.5 天 | 待做，版本未指定（拟议开关，未实现） |
+| **B3** | **D7 文件分块检索**（替代前缀截断） | 2–3 天 | 已发布 v1.7.0（#114） |
 | **B4** | 路由埋点 → 数据两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | 视数据决定 |
-| **B5** | 缓存路线接回（千问显式/Anthropic 真打点、单徽章、`rpSegments`）+ R8 发布包 + 落盘与卫生补课 | 2 天 | ✅ **已完成**（PR #106–#110）→ v1.6.0 / v1.6.1 |
+| **B5** | 缓存路线接回（千问显式/Anthropic 真打点、单徽章、`rpSegments`）+ R8 发布包 + 落盘与卫生补课 | 2 天 | ✅ **已完成**（PR #106–#110）→ 已进入 v1.6.1 |
 | **B6** | 召回纳入预算、路线一轮只算一次、跨来源软去重、`ContextTrace` 记录异常与说明 | 0.5 天 | ✅ **已完成**（PR #112，577 单测全绿） |
 
 **本计划相对此前口头判断的更正**（重要，避免重复劳动）：
 D8「摘要最优停止」**已实现**（`RpCacheCore.summaryTiming`，PR #78）；D2「Beta 折扣路由」**已实现**（`Router.chooseUpstream`）；
 D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）；`GCache.adaptiveMinTokens` 与 `sessionId` **已实现**（PR #77/#84）。
-`RpCacheCore.kt:419-421` 那句「有意没搬 adaptiveSummary」是**过期注释**，必须改掉，否则下一个人会照着它重复做。
+B1 已修正「有意没搬 adaptiveSummary」的过期注释；不要再当作未实现项。
 
 ---
 
@@ -39,23 +40,25 @@ D1「索引增量」**已实现**（`buildIndex(list, prev)` 带签名缓存）�
 | 1 | 统一文本 token 尺子 | ✅ 已完成 | `plugins/rp/RpCacheCore.kt:161` `fun estimateTokens(text: Any?): Int = TokenEstimator.text(Js.str(text))`；`plugins/TokenEstimator.kt:26` 逐码点分档（汉字 0.6 / 英文 0.3 / 数字 0.5 / 空白 0.1 / 其余 1.5） |
 | 2 | 图片按服务商计价 | ✅ 已完成（P1，PR #98） | `TokenEstimator.kt:47-56` `image(provider, dataUrl)`：gemini 258 / anthropic `max(156,w*h/750)` / openai `85+170*tiles` / 其它 1000。现在 `RpCacheCore.estimateItems(items, provider: String? = null)`、`layerTokens(...)`、`computeTrimWindow(st, p, provider)`、`applyTempTrim(st, p, now, provider)`、`itemTokens(m, provider)` 全部透传；`RpCachePlugin` 传 `ctx.provider.presetId.ifEmpty { ctx.provider.id }`。不传 provider 时仍 `FALLBACK = 1000`（golden 字节级兼容） |
 | 3 | 摘要最优停止（D8） | ✅ 已完成 | `RpCacheCore.kt:175-193` `fun summaryTiming(U, g, saved, fixed, limit, h=12, gamma=0.9): Int` 枚举 `t∈0..H` 的折现总成本取 argmin |
-| 4 | 分层预算 `applyLagrangeBudget` | ⛔ 用户已决定不做 | `MASTER-PLAN.md` §5.3 第 1 条（架构演进取代）；注释仍留在 `RpCacheCore.kt:419`，需登记为「明确不做」 |
+| 4 | 分层预算 `applyLagrangeBudget` | ⛔ 用户已决定不做 | `MASTER-PLAN.md` §5.3 第 1 条（架构演进取代）；当前范围以 MASTER-PLAN §5.3 的关闭决定为准，不把旧注释当作待实施入口 |
 | 5 | 预算系数 | ⚠️ 硬编码 | `RpCacheCore.kt:365-372`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]` |
 | 6 | 能力表参数化 | ❌ 未做 | 同上，`Cap` 只提供 `vendor/window/tier`，无「按 vendor 的预算档」 |
 | 7 | MMR 检索 | ✅ 已完成 | `plugins/rp/RpMemoryCore.kt:581` `val lam = o.mmrLambda`（默认 0.7）、`:535 selectRelevant`、`:395 terms = RetrievalCore.grams`（中文 bigram） |
 | 8 | BM25 索引缓存 | ✅ 已完成 | `RpMemoryCore.kt:437 fun buildIndex(list, prev: Index? = null)` + `:452 buildIndexUncached`（签名命中复用） |
 | 9 | 路由 Beta 折扣 | ✅ 已完成 | `net/Router.kt:251 chooseUpstream`：`:266 hitQuantile(st.a, st.b, zPessimistic)`、`:286 stickyIdleMs`、`:291-296` 切换成本折现 |
 | 10 | 路由探索 / 统计衰减 | ❌ 未做 | `chooseUpstream` 全程无 epsilon/UCB，`UpstreamStats.a/b` 无时间衰减（`lastAt` 只用于 idle 判定） |
-| 11 | 重试退避 | ✅ 已完成（P4，PR #98） | `net/NetRetry.kt` `backoff` 保留（Full Jitter），新增 `parseRetryAfter(headers, nowMs)` / `parseRetryAfterValue(raw, nowMs)`（认秒数与 HTTP-date）/ `delayFor(attempt, kind, retryAfterMs, rnd)` = `minOf(MAX_DELAY_MS = 60_000, maxOf(backoff, retryAfter))`；`domain/Contracts.kt` 的 `Error` 增 `retryAfterMs: Long? = null`；`DefaultProviderClient` 在 429/503 读 `Retry-After` 头；`DefaultChatEngine` 改用 `delayFor` |
+| 11 | 重试退避 | ✅ 已完成（P4，PR #98） | `net/NetRetry.kt` `backoff` 保留（±20% 乘性 jitter，不是 Full Jitter），新增 `parseRetryAfter(headers, nowMs)` / `parseRetryAfterValue(raw, nowMs)`（认秒数与 HTTP-date）/ `delayFor(attempt, kind, retryAfterMs, rnd)` = `minOf(MAX_DELAY_MS = 60_000, maxOf(backoff, retryAfter))`；`domain/Contracts.kt` 的 `Error` 增 `retryAfterMs: Long? = null`；`DefaultProviderClient` 在 429/503 读 `Retry-After` 头；`DefaultChatEngine` 改用 `delayFor` |
 | 12 | 文件上下文 | ✅ 分块检索（D7/B3，v1.7.0） | 入库上限随开关放大到 120k；engine `ChunkRetrieval` 滑窗切块（1200/重叠150）+ BM25F 挑选（复用 RetrievalCore）+【片段 n/N】注入，请求体压回 30000 预算；`files.chunkRetrieval` 缺省开、显式 false 回旧路径（逐字节一致，golden 未动） |
-| 13 | 死代码 | ✅ 无（原判断有误，已更正） | 复核后 `itemTokens` **不是**死代码：`computeTrimWindow` 的前缀和就靠它（`prefix[i + 1] = prefix[i] + itemTokens(un[i], provider)`）。P5 改为「与 `estimateItems` 同一把尺子」，**没有删除** |
+| 13 | 原“itemTokens 死代码”判断 | 已更正：不是死代码 | 复核后 `itemTokens` **不是**死代码：`computeTrimWindow` 的前缀和就靠它（`prefix[i + 1] = prefix[i] + itemTokens(un[i], provider)`）。P5 改为「与 `estimateItems` 同一把尺子」，**没有删除** |
 | 14 | 单轮重复估算 | ⚠️ 少量（原判断有误，已更正） | 复核：`plan()` 内 `hist` 只算 1 次、`unsummarized` 只算 1 次，原写「hist 被算 3 次」不成立（`:402`/`:405` 在 `layerTokens`、`:598` 在裁剪段的不同列表上）。真正的重复是**同一条带图消息**被 `estimateItems`（预算）与 `itemTokens`（前缀和）各算一次 → 图片像素尺寸被反复解码，优化点应落在 `TokenEstimator.image` 的尺寸缓存 |
 | 15 | 自适应 TTL / 阈值 / sessionId | ✅ 已完成 | `plugins/cache/GCache.kt:146 adaptiveMinTokens`、`:219 TTL_EFF_DEFAULT = 240`、`:16` 默认 `sessionId = true` |
 | 16 | 成本有效价格学习（§4.6） | ⚠️ 仅单标量 | `domain/cost/CostCoreJs.kt` `reconcile`（scale + biasEwma），无按模型的价差回归 |
 
 ---
 
-## 2. 待做项详解
+## 2. 分项设计与实施细节
+
+> P2/P6/P7/P8 仍是提案；其中的代码草图、API 名称、开关与验收目标不代表已实现。已落地项在标题中标注。
 
 ### P1 · 图片 token 接入预算路径（B1，0.5 天）✅ 已完成（PR #98）
 
@@ -124,7 +127,7 @@ fun profileOf(vendor: String?): BudgetProfile = when (vendor?.lowercase()) {
 
 ---
 
-### P3 · D7 文件分块检索（B3，2–3 天，本轮收益最大）——✅ 已完成（v1.7.0，PR #114；另有入库上限放大到 120k 的根因修正与 15 例单测，含干草堆回归）
+### P3 · D7 文件分块检索（B3，已落地；原估 2–3 天）——✅ 已完成（v1.7.0，PR #114；另有入库上限放大到 120k 的根因修正与 15 例单测，含干草堆回归）
 
 **问题**：`FileText.kt:167` 的 `capText` 是**从头上砍一刀**。一份 30 页 PDF 上传后，模型只看到前 1/3；
 用户问「第 20 页那个参数是多少」必然答错，且模型会自信地编。这是**功能性错误**，不是精度问题。
@@ -146,7 +149,7 @@ fun pickRelevantChunks(text: String, question: String, budgetChars: Int): Pair<S
 4. 扫描版 PDF（`FileText` 已有的提示分支）不变。
 
 **风险与开关**：用户可见行为变化（贴进上下文的内容变了）。
-`files.chunkRetrieval = true|false`，默认 `true`，但设置页「附件」组加一行「长文档智能截取（推荐）」可关；关掉即回到今天的前缀截断，便于对比与回滚。
+`files.chunkRetrieval = true|false` 已实现，默认 `true`（缺省开，显式 false 回旧前缀路径）。**设置页「附件」组开关只是原设计，当前 UI 未实现**；现只能通过设置数据配置。120k 是新附件入库字符上限，旧已截断附件无法恢复丢失部分。`ChunkRetrieval.kt` 类注释「缺省关」已过期，以 `FileContext.chunkEnabled` 与测试为准（本次不改源码）。
 
 **验收**（这三条必须全绿才算做完）：
 - golden：新建 `app/src/test/resources/files-golden/chunks.json`，对一份固定 30KB 中文文本断言 chunk 数、首块、末块、重叠长度。
@@ -248,44 +251,47 @@ val unsumTok = estimateItems(unsummarized, provider)
 
 ---
 
-## 3. 分批与版本映射
+## 3. 分批与版本映射（2026-11-20 PST 复核）
 
-| 批次 | 项 | 工时 | 版本 | 风险 |
-|---|---|---|---|---|
-| **B1** | P1 图片计价 · P4 Retry-After · P5 卫生 | 0.75 天 | ✅ **已完成**（PR #98）→ v1.5.3 | 低（全部带默认值，golden 不动）——实际 golden 一条没改 |
-| **B2** | P2 能力表（默认 legacy）· P6 memo | 1.5 天 | v1.5.4 | 中低（开关默认关，行为不变） |
-| **B3** | P3 文件分块检索 | 2–3 天 | v1.6.0 | 中（用户可见，需 golden + 三条验收） |
-| **B4** | P7 埋点 → 观察 → 算法 · P8 | 1–2 天 + 观察 | v1.6.x | 低（埋点）/ 中（算法带开关） |
+| 批次 | 实际状态 / 版本 | 证据或限制 |
+|---|---|---|
+| B1 | 已落地，后续发布已包含 | #98；图片公式、Retry-After、估算口径卫生 |
+| B2 | 待做，版本未指定 | P2 能力表未实现；P6 优化先测同图重复解码，不把 CachePolicy 单轮 memo 当成预算 memo 完成 |
+| B3 | 已发布 v1.7.0 | #114；分块默认开，但设置 UI 未实现，真实长文档效果仍需验收 |
+| B4 | 待做，先埋点再观察，版本未指定 | 已有 Beta 不等于有受控探索/时间衰减 |
+| B5 | 已进入 v1.6.1 | #106–#110；缓存接线/R8/落盘与卫生；不是 AutoChar 全 UI 完成的代称 |
+| B6 | 已发布 v1.6.2 | #112；统一召回的预算/软去重受 `recall.unified=false` 默认值限制，缓存路线 memo/trace 不与此混为一谈 |
 
-**排序理由**：B1 全是「只改口径不改流程」的确定性收益，当天可交付；
-B2 为 B3 铺路（B3 要在更大的上下文里挑块，预算得先准）；B3 是唯一用户能直接说出「变好了」的项，值得独占一个版本；
-B4 在没有数据前做算法等于瞎调参，先埋点。
+原计划的「B2 铺路才能做 B3」与 v1.5.4/v1.6.0 预测已被实际交付顺序取代，不再作为依赖或发版承诺。
 
 ---
 
-## 4. 验收指标（进 CI / eval）
+## 4. 验收目标与已验证边界
+
+> 下表保留首版目标与历史基准，不表示已接入 CI 或已达标。当前 CI 结果见总计划 §1。
+> 已有 `ChunkRetrievalTest.haystackNeedleAtEnd` / `wiringLegacyByteExact`、`RetryAfterTest`、`TokenEstimatorTest`；尚不能据此声称真实模型长文问答「必对」、token 偏差 <15% 或线上重试成功率 >90%。
 
 | 指标 | 现状 | 目标 | 归属 |
 |---|---|---|---|
 | 带图对话 token 估算偏差 | 可达 30–40% | < 15% | P1 |
 | 429 场景重试成功率 | 2s 即重试，易烧光 | 遵守 `Retry-After`，成功率 > 90% | P4 |
-| 长文档问答（答案在后 2/3） | 必错 | 必对（3 条固定用例） | P3 |
+| 长文档问答（答案在后 2/3） | 已有干草堆与接线回归；真实模型待验 | 固定资料/问题验证尾部命中与回答质量，不作「必对」保证 | P3 |
 | `plan()` 单次耗时（200 条消息） | 未测 | < 20ms | P6 |
 | 单测数 | 413（B1 后） | 只增不减 | 全部 |
 | golden | 全绿 | 全绿（`estimateItems`/`plan` 默认入参不变） | P1/P2/P6 |
 
 ---
 
-## 5. 开关、灰度与回滚
+## 5. 已实现开关与拟议开关（不要混用）
 
-| 开关 | 默认 | 打开的效果 | 回滚方式 |
-|---|---|---|---|
-| `rpcache.budgetProfile` | `legacy` | 按 vendor 放大上下文/触发比例 | 改回 `legacy`，无需重启（读设置） |
-| `files.chunkRetrieval` | `true` | 长文档按问题检索切片 | 关掉即回前缀截断 |
-| `router.explore` | `false` | 允许 ε-greedy 探索 | 关掉 |
-| `router.decayDays` | `0`（不衰减） | > 7 启用惰性衰减 | 置 0 |
+| 配置 | 实现状态 / 默认 | 效果与回滚 |
+|---|---|---|
+| `files.chunkRetrieval` | **已实现，true** | false 回到前缀截断；当前设置 UI 尚无专门入口 |
+| `recall.unified` | **已实现，false** | true 才走 RecallBus 单点装配及预算/软去重；false 走兼容路径 |
+| `rpcache.budgetProfile` | **拟议，未实现** | P2 设计的 legacy/auto，不能按现成功能填写 |
+| `router.explore` / `router.decayDays` | **拟议，未实现** | P7 设计的探索/衰减；当前 Router 不消费这些设置 |
 
-原则（沿用 MASTER-PLAN §2「明确不做」）：**所有行为变化的算法项都必须有开关、默认保持旧行为**，先灰度再转正。
+行为变化须有明确回归和转正依据；B3 已随 #114 默认开启，不能再笼统写「所有开关默认保持旧行为」。本次只核对，不改变默认值。
 
 ---
 
@@ -305,6 +311,7 @@ B4 在没有数据前做算法等于瞎调参，先埋点。
 
 | 日期 | 变更 |
 |---|---|
+| 2026-11-20 PST | 复核 v1.7.9；补 B3 实际发布、B2/B4 未实现开关、统一召回默认关闭与设置 UI 缺口；纠正 Full Jitter 术语。当前状态只维护在 MASTER-PLAN。 |
 | 2026-11-17 | 首版。核实 16 项现状，识别 5 件实事（P1/P2/P3/P4/P6 主体）+ 3 件卫生/长线（P5/P7/P8），排入 B1–B4 |
 | 2026-11-17 | **B1 完成**（PR #98）：P1 图片 token 接入预算路径（`estimateItems`/`layerTokens`/`computeTrimWindow`/`applyTempTrim`/`itemTokens` 全部透传 provider，`RpCachePlugin` 传 presetId）；P4 `Retry-After`（秒数 + HTTP-date，封顶 60s）；P5 过期注释与 `TokenEstimator` 说明。单测 403 → **413**，golden 零改动。同时更正两处判断错误：`itemTokens` 不是死代码（§1 第 13 行）、`plan()` 里 `hist` 只算一次（§1 第 14 行 / §2 P6） |
 | 2026-11-17 | **B0 完成**（新增 §8）：缓存策略选择 + 缓存体检数据收集 + 前缀稳定化算法，单测 413 → **438** |
@@ -379,7 +386,7 @@ ChatEngine.turn()
        cachemeter : CacheLedger.sample(...) → ledger/summary/ttlSuggest/worthWrite
 ```
 
-三条不变量（都有单测守着）：
+三条设计不变量（有局部自动化覆盖，不等于全服务商端到端验收；第 1/3 条统一召回装配受 `recall.unified` 控制）：
 
 1. **只改末条 user** —— 召回与状态行都拼在最后一条用户消息上，历史消息与 system 前缀不动。`systemPromptByteEqualWhenOnlyRecallChanges` / `onlyRecallChangesKeepsSystemByteEqual` / `emptyConversationStaysByteIdenticalEvenWhenRouteIsRpcache` 三条断言守着这件事。
 2. **只有 owner 改 body** —— `CachePlan.mutates` 只对 `gcache`/`mmcache`/`rpcache` 为真；`prefix`/`none` 路线的请求必须逐字节不变（`memorizes` 不是借口，改了就是我错了）。

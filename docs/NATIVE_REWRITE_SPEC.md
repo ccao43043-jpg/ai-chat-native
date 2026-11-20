@@ -1,12 +1,17 @@
 # AI Chat 原生重写规格（v1.0.0 · Kotlin + Jetpack Compose）
 
+> **身份：原生重写契约 + 历史起点；2026-11-20 PST 补当前覆盖说明。**
+> 本文原始基线/分工/工期/开发证书属于旧 `ai-chat-app` 重写阶段，不是独立仓库现行发布流程。
+> 当前为 `ai-chat-native main @ 5e4502a` / v1.7.9 / versionCode **179**；现行固定发布证书 SHA-256 为 `a2280dc159acf558a5abd019a3efa00792286d6fd7fee071c4f5ece2e8ac2f52`（见 [SIGNING.md](SIGNING.md)）。旧表的 `6054…` 和 versionCode 100 仅是起点快照，**不能保证跨证书覆盖安装**。
+> 当前状态与优先级见 [MASTER-PLAN.md](MASTER-PLAN.md)，签名/发版看 [SIGNING.md](SIGNING.md) / [RELEASE.md](RELEASE.md)。保留 §3.5 的契约差异登记职责；其它历史清单不作为未完成验收证明。
+
 > 基线：`origin/main` f6bdd62（v0.28.7，versionCode 89）· 分支 `feat/native-v1` · 工作树 `/workspace/ai-chat-native`
 > **用户决定（最终）：一步到位全原生。v1.0.0 不保留任何内置网页入口，所有功能都用 Kotlin/Compose 重写。**
 > 旧前端 `app/src/main/assets/www/` 留在仓库里，只作为**参考实现和 golden 对照的数据源**，已在 Gradle 里排除，不打进 APK（`sourceSets.main.assets.srcDirs = []`）。
 
 ---
 
-## 0. 结论速览
+## 0. 重写起点结论速览（历史，现行发布参数见文首）
 
 | 项 | 结论 |
 |---|---|
@@ -186,7 +191,7 @@ com.aichat.app
 | D1 | OpenRouter 402「can only afford N」重试时，只把已构造请求体里的 `max_tokens` 改成 80%（最低 256），不重新走 runBeforeRequest / buildChatRequest | JS 整体重建会让插件统计（rpcache/gcache/usage）重复计数一次 | B `net/` |
 | D2 | conv-log 章节 `contentZ`：Kotlin 用 java.util.zip.Deflater(6)，JS 用 fflate；字节可能不同，互相可解；「压缩后不短于原文就不压」的判定因此个别不同 | 平台无 fflate；replay 结果不受影响（golden 双向验证） | D `data/convlog/JsConvLog.kt` |
 | D4 | `Personas.mergeBuiltins` 的 normalize：基本字段与 JS 一致，角色卡字段（loreText/firstMes/mesExample/alternateGreetings/cardSpec/cardRaw）为假 / 空数组时丢弃（同 JS，M3 回归发现后修正）；其余未知字段保留在 extras（JS 会丢） | 无损约定（§3.3-1）；JS 读到多余字段无害 | D `data/repo/Repositories.kt` |
-| D5 | 保存对话时，上次状态里有值、这次缺失的**消息顶层键**显式写 `null`（truncated/error/finishReason/vi…） | conv-log `msg.edit` 是 Object.assign 合并，缺键不删；JS 里 `delete m.truncated` 后重启会复活（JS 潜在 bug），原生 Codec 省略默认值也会撞上。JS 读这些键都是真假判断 / `vi\|0`，null 与缺键等价 | D `FileChatRepository.save` |
+| D5 | 在 conv-log diff 层，上次状态里有值、这次缺失的**消息顶层键**显式写 `null`（truncated/error/finishReason/vi…） | conv-log `msg.edit` 是 Object.assign 合并，缺键不删；JS 里 `delete m.truncated` 后重启会复活（JS 潜在 bug），原生 Codec 省略默认值也会撞上。JS 读这些键都是真假判断 / `vi\|0`，null 与缺键等价 | `data/convlog/JsConvLog.diff`（原 save 层补丁已由 #76 移除） |
 | D6 | 字符串排序：JS `localeCompare` 在 Kotlin 侧用 `String.compareTo`（码点序）。conv-log 的 op 名排序两者结果相同（全是小写 ASCII + 同位 `.`，已核对 13 个 op 名），不影响回放；**用户可见**的是 knowledge.js 的分类名 / 条目标题 `localeCompare(…, 'zh')`（拼音序）与 providers.js 模型 id 排序——这些若在原生 UI 里重做，应使用 `java.text.Collator.getInstance(Locale.CHINESE)`，不要用码点序 | ICU 与码点序在中文、大小写上不同 | A/C（UI 排序）；D 无落盘排序 |
 | D3 | conv-log 在 JS 会抛 TypeError 的畸形数据上（如快照缺 tombstones.msg；C：RP 对话状态缺 `blocks` 时读设定块，JS 抛错、Kotlin 返回空块），Kotlin 按「缺失 = 空对象」继续 | 不让坏数据阻塞启动；正常数据行为一致 | D 同上 |
 | D7 | 错误文案：角色卡非法 base64（atob）与 zTXt 解压失败（fflate inflate，不校验 Adler-32）的报错**原文**不要求与 JS 逐字一致，只要求同一位置报错；golden 里归一化为 `<atob>` / `<inflate>` | 原文随 WebView 引擎和 fflate 版本变化 | C `domain/rp` 角色卡解析 |
@@ -195,7 +200,18 @@ com.aichat.app
 | D10 | `max_tokens` 默认值按模型分层：推理型（`gemini-2.5+`/`gemini-3+`、`o1/o3/o4`、`*-reasoner`、带 `thinking` 的）默认 32768，其余仍 8192；用户显式设置优先，仍受模型 `maxOutput` 钳制；OpenRouter 余额不足继续走既有的 402 自动降级 | 旧版全局 8192 是为绕 OpenRouter 预扣额度（`providers.js:894`）留的常量，把 65k 上限的思考型模型锁死在 8192，正文被思考挤掉提前截断 | B `net/ProviderRules.kt` |
 | D11 | OpenRouter 流中途把错误放在 `choices[0].error`（顶层无 `error`）时上报为错误 | 旧版只认顶层 `error`，错误被吞掉、只剩一个 `Finish("error")`，用户看到「莫名其妙断在半句」 | B `net/StreamParser.kt` |
 
-**v1 之后再议（不在 v1.0.0 做）**：① 续写时【续写】后缀从 system 末尾移到追加的 user 消息（保住缓存前缀，属于行为变更）；② OpenRouter `provider.order` 钉住上游与 session_id 粘滞的冲突诊断（mmcache 诊断降级或缓存插件生效时不钉住）。
+**v1.0 之后已存在行为的补登记（2026-11-20 PST，按源码/合并提交回写，不是本次新增行为）**：
+
+| # | 当前差异与范围 | 实现 / 验证依据 |
+|---|---|---|
+| D12 | 长附件默认走分块检索，入库上限 120k 字符；`files.chunkRetrieval=false` 回旧前缀路径；不是无限全文可达 | #114，`engine/ChunkRetrieval.kt`、`FileContext.chunkEnabled`、`ui/chat/InputBar.kt`；`ChunkRetrievalTest` |
+| D13 | 聊天图片持久化可用 `img:<sha1>` 引用 + blobs，旧 data URL 双读/懒迁移；备份包含二进制 blobs | #115，`data/store/BlobStore.kt`、`DefaultChatEngine`、`BackupService`；`BlobStoreTest` |
+| D14 | 有世界时 AutoChar 只补角色卡/可选示例，不重写世界；首条消息提示条接通。完整 S3 UI/询问闭环尚未实现 | `ea7f949` / `365d0de`；`AutoCharWorldTest` / `AutoCharServiceTest`；[当前边界](PLAN-AUTOCHAR-WORLD.md#当前实现核对2026-11-20-pst) |
+| D15 | 统一召回/预算/软去重是可选上下文路径，`recall.unified` 默认 false；槽位冲突仅观测不阻断 | `19b1ff9` / #112；`ContextSlots`、`PluginRegistryImpl`、`RecallBudgetTest` / `RecallBusSoftDedupeTest` |
+
+> 上表 D 编号仅是本规格的差异登记；算法计划的 D1–D11 是另一套来源编号。此处记录已实现范围，不代表线上指标或真机验收完成。1.7.x 的 Flex/思考等级/操作栏改动见总计划里程碑与对应发布记录。
+
+**v1 之后仍待评估（2026-11-20 源码仍如此，不是本次任务）**：① 续写时【续写】后缀从 system 末尾移到追加的 user 消息（保住缓存前缀，属于行为变更）；② OpenRouter `provider.order` 钉住上游与 session_id 粘滞的冲突诊断（mmcache 诊断降级或缓存插件生效时不钉住）。
 
 ---
 
