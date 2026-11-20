@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.ProviderConfig
+import com.aichat.app.net.ModelCatalog
 import com.aichat.app.net.ProviderRules
 
 /**
@@ -51,9 +52,12 @@ fun ModelPicker(
     onDismiss: () -> Unit,
     currentThinking: String? = null,
     onThinkingLevel: (String) -> Unit = {},
+    currentFlex: Boolean = false,
+    onFlexChange: (Boolean) -> Unit = {},
 ) {
-    // Flex 只改变「点选时提交的模型串」；开关按当前选中播种，本次弹层内有效
-    var flexOn by remember { mutableStateOf(currentModel?.endsWith(":flex") == true) }
+    // Flex 只改变「点选时提交的模型串」；开关按服务商的持久值播种（外部真值作 key，
+    // 落盘回来覆盖本地翻转 —— 不能再从 currentModel 重播种，否则重开弹层就把 :flex 洗掉了）
+    var flexOn by remember(currentProvider, currentFlex) { mutableStateOf(currentFlex) }
     val level = ProviderRules.normalizeThinkingLevel(currentThinking)
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("model-picker")) {
         LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding()) {
@@ -65,20 +69,29 @@ fun ModelPicker(
                         color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp))
                 }
                 if (isOr) item(key = "flex-" + p.id) {
-                    Row(Modifier.fillMaxWidth().clickable { flexOn = !flexOn }.padding(start = 20.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
+                    // 当前服务商才并单价：flex 变体沿用基础模型 meta，按半价估算；缺价目显示 —
+                    val flexPrice = if (p.id == currentProvider)
+                        ModelCatalog.flexPriceHint(ProviderRules.metaFor(p.modelMeta, currentModel)) else null
+                    Row(Modifier.fillMaxWidth().clickable {
+                            val next = !flexOn
+                            flexOn = next; onFlexChange(next)
+                        }.padding(start = 20.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Flex 档", style = MaterialTheme.typography.bodyMedium,
                                 color = if (flexOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("约半价 · 响应较慢 · 各供应商低价容量", style = MaterialTheme.typography.labelSmall,
+                            Text("约半价 · 响应较慢 · 各供应商低价容量" + (flexPrice?.let { " · " + it } ?: ""),
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = flexOn, onCheckedChange = { flexOn = it }, modifier = Modifier.testTag("flex-toggle"))
+                        Switch(checked = flexOn, onCheckedChange = { flexOn = it; onFlexChange(it) },
+                            modifier = Modifier.testTag("flex-toggle"))
                     }
                 }
                 items(p.models.filter { it.isNotBlank() }.distinct(), key = { p.id + "/" + it }) { m ->
                     val want = if (isOr && flexOn) m + ":flex" else m
-                    val sel = p.id == currentProvider && currentModel == want
+                    // 容忍 currentModel 已带 :flex（开关刚关还没重选时），✓ 别消失
+                    val sel = p.id == currentProvider && (currentModel == want || currentModel == want + ":flex")
                     Text((if (sel) "✓ " else "    ") + if (sel && isOr && flexOn) want else m,
                         fontWeight = if (sel) FontWeight.SemiBold else null,
                         style = MaterialTheme.typography.bodyLarge,

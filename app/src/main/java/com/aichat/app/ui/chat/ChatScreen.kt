@@ -95,6 +95,8 @@ fun ChatScreen(
     val index by controller.index.collectAsStateWithLifecycle()
     // 思考等级单独订阅：它不会被 conv 快照回写覆盖，弹层高亮以它为准
     val thinking by controller.thinking.collectAsStateWithLifecycle()
+    // Flex 档同理单独订阅（按服务商）：弹层开关以「覆盖层 → settings → 当前模型串」为准
+    val flex by controller.flex.collectAsStateWithLifecycle()
     val settings by controller.settings.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -615,7 +617,10 @@ fun ChatScreen(
         // 先看即时覆盖层（点一下立刻变蓝），再回落到 settings 里存的值
         currentThinking = thinking[ProviderRules.thinkingKey(target?.first?.id, target?.second)]
             ?: controller.thinkingLevelOf(target?.first?.id, target?.second),
-        onThinkingLevel = { controller.setThinkingLevel(it) })
+        onThinkingLevel = { controller.setThinkingLevel(it) },
+        currentFlex = flex[target?.first?.id ?: ""]
+            ?: controller.flexOnOf(target?.first?.id, target?.second),
+        onFlexChange = { on -> controller.setFlexOn(target?.first?.id, on) })
     viewing?.let { ImageViewer(it) { viewing = null } }
 }
 

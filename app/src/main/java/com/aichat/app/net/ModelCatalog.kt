@@ -275,6 +275,19 @@ object ModelCatalog {
         val isFloor = Js.truthy(meta?.get("priceIsFloor")) || Js.truthy(pf)
         return if (isFloor) "最低 $body" else body
     }
+
+    /** meta → Flex 档单价提示（按基础价半价估算）：「$0.38/$1.88 per 1M」；缺 prompt/completion 价目 → 「—」 */
+    fun flexPriceHint(meta: JsonObject?): String {
+        val pf = meta?.get("priceFloor")
+        val p = (if (Js.truthy(pf)) pf else meta?.get("price"))?.takeIf { Js.truthy(it) } as? JsonObject
+            ?: return "—"
+        val f = { k: String -> p[k]?.takeIf { Js.truthy(it) } }
+        if (!Js.truthy(f("prompt")) || !Js.truthy(f("completion"))) return "—"
+        val prompt = Js.toNumber(f("prompt"))
+        val completion = Js.toNumber(f("completion"))
+        if (prompt <= 0.0 || completion <= 0.0) return "—"
+        return fmtUsd(prompt / 2) + "/" + fmtUsd(completion / 2) + " per 1M"
+    }
     /** n ≥ 1e6 → 「1.3M」；≥ 1000 → 「128K」；否则原数 */
     fun formatContext(n: Double): String = when {
         n >= 1e6 -> Js.numberToString(Js.toFixed(n / 1e6, 1).toDouble()) + "M"
