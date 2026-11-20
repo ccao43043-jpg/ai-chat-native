@@ -226,6 +226,7 @@ class ChatController(
      * 保存 RP 预算参数（max_context / output_reserve / safety_margin / 章节上限 / 触发阈值 / 保留轮数）。
      *
      * 只写数值、只认非负整数；值为空或非法就跳过，避免把手滑清空的输入框写成 0 把上下文锁死。
+     * 唯一例外是 summary_model（字符串，摘要省钱档）：空串合法 = 摘要走主模型。
      */
     fun setRpSettings(id: String, values: Map<String, String>) {
         if (values.isEmpty()) return
@@ -235,6 +236,10 @@ class ChatController(
             val st = RpState.normalizeState(raw)
             val s = (st["settings"] as? JObj) ?: JObj()
             values.forEach { (key, text) ->
+                if (key == "summary_model") {
+                    s[key] = text.trim()
+                    return@forEach
+                }
                 val v = text.trim().toIntOrNull() ?: return@forEach
                 if (v < 0) return@forEach
                 when (key) {
