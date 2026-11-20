@@ -73,6 +73,18 @@ class ChatController(
         _thinking.value[ProviderRules.thinkingKey(providerId, model)]
             ?: ProviderRules.levelFor(settings.value.extras, providerId, model)
 
+    /**
+     * Flex 档（**按服务商**：只有 OpenRouter 有；键就是 providerId）的即时覆盖层，与 [_thinking] 同一套
+     * 「先盖即时值、落盘后撤」。真相存在 `settings.extras.flexProviders`（见 [ProviderRules.withFlex]）。
+     */
+    private val _flex = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val flex: StateFlow<Map<String, Boolean>> = _flex.asStateFlow()
+
+    /** 某服务商此刻生效的 Flex 档（先看覆盖层，再回落 settings；服务商从没设过时回落当前模型串） */
+    fun flexOnOf(providerId: String?, currentModel: String?): Boolean =
+        _flex.value[providerId ?: ""]
+            ?: ProviderRules.resolveFlex(settings.value.extras, providerId, currentModel)
+
     /** 单个对话的流式热流；未在流式时发 null。UI 里 remember(convId) 后 collect */
     fun streamOf(convId: String?): Flow<Streaming?> = _streams.map { it[convId] }.distinctUntilChanged()
 
@@ -309,6 +321,23 @@ class ChatController(
             deps.settings.update { s -> s.copy(extras = ProviderRules.withLevel(s.extras, c.providerId, c.model, lv)) }
             // 写完之后把自己这层覆盖撤掉，之后一律以 settings 为准（避免这层旧值盖住别处改的设置）
             _thinking.update { m -> m - key }
+        }
+    }
+
+    /**
+     * Flex 档。**按服务商存**（写进 `settings.extras.flexProviders`，false 也留痕）：
+     * Flex 是服务商的计费档位，不是模型的属性也不是对话的属性 —— 同一服务商换模型、换对话、重启都沿用，
+     * 弹层重开不许再从「当前模型串」重播种（1.7.9 及更早的旧 bug：重开弹层把 `:flex` 悄悄洗掉，多付 37%）。
+     *
+     * 不需要对话存在：键是服务商，开关在弹层里点，与当前选中哪个模型无关。
+     */
+    fun setFlexOn(providerId: String?, on: Boolean) {
+        val key = providerId ?: ""
+        // 先盖一层即时值：点一下立刻翻转，不等 settings 那次磁盘写
+        _flex.update { it + (key to on) }
+        scope.launch {
+            deps.settings.update { s -> s.copy(extras = ProviderRules.withFlex(s.extras, providerId, on)) }
+            _flex.update { m -> m - key }
         }
     }
 

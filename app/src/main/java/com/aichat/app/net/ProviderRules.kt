@@ -286,4 +286,27 @@ object ProviderRules {
     fun resolveLevel(extras: JsonObject, providerId: String?, model: String?, convLevel: String?): String =
         if (hasLevel(extras, providerId, model)) levelFor(extras, providerId, model)
         else normalizeThinkingLevel(convLevel)
+
+    // ---- Flex 档的存储：**按服务商**一份，跨对话共享（flex 只对 OpenRouter 有意义，按模型记太碎）----
+
+    private fun flexesOf(extras: JsonObject): JsonObject =
+        extras["flexProviders"] as? JsonObject ?: JsonObject(emptyMap())
+
+    /** 某服务商的 Flex 开关；`null` = 从没设过（与「显式关」区分，升级迁移靠它回落） */
+    fun flexOf(extras: JsonObject, providerId: String?): Boolean? =
+        (flexesOf(extras)[providerId ?: ""] as? JsonPrimitive)?.booleanOrNull
+
+    /** 写回一个服务商的 Flex 开关（false 也照原样存，好区分「显式关」与「从没设过」） */
+    fun withFlex(extras: JsonObject, providerId: String?, on: Boolean): JsonObject {
+        val flexes = JsonObject(flexesOf(extras) + ((providerId ?: "") to JsonPrimitive(on)))
+        return JsonObject(extras + ("flexProviders" to flexes))
+    }
+
+    /**
+     * 弹层该播种成什么：**设置优先**；服务商从没设过才回落到「当前模型串是否带 `:flex`」
+     * （升级用户升级前手开的 Flex 还挂在对话模型串上，回落一次保住它；开关一旦动过就走存储，
+     * 不再像 1.7.9 及更早那样每次重开弹层都从模型串重播种，把 `:flex` 悄悄洗掉）。
+     */
+    fun resolveFlex(extras: JsonObject, providerId: String?, currentModel: String?): Boolean =
+        flexOf(extras, providerId) ?: currentModel?.endsWith(":flex") == true
 }

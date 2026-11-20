@@ -9,7 +9,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** OpenRouter `:flex` 等 :variant 后缀 —— modelMeta 回退查找（maxOutput 钳制 / 亲和路由）+ wire 逐字透传 */
@@ -50,5 +52,44 @@ class FlexVariantTest {
     @Test fun wireModelIsVerbatim() {
         val body = OpenAiCompat.buildBody(provider(), "google/gemini-2.5-pro:flex", listOf(WireMessage(Role.USER, "hi")), "", ChatOptions(stream = false))
         assertEquals("google/gemini-2.5-pro:flex", (body["model"] as JsonPrimitive).content)
+    }
+
+    // ---- flexProviders 存储纯函数（按服务商；T1 持久化的底层） ----
+
+    @Test fun flexStorageRoundTrips() {
+        val extras = meta("""{"thinkingLevels":{"a|m":"high"},"keep":"me"}""")
+        assertNull("没设过 → null（区别于显式关）", ProviderRules.flexOf(extras, "or"))
+        assertNull(ProviderRules.flexOf(extras, null))
+
+        val on = ProviderRules.withFlex(extras, "or", true)
+        assertEquals(true, ProviderRules.flexOf(on, "or"))
+        val off = ProviderRules.withFlex(on, "or", false)
+        assertEquals("显式 false 也留痕", false, ProviderRules.flexOf(off, "or"))
+        // 无关键不丢
+        assertEquals("high", ((on["thinkingLevels"] as JsonObject)["a|m"] as JsonPrimitive).content)
+        assertEquals("me", (on["keep"] as JsonPrimitive).content)
+    }
+
+    @Test fun resolveFlexPrefersSettingThenModelString() {
+        // 设置优先：显式关压过带 :flex 的模型串（这是修复旧 bug 的关键）
+        val off = ProviderRules.withFlex(JsonObject(emptyMap()), "or", false)
+        assertEquals(false, ProviderRules.resolveFlex(off, "or", "google/gemini-2.5-pro:flex"))
+        // 从没设过 → 回落当前模型串（升级用户升级前手开的 Flex 靠它保住）
+        assertEquals(true, ProviderRules.resolveFlex(JsonObject(emptyMap()), "or", "google/gemini-2.5-pro:flex"))
+        assertEquals(false, ProviderRules.resolveFlex(JsonObject(emptyMap()), "or", "google/gemini-2.5-pro"))
+        assertEquals(false, ProviderRules.resolveFlex(JsonObject(emptyMap()), "or", null))
+        // 设过的不受模型串影响
+        assertEquals(true, ProviderRules.resolveFlex(ProviderRules.withFlex(JsonObject(emptyMap()), "or", true), "or", "m"))
+        assertFalse(ProviderRules.resolveFlex(off, "or", "m"))
+    }
+
+    @Test fun flexPriceHintFormatsHalfOfBase() {
+        assertEquals("—", ModelCatalog.flexPriceHint(null))
+        assertEquals("—", ModelCatalog.flexPriceHint(JsonObject(emptyMap())))
+        assertEquals("缺 completion 价目 → —", "—", ModelCatalog.flexPriceHint(meta("""{"price":{"prompt":0.6}}""")))
+        assertEquals("图片模型 → —", "—", ModelCatalog.flexPriceHint(meta("""{"price":{"image":0.01}}""")))
+        assertEquals("$0.30/$1.50 per 1M", ModelCatalog.flexPriceHint(meta("""{"price":{"prompt":0.6,"completion":3.0}}""")))
+        assertEquals("priceFloor 优先于 price", "$0.15/$0.75 per 1M",
+            ModelCatalog.flexPriceHint(meta("""{"price":{"prompt":0.6,"completion":3.0},"priceFloor":{"prompt":0.3,"completion":1.5}}""")))
     }
 }
