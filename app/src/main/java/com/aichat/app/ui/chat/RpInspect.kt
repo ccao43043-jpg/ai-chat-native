@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.AppSettings
 import com.aichat.app.domain.model.Conversation
+import com.aichat.app.net.ProviderRules
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
@@ -68,6 +70,7 @@ fun RpInspectDialog(
     var cap by remember { mutableStateOf(RpInspect.num(sum["chapter_cap_tokens"], 12000).toString()) }
     var trigger by remember { mutableStateOf(RpInspect.num(sum["trigger_tokens"], 30000).toString()) }
     var keepRecent by remember { mutableStateOf(RpInspect.num(sum["keep_recent_turns"], 20).toString()) }
+    var summaryModel by remember { mutableStateOf(Js.str(s["summary_model"])) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -82,6 +85,7 @@ fun RpInspectDialog(
                             "chapter_cap_tokens" to cap,
                             "trigger_tokens" to trigger,
                             "keep_recent_turns" to keepRecent,
+                            "summary_model" to summaryModel,
                         ),
                     )
                 },
@@ -190,6 +194,34 @@ fun RpInspectDialog(
                     NumField("摘要触发", trigger, Modifier.weight(1f)) { trigger = it }
                     NumField("章节上限", cap, Modifier.weight(1f)) { cap = it }
                 }
+
+                // 摘要省钱档：旁路调用（摘要/合并）单走一个便宜模型，主对话不受影响。
+                // 账单反解：B 段 7 条零缓存旁路 = $0.0505，占 36.2%，换 GLM 系几乎归零。
+                Text("摘要省钱档", style = MaterialTheme.typography.labelLarge)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    com.aichat.app.ui.common.SoftField(
+                        value = summaryModel,
+                        onValueChange = { summaryModel = it.take(120) },
+                        label = { Text("摘要/合并用的模型（空 = 走主模型）", style = MaterialTheme.typography.bodySmall) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f).testTag("rp-summary-model"),
+                    )
+                    TextButton(onClick = { summaryModel = RpInspect.RECOMMENDED_SUMMARY_MODEL },
+                        modifier = Modifier.testTag("rp-summary-recommend")) { Text("推荐") }
+                }
+                Text(
+                    "推荐 " + RpInspect.RECOMMENDED_SUMMARY_MODEL +
+                        "：\$0.0699 in / \$1.40 out / \$0.0689 cache，约为主力 Gemini（\$0.75/\$3.75）的 1/10；只管摘要/合并，不动主对话。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // 校验：剥掉 :variant 后要能在当前服务商的模型列表里找到，否则摘要会静默回落主模型
+                RpInspect.summaryModelWarning(
+                    summaryModel,
+                    settings.providers.firstOrNull { it.id == conv.providerId }?.models.orEmpty(),
+                )?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                }
             }
         },
     )
@@ -208,6 +240,17 @@ private fun NumField(label: String, value: String, modifier: Modifier, onChange:
 }
 
 internal object RpInspect {
+    /** 摘要省钱档的推荐模型（GLM 系，单价约为主力 Gemini 的 1/10） */
+    internal const val RECOMMENDED_SUMMARY_MODEL = "z-ai/glm-5.3"
+
+    /** 摘要省钱档校验：空 = 走主模型不警告；模型列表拿不到（空）不唠叨；其余剥 :variant 后必须命中列表 */
+    fun summaryModelWarning(model: String, providerModels: List<String>): String? = when {
+        model.isBlank() -> null
+        providerModels.isEmpty() -> null
+        (ProviderRules.baseSlug(model.trim()) ?: model.trim()) in providerModels -> null
+        else -> "该服务商的模型列表里没有它，摘要会回落主模型"
+    }
+
     fun num(v: Any?, def: Int): Int = (v as? Number)?.toInt() ?: def
 
     fun num1(v: Double): String = String.format(java.util.Locale.US, "%.2f", v)
