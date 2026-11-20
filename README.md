@@ -19,7 +19,9 @@ API Key 只存在本机（Android Keystore 加密），不经过任何中间服�
 - Kotlin 2.0.21 + Compose BOM 2024.09.03，OkHttp 4.12.0，kotlinx-serialization 1.7.3
 - 不引入 Room / Hilt / KSP（构建内存与启动速度优先）
 
-CI 见 `.github/workflows/android.yml`：每次推送编译 + 跑单元测试，失败上传报告。
+CI 见 [android.yml](.github/workflows/android.yml)：main 推送/PR 跑单测与 debug/release 编译；
+[instrumented.yml](.github/workflows/instrumented.yml) 跑模拟器测试（触发范围见工作流）。CI 临时证书产物不作为用户覆盖安装包。
+发布构建与签名见 [RELEASE.md](docs/RELEASE.md) / [SIGNING.md](docs/SIGNING.md)。
 
 ## 目录
 
@@ -46,21 +48,26 @@ app/src/test/          单元测试 + golden 对照（纯 JVM，不依赖模拟�
 - 缓存插件（gcache / mmcache）、Token 徽章
 - 旧版数据就地迁移、整库备份导出 / 导入；聊天图片外置存储（`img:<sha1>` 引用 + `store/blobs/` 去重，旧图懒迁移，备份含 blobs）
 
-## 还不能用的
+## 已接入的进阶功能与边界
 
-- RP（角色扮演）状态面板、章节摘要、世界书面板
-- 好感度（affect）插件未接入请求链路
-- 生图的参考图上传、历史落盘、保存到相册
-- 成本与余额页面（顶栏只显示 token）
-- 插件设置界面（各插件的开关目前走数据文件）
+截至 **2026-11-20 PST**，main `5e4502a` / [v1.7.9](https://github.com/ccao43043-jpg/ai-chat-native/releases/tag/v1.7.9)：
+
+- RP 分层设定、章节/世界书/结构化记忆面板，好感度插件，请求链与插件设置入口均已接入；用量与余额页面也已接入。
+- 生图有参考图上传与保存相册入口；结果历史仅页面会话内存，尚未持久化。
+- 角色生成已有「有世界只补角色卡」的服务层与首条消息提示条；三档设置、RP 面板独立入口及完整交互闭环仍未做完。
+- 上下文统一召回代码已落地，但 `recall.unified` 默认关闭；不能把可选新路径宣传为默认行为。
+- OpenRouter Flex、按模型保存思考等级、消息操作栏横向滑动已进入当前版本。
+
+以上是代码接入/发布状态，不代表所有真实服务商、真机与 release 场景都已验收。
+当前剩余项与优先级见 [总计划](docs/MASTER-PLAN.md)，证据及边界见 [本轮审计](docs/ASSESS-2026-11-20.md)。
 
 ## 数据
 
 - 业务数据：`/data/data/com.aichat.app/files/store/`（settings.json、convs.json、conv_<id>.json、
   usage-stats.jsonl、personas/templates/prompts/worlds.json、rplog_*、knowledge_* 等）
 - 密钥：SharedPreferences `aichat_secrets`，Keystore 别名 `aichat_secrets_v1`（AES-256-GCM）
-- 包名固定 `com.aichat.app`：从旧版**覆盖安装**时原地继承数据，不做搬家
+- 包名固定 `com.aichat.app`：同证书且 versionCode 不降时可覆盖并保留数据；旧版不同签名不能仅凭包名覆盖，先看 [签名说明](docs/SIGNING.md)，不要为尝试升级直接卸载
 
 ## 状态
 
-构建与单元测试在 CI 上通过；功能对齐仍在进行。待办见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
+当前入口：[文档索引](docs/README.md) → [唯一总计划](docs/MASTER-PLAN.md)。`ROADMAP.md` 已归档，不再作为待办来源。

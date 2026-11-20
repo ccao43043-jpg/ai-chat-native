@@ -1,5 +1,7 @@
 # DeepSeek RP Cache Optimizer
 
+> **历史参照（2026-11-20 PST 核对）**：本文为旧 JS 插件设计/实现记录，不是当前 Kotlin 接口或启用状态。现行执行状态见 [总计划](../MASTER-PLAN.md)，上下文边界见 [PLAN-CONTEXT-ARCH.md](../PLAN-CONTEXT-ARCH.md)，算法细节见 [PLAN-ALGO-CACHE.md](../PLAN-ALGO-CACHE.md)。保留正文和原路径供追溯。
+
 一个面向长文本角色扮演（Role-Playing / RP）场景的 DeepSeek API
 本地代理与上下文优化器。
 

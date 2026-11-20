@@ -1,34 +1,41 @@
 # docs 索引
 
-> **状态**：✅ 活跃 · 本文是 `docs/` 的唯一入口，新增/改写文档时请同步这张表。
+> **活跃入口 · 最后核对：2026-11-20 PST，main `5e4502a` / v1.7.9。**
 
-## 一眼规则（先看这三条）
+## 一眼规则
 
-1. **「现在做到哪」只查两处**：[`MASTER-PLAN.md`](MASTER-PLAN.md) §2（优先级 + 状态列）与 §5（完成度盘点）；算法/缓存细化查 [`PLAN-ALGO-CACHE.md`](PLAN-ALGO-CACHE.md) §1 现状表。
-2. **评估类文档不是计划。** `REVIEW-2026-11-16.md` / `OPTIMIZATION-ADVISORY.md` 是当时的判断快照，里面的「现状」列可能滞后于代码；有冲突时以代码 + MASTER-PLAN 为准。
-3. **改行为前先查 [`NATIVE_REWRITE_SPEC.md`](NATIVE_REWRITE_SPEC.md) §3.5。** 那里登记了所有「有意偏离旧 JS 版」的决定；新增偏离必须在该表加一行（D 编号递增）。
+1. 当前状态/优先级只看 [MASTER-PLAN.md](MASTER-PLAN.md) §2；代码完成、自动化验证、已发布、真机验收分开记。
+2. 具体设计看三个专项 PLAN；标成「原方案/拟议」的 API、开关、UI 不表示已经可用。源码与文档冲突时先核对，不能凭勾选宣称实现。
+3. 契约看 [NATIVE_REWRITE_SPEC.md](NATIVE_REWRITE_SPEC.md)（起点是旧重写规格，文首有当前覆盖说明）；签名只按 [SIGNING.md](SIGNING.md)，发版操作按 [RELEASE.md](RELEASE.md)。
 
-## 索引
+## 当前入口
 
-| 文件 | 类型 | 状态 | 最后核实 | 什么时候看它 |
-|---|---|---|---|---|
-| [`MASTER-PLAN.md`](MASTER-PLAN.md) | 计划 | ✅ 活跃 · **唯一优先级来源** | 2026-11-17 | 决定「下一步做什么」、查某项完成没 |
-| [`PLAN-ALGO-CACHE.md`](PLAN-ALGO-CACHE.md) | 计划（专项） | ✅ 活跃 | 2026-11-17 | 算法线 / 缓存专项的具体改法、工时、验收、开关 |
-| [`PLAN-AUTOCHAR-WORLD.md`](PLAN-AUTOCHAR-WORLD.md) | 计划（专项） | 📝 待批准 | 2026-11-18 | 角色生成 Skill 要按「有世界 / 无世界」分档：世界里只写角色卡，不覆盖世界设定 |
-| [`ASSESS-2026-11-17.md`](ASSESS-2026-11-17.md) | 评估 | 📸 快照（当次核对结论） | 2026-11-17 | 查「计划文件说的对不对」、发布工程与数据安全的新发现、评分变化 |
-| [`NATIVE_REWRITE_SPEC.md`](NATIVE_REWRITE_SPEC.md) | 规格（契约） | ✅ 活跃 · 参照物 | 2026-11-17 | 某个功能「本来应该怎样」、偏离登记（§3.5） |
-| [`SIGNING.md`](SIGNING.md) | 手册 | ✅ 活跃 | 2026-11-17 | 证书、为什么能覆盖安装 |
-| [`RELEASE.md`](RELEASE.md) | 手册 | ✅ 活跃 | 2026-11-18 | 打包命令、release 与 debug 两条产物的区别、发版流程与 R8 规则 |
-| [`REVIEW-2026-11-16.md`](REVIEW-2026-11-16.md) | 评估 | 📸 快照 · 非计划 | 2026-11-17 回写 | 查具体问题的证据与代码行号（§2–§6） |
-| [`OPTIMIZATION-ADVISORY.md`](OPTIMIZATION-ADVISORY.md) | 评估 | 📸 快照 · 非计划 | 2026-11-16 | 战略判断、缓存算法专项（§10）、D1–D11 映射（§11） |
-| [`ROADMAP.md`](ROADMAP.md) | 计划（历史） | 🗄 已归档 · 不再更新 | 2026-11-17 | **只看历史**：当年怎么一步步做过来的 |
-| [`structured-diff-plan.md`](structured-diff-plan.md) | 计划（历史） | ✅ 已完成 · 归档 | 2026-11-17 | 持久化去字节对齐的改法与回滚存档 |
-| [`UI_DIFF.md`](UI_DIFF.md) | 对照 | 🗄 已归档 | 2026-11-15 | 旧版 v0.29 与原生 1.0.0 的逐屏对照（历史参照） |
-| [`plugins/`](plugins/) | 设计稿 | 📚 参照 | — | 各缓存插件的原始设计文档（rp-cache / gemini / minimax 等 7 份） |
+| 文件 | 类型 / 本次核对状态 | 用途 |
+|---|---|---|
+| [MASTER-PLAN.md](MASTER-PLAN.md) | 活跃 · 唯一执行清单 | 当前基线、完成项、剩余任务与优先级 |
+| [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) | 活跃专项 · B1/B3/B5/B6 已落地，B2/B4 待做 | 算法/缓存细节与已实现、拟议开关的区别 |
+| [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) | 实施记录 + 剩余范围 | M1–M7 核心已落地；统一召回默认 false；AutoChar 完整 S3 另记欠账，不等于原设计全部完成 |
+| [PLAN-AUTOCHAR-WORLD.md](PLAN-AUTOCHAR-WORLD.md) | 部分完成 · **不是待批准，也不是 S3 全完成** | S1/S2、服务层与首条提示条已落地；RP 独立按钮、三档设置/交互闭环待做 |
+| [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md) | 本轮审计快照，非执行清单 | v1.7.9 的代码/测试/CI/发布证据、勘误及未确认边界 |
+| [NATIVE_REWRITE_SPEC.md](NATIVE_REWRITE_SPEC.md) | 契约 + 历史起点 | 行为对齐与 §3.5 差异登记；旧证书和旧里程碑不是当前发布指令 |
+| [SIGNING.md](SIGNING.md) | 现行手册 | 固定指纹与覆盖安装前提；私钥/密码永不入库 |
+| [RELEASE.md](RELEASE.md) | 现行手册 | debug/release 区别、R8、签名门与装机 smoke；仅编译不代表运行验收 |
+
+## 历史与参照（保留原路径）
+
+| 文件 | 快照 / 状态 | 用途 |
+|---|---|---|
+| [ASSESS-2026-11-17.md](ASSESS-2026-11-17.md) | v1.5.2 核对快照 | 保留当时的发现、评分与证据；不是当前欠账 |
+| [REVIEW-2026-11-16.md](REVIEW-2026-11-16.md) | 历史评审，含后续回写 | 查历史问题根因；§6 不再滚动维护 |
+| [OPTIMIZATION-ADVISORY.md](OPTIMIZATION-ADVISORY.md) | 历史战略/算法评估 | 当时的 D1–D11 映射与建议；实现状态看总计划 |
+| [ROADMAP.md](ROADMAP.md) | 已归档 | 早期功能追赶过程，不恢复为活跃路线 |
+| [structured-diff-plan.md](structured-diff-plan.md) | 实现已落地，历史方案归档 | 原案与实际显式 null 方案、验证边界；真机清单不自动勾选 |
+| [UI_DIFF.md](UI_DIFF.md) | 历史逐屏对照 | v0.29 与原生 v1.0.0 的参照 |
+| [plugins/README.md](plugins/README.md) 及同目录设计稿 | 旧 JS 插件历史参照 | 不能当作 Kotlin 插件接口或当前启用状态；当前边界看 CONTEXT，算法看 ALGO-CACHE |
 
 ## 维护约定
 
-- **一份事实只写一处**：功能状态写在 MASTER-PLAN §2/§5；算法细节写在 PLAN-ALGO-CACHE；契约写在 NATIVE_REWRITE_SPEC。其它文档引用它们，不复制状态表。
-- **写日期**：任何「现状 / 完成度」类陈述都要带「截至 YYYY-MM-DD」，否则视为不可信。
-- **归档而不是删除**：过期的计划把状态头改成 `🗄 已归档`，保留内容供追溯；只有当内容完全被合并进活跃文档时才删。
-- **改完跑一遍**：涉及代码行为的计划条目，落地后回到 MASTER-PLAN §2 改状态列，并在本文「最后核实」更新日期。
+- 完成项同时记录实现提交、测试范围、发布版本与未验部分，不再用混合百分比。
+- 历史评估不重写成今天的结果；补顶部跳转与后续更正即可，避免断旧链接。
+- 新增/整理文档同步本索引；完成状态回写 MASTER-PLAN，不要求再回写历史 REVIEW §6。
+- 变更后检查本地相对链接、锚点与 `git diff --check`；检查文档不等于重跑功能测试。

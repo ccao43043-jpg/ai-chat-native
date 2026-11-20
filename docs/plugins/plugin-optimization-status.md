@@ -1,5 +1,7 @@
 # 插件优化落地状态（v0.8.9）
 
+> **历史参照（2026-11-20 PST 核对）**：本文为旧 JS 插件设计/实现记录，不是当前 Kotlin 接口或启用状态。现行执行状态见 [总计划](../MASTER-PLAN.md)，上下文边界见 [PLAN-CONTEXT-ARCH.md](../PLAN-CONTEXT-ARCH.md)，算法细节见 [PLAN-ALGO-CACHE.md](../PLAN-ALGO-CACHE.md)。保留正文和原路径供追溯。
+
 对应审阅文档 plugin-optimization.md 的第 4 节。
 
 | 项 | 状态 | 说明 |

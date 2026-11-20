@@ -1,5 +1,7 @@
 # Gemini RP 缓存优化插件：算法规格 v1.0
 
+> **历史参照（2026-11-20 PST 核对）**：本文为旧 JS 插件设计/实现记录，不是当前 Kotlin 接口或启用状态。现行执行状态见 [总计划](../MASTER-PLAN.md)，上下文边界见 [PLAN-CONTEXT-ARCH.md](../PLAN-CONTEXT-ARCH.md)，算法细节见 [PLAN-ALGO-CACHE.md](../PLAN-ALGO-CACHE.md)。保留正文和原路径供追溯。
+
 适用范围：内置插件 `gcache`（💎 Gemini 提示缓存（OpenRouter）），插件版本 1.1.0 起，App 0.8.5 起。
 只对 **OpenRouter 服务商 + Gemini 模型** 的请求生效；其他服务商 / 模型的请求逐字节不变。与 `rpcache`（RP 缓存优化器）兼容：不重排其分层顺序、不取代其章节 / 摘要系统。
 

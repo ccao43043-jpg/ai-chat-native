@@ -4,6 +4,9 @@
 > 现状：`Repositories.saveLocked()` 已无 `KeyOrder.align` 与 `nullRemovedMessageKeys`，改由 diff 层统一处理。
 > 本文保留作「当时的改法 + 验收 + 回滚步骤」存档。
 
+> **2026-11-20 PST 复核 main `5e4502a` / v1.7.9**：实际实现是 `JsConvLog.diff` 语义判等 + 移除字段显式 null，**没有采用下文原案的 `deleted` 数组，也没有 `structuralDiff` 配置开关**。阶段 A/B/C/D 代码已合入后续发布；`ConvLogPhaseATest` / `ConvLogPhaseCTest` 有回归、当前 JVM CI 绿，但 §7 真机/200 轮专项没有本轮独立验收证据。
+> 当前状态看 [MASTER-PLAN.md](MASTER-PLAN.md)，逐项证据见 [本轮审计](ASSESS-2026-11-20.md)。以下“现状”、草图、未勾选项保留为当时方案/目标，不再按待执行方案照抄。
+
 > 对应 `docs/REVIEW-2026-11-16.md` §2.2。本方案只描述改法与验收，不改代码。
 > 目标版本：v1.3.x（2–3 个 PR）。
 
@@ -70,7 +73,7 @@ codec.commitJs(fs, Js.fromJson(json) as JsObj)
 ### 阶段 C：去掉 `nullRemovedMessageKeys`（中风险）— 代码已完成（2026-11-17）
 
 - `diff()` 对消息字段增加 removed-keys 采集 → **实现改为 payload 显式 null**（原案 `deleted: [...]` 数组不兼容 JS 回放：Object.assign 会把数组当字段写进消息；显式 null 在 assign 下与 JS 语义天然一致，oplog 格式不变）
-- `applyOp("msg.edit")` 支持 `deleted`
+- 原案 `applyOp("msg.edit")` 支持 `deleted` **未采用**；实际依赖 Object.assign 兼容的显式 null（见上一条）
 - 删除 `saveLocked` 里的 `nullRemovedMessageKeys` ✅ 及已无用的 prev 读取（阶段 D 提前，省每次保存一次 IO+解析）
 - 验收：新增用例覆盖 `truncated:true → false`、`error:"x" → null`、`vi:1 → 0`，断言回放后字段为默认值且不复活
 
@@ -91,7 +94,7 @@ codec.commitJs(fs, Js.fromJson(json) as JsObj)
 | 真机数据损坏 | oplog append-only；回滚只需恢复旧代码，snapshot/ops 格式未变 |
 | 与 JS 源数据交叉 | 迁移完成后已无交叉；导出仍走 `exportLegacy`，不受影响 |
 
-**开关**：加常量 `BuildConfig`/`AppSettings` 层开关 `structuralDiff`（默认关），灰度一个版本后转正。
+**原拟开关（未实施）**：`structuralDiff`。当前不存在此配置；不要尝试用它回滚。回滚需重新评估格式兼容与相应代码提交，不能把本段历史提案当作操作手册。
 
 ## 6. 不做什么
 
@@ -100,7 +103,7 @@ codec.commitJs(fs, Js.fromJson(json) as JsObj)
 - 不动 www golden 数据源
 - 不在本方案里做 2.1（合并三套 `Js`）
 
-## 7. 验收清单
+## 7. 原验收清单（历史目标；未勾选不代表相关自动化从未执行）
 
 - [ ] `CodecRoundTripTest` 全绿（含 `messageModelIsFirstClassAndLegacyBytesUnchanged`）
 - [ ] `RepositoryTest.createSaveLoadAndIndex`
