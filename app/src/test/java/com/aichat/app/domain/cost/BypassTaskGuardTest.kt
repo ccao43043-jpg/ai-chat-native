@@ -4,6 +4,7 @@ import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.domain.model.ProviderType
 import com.aichat.app.net.StreamDelta
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -56,5 +57,37 @@ class BypassTaskGuardTest {
     @Test fun bypassUsageEntryWithoutPromptReturnsNullNotZero() {
         val du = StreamDelta.UsageDelta(buildJsonObject { put("completion", JsonPrimitive(10)) })
         assertNull("usage 缺 prompt → 不入账，不伪造 0 成本", BypassUsageEntry.of(BypassTask.CHAPTER_SUMMARY, "m", provider(), conv(), du))
+    }
+
+    @Test fun bypassUsageTypesAreDistinct() {
+        assertEquals(4, BypassTask.entries.map { it.usageType }.toSet().size)
+    }
+
+    @Test fun makeEntryHonorsExplicitType() {
+        val e = UsageStatsCore.makeEntry(buildJsonObject {
+            put("usage", buildJsonObject { put("prompt", JsonPrimitive(10)); put("completion", JsonPrimitive(2)) })
+            put("type", JsonPrimitive("chapter_summary"))
+            put("msgId", JsonPrimitive("m1"))
+        })
+        assertEquals("record 路径必须尊重显式任务类型", "chapter_summary", (e["type"] as JsonPrimitive).content)
+    }
+
+    @Test fun usageEntryFromMessageStillTypeChat() {
+        val conv = Conversation(id = "c", title = "t", providerId = "pid", model = "m", createdAt = 1, updatedAt = 2, messages = emptyList())
+        val msg = com.aichat.app.domain.model.Message("b-1", com.aichat.app.domain.model.Role.ASSISTANT, "答", 1)
+        val u = com.aichat.app.domain.model.Usage(prompt = 100, completion = 10)
+        val e = UsageEntry.from(conv, provider(), "m", msg, u)!!
+        assertEquals("主对话入账类型不得被旁路改动", "chat", (e["type"] as JsonPrimitive).content)
+    }
+
+    @Test fun recordRoutesExplicitTypeIntoLog() {
+        val e = UsageStatsCore.makeEntry(buildJsonObject {
+            put("usage", buildJsonObject { put("prompt", JsonPrimitive(10)); put("completion", JsonPrimitive(2)) })
+            put("type", JsonPrimitive("memory_extract"))
+            put("msgId", JsonPrimitive("m1"))
+        })
+        val s = UsageStatsCore.record(UsageStatsCore.emptyState(), e)
+        val inLog = (s["log"] as kotlinx.serialization.json.JsonArray).first() as JsonObject
+        assertEquals("memory_extract", (inLog["type"] as JsonPrimitive).content)
     }
 }
