@@ -171,8 +171,10 @@ class DefaultChatEngine(
 
         fun buildCtx(c: Conversation): RequestContext {
             val lu = c.messages.firstOrNull { it.id == lastUser?.id }
-            val wire = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
-                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins)), it.images.map { img -> blobs?.dataUrl(img) ?: img }, srcId = it.id) }
+            val built = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
+                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins), adaptive = ChunkRetrieval.adaptiveEnabled(settings.plugins)), it.images.map { img -> blobs?.dataUrl(img) ?: img }, srcId = it.id) }
+            // W3（C3）：media.retireOldImages 开启时旧图片只从请求退役（默认关 = 逐字节一致；本地图片、UI、导出不动）
+            val wire = if (MediaRetire.enabled(settings.plugins)) MediaRetire.retire(built) else built
             var sys = c.systemPrompt ?: ""
             var msgs = wire
             if (continuing && prior.isNotEmpty()) {
