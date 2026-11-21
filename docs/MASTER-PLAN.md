@@ -1,7 +1,7 @@
 # 统一路线图（Master Plan）
 
-> **状态：活跃，唯一执行优先级与当前状态来源。** 核对日期 **2026-11-20 PST**。
-> 基线：[`main @ 5e4502a`](https://github.com/ccao43043-jpg/ai-chat-native/commit/5e4502a2f39a7372a1e552d3026ccdb8bc215ce6) = `v1.7.9`，versionCode **179**；不是旧 `ai-chat-app` 的原生分支。
+> **状态：活跃，唯一执行优先级与当前状态来源。** 核对日期 **2026-11-21（周末收口回写）**。
+> 基线：[`main @ 5eb5bc8`](https://github.com/ccao43043-jpg/ai-chat-native/commit/5eb5bc85700b74596f74d23ef34399318c225864) = v1.7.9 + 周末省钱收口（T1–T4，PR #120/#121），versionCode **179** 未动；不是旧 `ai-chat-app` 的原生分支。EXPERIENCE-GUARD 在 PR #122 待真机验收合并。
 > 证据与本轮勘误见 [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md)；入口见 [文档索引](README.md)。
 
 **维护规则**：本文维护优先级、完成状态与待办；专项计划保存设计、实现细节和局部验收依据。历史 REVIEW / ASSESS / ADVISORY 不再承担滚动进度表职责。完成一项时回写本文，并同步专项计划与索引；不能只更新发布说明。
@@ -11,7 +11,7 @@
 | 维度 | 已核实事实 | 不能据此推出 |
 |---|---|---|
 | 版本 | main 与 v1.7.9 tag 同为 `5e4502a`；Release 发布时间 **2026-11-18 23:12 PST** | 已在所有设备验收 |
-| JVM 测试 | 最新 [android CI](https://github.com/ccao43043-jpg/ai-chat-native/actions/runs/44477755495) 的 `testDebugUnitTest` 成功；当前源码有 **661 个 `@Test` 声明**（95 个含注解的文件） | 控制台未列执行总数，不能把源码计数冒充本轮执行结果；Release 的「661 / 97 类」是历史发布口径 |
+| JVM 测试 | main（`5eb5bc8`）CI 全绿，**669 个 `@Test` 全部通过**（本周末 T1/T3 合入 +8）；PR #122 分支再 +20 至 **689** 亦全绿 | 真机、真实付费服务商、release 变体全流程仍待独立验收 |
 | 编译 | 同一 CI 的 `assembleDebug`、`assembleRelease`（R8）成功 | release 的运行时行为、固定发布签名已经在 CI 验证 |
 | 模拟器 | 同一 SHA 的 [instrumented CI](https://github.com/ccao43043-jpg/ai-chat-native/actions/runs/44477755550) 报告 **12 tests / 0 failures / 0 errors / 0 skipped** | 真机、真实付费服务商、release 变体全流程已验收 |
 | 本次文档整理 | 读源码、测试、提交与 CI 日志/报告，检查 Markdown 链接与差异 | 本次没有重跑功能测试、构建、模拟器或覆盖安装 |
@@ -25,6 +25,7 @@
 ### P0 · 当前阻塞与验收
 
 - 原 P0 世界书面板（PR #39）、structured-diff A（#70）、流式状态拆 flow（#71）、instrumented CI 修复（#92）均已合入；当前两条 CI 绿，**未发现新的已证实 P0 阻塞**。
+- 本周末省钱收口（T1–T4）与 B2 设计已落库；当前唯一**时间门控项** = 新包装机与账单样本积累（T5 对账在周日，时段与判据见 [PLAN-WEEKEND-2026-11-22.md](PLAN-WEEKEND-2026-11-22.md)）。
 - 固定签名仍为发布硬门：[SIGNING.md](SIGNING.md)。规格旧证书 `6054…` **不是**独立仓库 v1.5.1+ 的发布证书；现为 `a228…2f52`。
 - 真机覆盖安装、真实模型请求、R8 release 运行时仍需每次发版单独验收，不随「CI 绿」自动完成。
 
@@ -32,6 +33,8 @@
 
 | 编号 / 批次 | 当前状态 | 证据与剩余出口 |
 |---|---|---|
+| **周末省钱收口 T1–T6（新增 2026-11-21）** | **代码完成 + 自动化通过；待真机验收与账单对账** | PR [#120](https://github.com/ccao43043-jpg/ai-chat-native/pull/120)（Flex 按服务商持久化 + 选择器单价）、[#121](https://github.com/ccao43043-jpg/ai-chat-native/pull/121)（摘要省钱档 + T4 关账）；T4 结论与四指标表见 [ASSESS-2026-11-21.md](ASSESS-2026-11-21.md)；B2 设计细化见 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) P2；对账工具 `tools/billing/`（fixture 自测通过）。**T5 四指标周日晚回填** |
+| **EXPERIENCE-GUARD（新增 2026-11-21）** | 代码完成 + 单测/编译通过；**待真机 smoke 后合并** | PR [#122](https://github.com/ccao43043-jpg/ai-chat-native/pull/122)；审计与报告见该 PR 内 [GLM-WEEKEND-AUDIT.md](https://github.com/ccao43043-jpg/ai-chat-native/pull/122/files) / [GLM-WEEKEND-REPORT.md](https://github.com/ccao43043-jpg/ai-chat-native/pull/122/files)（合并后随分支入索引） |
 | #18 / AUTOCHAR S3 | **部分完成，不能写 S1–S3 全部完成** | S1/S2 与首条消息提示条、请求/保存已接入：`AutoChar.kt`、`AutoCharService.kt`、`ChatScreen.kt`；`AutoCharWorldTest` / `AutoCharServiceTest`。缺 RP 面板独立生成按钮、设置页三档、auto/ask 行为区分、dismiss/asked 与换世界重询的持久化闭环、丢弃字段明细展示；真机/真实模型待验。见 [专项现状](PLAN-AUTOCHAR-WORLD.md#当前实现核对2026-11-20-pst) |
 | #14 发布工程 | **R8 与 release 编译已完成；质量门未全完成** | PR [#108](https://github.com/ccao43043-jpg/ai-chat-native/pull/108)，`app/build.gradle`、`app/proguard-rules.pro`、`android.yml`；仍 `lint { checkReleaseBuilds false; abortOnError false }`，无 lint/detekt 门；release 编译不是运行验收 |
 | #15 数据保护 | **不再是「三个目录零测试」；仍有缺口** | PR [#109](https://github.com/ccao43043-jpg/ai-chat-native/pull/109)；`FileTextTest`、`FileStoreTest`、`MigrationTest`、`BlobStoreTest`，CI 含 `DeviceRegressionTest` 备份往返。真实 Android Keystore/SecretStore 仍无专门测试，`returnDefaultValues=true` 仍在；导入中断/磁盘写失败恢复需补证，不能因正常往返通过宣称事务安全 |
@@ -46,7 +49,7 @@
 | #6 三套 Js | **未收敛** | `data/json/Js.kt`、`plugins/js/Js.kt`、`net/JsCompat.kt` 仍独立；先共享纯语义算法，值模型迁移另评估，不能按旧 2 天估计承诺 |
 | #7 / D8 摘要最优停止 | **已实现** | PR #78；`RpCacheCore.summaryTiming`、`RpCacheCoreAdaptiveSummaryTest`；线上节费幅度未独立实测 |
 | #7b / D4/D5 背包与粘滞 | **关闭，不排队** | 历史范围决定见 §5.3；不要重新列成欠账 |
-| #7c / B2 | **待做** | `RpCacheCore.autoBudget` 仍有 200K 上限与固定系数；`budgetProfile` 尚非可用配置。同一图片重复尺寸解析/memo 仅保留为优化候选，先测性能 |
+| #7c / B2 | **待做（设计已细化 2026-11-21）** | `RpCacheCore.autoBudget` 仍硬编码且**无生产调用方**（`plan()` 的 limit 实际读手填 settings——接线缺口是 B2 前置）；参数化+接线方案、任务类型判定依据与测量方案见 [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) P2。同一图片重复尺寸解析/memo 保留为优化候选，先测性能 |
 | #8 / D6 op-log 真追加 | **已完成** | PR #80；`JsConvLog.commit` 用 `store.append`；`ConvLogD6Test` |
 | #9 / B4 路由 | **Beta 已有，埋点/受控探索/统计衰减仍待做** | `Router.chooseUpstream` 已有 Beta 估计、idle sticky、切换成本；无计划中的 epsilon/UCB 与时间衰减。先埋点、拿到观察数据，再决定是否做算法 |
 | #10 ChatController / #11 JsConvLog 拆分 | **未完成** | 当前分别 811 / 947 行，未形成原计划 SendFlow/VersionOps/FilesOps/RpOps 与 Replay/Diff/Commit/Compact 拆分；避免把「工程评审 10/11 完成」当作包含这些新增任务 |
@@ -57,7 +60,7 @@
 
 ### P3 · 原有产品/长线观察（不扩大路线）
 
-- 抽屉分组、触控目标、无障碍与提示：已有局部改动，未有整套验收记录，不再写「产品体验 0%」。
+- 抽屉分组、触控目标、无障碍与提示：已有局部改动，未有整套验收记录，不再写「产品体验 0%」。PR #122 局部补齐消息操作 44dp 触控区与 PluginErrorDot 语义；整套验收仍待。
 - 生图已有参考图与相册保存入口；**历史仍仅当前页面会话内存，不是持久化图库**（`ImageScreen`）。
 - 检索困难集/同义改写/指代/跨条目评测、首帧/流式帧率/检索耗时门禁仍待证据；RLS token 校准与有效价格学习保留长线观察，不先改算法。
 - [规格 §3.5](NATIVE_REWRITE_SPEC.md#35-行为对齐政策与有意差异契约变更-l) 的续写 system 后缀、provider.order 与 session sticky 诊断仍是后续候选，不视为已完成。
@@ -75,6 +78,7 @@
 | v1.6.2 | B6 召回预算/路由单轮 memo/软去重/异常体检 | #112–#113；统一召回仍受开关约束 |
 | v1.7.0 | B3 文件分块 + 图片 CAS + 含 blobs 的备份 | #114–#116 |
 | v1.7.1–v1.7.9 | OpenRouter Flex、Gemini 缓存修复、按模型思考等级持久化、消息操作栏横滑 | #117/#118、`05dfd09`、`30d1d26`–`6d482c4`、`3ff85f1` / `5e4502a` |
+| 周末 2026-11-21（未发版，已入 main） | T1 Flex 按服务商持久化 + T2 单价可见、T3 摘要省钱档、T4 关账、B2 设计细化、对账工具入库 | #120/#121；真机验收与 T5 对账待办（[ASSESS-2026-11-21.md](ASSESS-2026-11-21.md)） |
 | 下一版本 | 未指定 | 不沿用旧计划的「B2=v1.5.4、B3=v1.6.0」预测；待选择 §2 存量任务后另定 |
 
 ## 4. 验收口径
@@ -112,4 +116,5 @@ B1/B3/B5/B6 已合入，B2/B4 尚有存量；详细证据与局部限制见 [PLA
 
 - [ASSESS-2026-11-17.md](ASSESS-2026-11-17.md)：v1.5.2 快照，保留当时的风险与依据。
 - [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md)：本轮 v1.7.9 代码/CI/发布核对；纠正「做了没回写」和「部分做了却标全完成」。
+- [ASSESS-2026-11-21.md](ASSESS-2026-11-21.md)：周末执行记录（T4 关账、T5 四指标表待回填）；收口排期见 [PLAN-WEEKEND-2026-11-22.md](PLAN-WEEKEND-2026-11-22.md)。
 - 本文被整理前的完整滚动记录仍可在 [v1.7.9 固定版本](https://github.com/ccao43043-jpg/ai-chat-native/blob/5e4502a2f39a7372a1e552d3026ccdb8bc215ce6/docs/MASTER-PLAN.md) 查阅；没有搬移或删除历史评估文件。

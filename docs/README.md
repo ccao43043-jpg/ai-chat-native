@@ -1,6 +1,6 @@
 # docs 索引
 
-> **活跃入口 · 最后核对：2026-11-20 PST，main `5e4502a` / v1.7.9。**
+> **活跃入口 · 最后核对：2026-11-21（周末收口回写），main `5eb5bc8` / v1.7.9 + 省钱收口。**
 
 ## 一眼规则
 
@@ -13,10 +13,14 @@
 | 文件 | 类型 / 本次核对状态 | 用途 |
 |---|---|---|
 | [MASTER-PLAN.md](MASTER-PLAN.md) | 活跃 · 唯一执行清单 | 当前基线、完成项、剩余任务与优先级 |
-| [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) | 活跃专项 · B1/B3/B5/B6 已落地，B2/B4 待做 | 算法/缓存细节与已实现、拟议开关的区别 |
+| [PLAN-WEEKEND-2026-11-22.md](PLAN-WEEKEND-2026-11-22.md) | 活跃执行计划 | 本周末收口：真机验收 / T5 对账 / 文档回写的时段、判据与装机记录 |
+| [ASSESS-2026-11-21.md](ASSESS-2026-11-21.md) | 执行记录 · **T5 待回填** | T4 关账结论（旁路误认）、四指标表、真机验收记录区 |
+| [PLAN-ALGO-CACHE.md](PLAN-ALGO-CACHE.md) | 活跃专项 · B1/B3/B5/B6 已落地；B2 设计已细化（参数化+接线）、B4 待做 | 算法/缓存细节与已实现、拟议开关的区别 |
+| `tools/billing/`（仓库根，不在 docs） | 对账工具 · fixture 自测通过 | OpenRouter CSV 对账三件套（shape/phase/flex），口径三条内建，见其 README |
 | [PLAN-CONTEXT-ARCH.md](PLAN-CONTEXT-ARCH.md) | 实施记录 + 剩余范围 | M1–M7 核心已落地；统一召回默认 false；AutoChar 完整 S3 另记欠账，不等于原设计全部完成 |
 | [PLAN-AUTOCHAR-WORLD.md](PLAN-AUTOCHAR-WORLD.md) | 部分完成 · **不是待批准，也不是 S3 全完成** | S1/S2、服务层与首条提示条已落地；RP 独立按钮、三档设置/交互闭环待做 |
-| [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md) | 本轮审计快照，非执行清单 | v1.7.9 的代码/测试/CI/发布证据、勘误及未确认边界 |
+| [ASSESS-2026-11-20.md](ASSESS-2026-11-20.md) | 上轮审计快照，非执行清单 | v1.7.9 的代码/测试/CI/发布证据、勘误及未确认边界 |
+| [GLM-WEEKEND-AUDIT.md](https://github.com/ccao43043-jpg/ai-chat-native/pull/122/files) / [GLM-WEEKEND-REPORT.md](https://github.com/ccao43043-jpg/ai-chat-native/pull/122/files) | 随 PR #122 合并后转正式条目 | EXPERIENCE-GUARD 只读审计（17 项）与周末报告 |
 | [NATIVE_REWRITE_SPEC.md](NATIVE_REWRITE_SPEC.md) | 契约 + 历史起点 | 行为对齐与 §3.5 差异登记；旧证书和旧里程碑不是当前发布指令 |
 | [SIGNING.md](SIGNING.md) | 现行手册 | 固定指纹与覆盖安装前提；私钥/密码永不入库 |
 | [RELEASE.md](RELEASE.md) | 现行手册 | debug/release 区别、R8、签名门与装机 smoke；仅编译不代表运行验收 |
