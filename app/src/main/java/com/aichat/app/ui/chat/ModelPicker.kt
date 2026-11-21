@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.aichat.app.domain.model.ProviderConfig
 import com.aichat.app.net.ModelCatalog
@@ -129,6 +131,7 @@ private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit, enabled: B
                         .clickable(role = Role.Button) {
                             if (enabled) { picked = key; onPick(key) } else onPick(key)   // 被拒绝时不乐观变蓝
                         }
+                        .semantics { selected = sel }
                         .padding(vertical = 9.dp)
                         .testTag("thinking-" + key),
                     contentAlignment = Alignment.Center,
