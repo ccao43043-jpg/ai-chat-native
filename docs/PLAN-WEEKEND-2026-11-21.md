@@ -155,9 +155,9 @@ var flexOn by remember(currentProvider) { mutableStateOf(flexOnOf(currentProvide
 
 **做法**：从 OpenRouter 导出新的 activity CSV（`openrouter_activity_2026-11-22.csv`），**用同一套脚本**跑，别改口径：
 
-- `D:\deep seek harness\_an\shape.py` —— 按日回归 `cached ~ prompt` 的斜率/截距、零缓存数（验证断点形态没退化）。
-- `D:\deep seek harness\_an\phase.py` —— A/B 分段（这次的界改成「新包装机时刻」）。
-- `D:\deep seek harness\_an\flex.py` —— 逐条反解计费档（回归误差 < 1e-6 才可靠），输出各档条数与「若全按 flex 结算」的反事实成本。
+- `tools/billing/shape.py` —— 按日回归 `cached ~ prompt` 的斜率/截距、零缓存数（验证断点形态没退化）。（原 `D:\deep seek harness\_an\` 位置 2026-11-21 起废弃，脚本入库仓库本目录）
+- `tools/billing/phase.py` —— A/B 分段（这次的界改成「新包装机时刻」）。
+- `tools/billing/flex.py` —— 逐条反解计费档（回归误差 < 1e-6 才可靠），输出各档条数与「若全按 flex 结算」的反事实成本。
 
 **注意口径**（上次踩过的坑）：`cost_cache` 列是**负数**，是"省下的钱"的独立记录项，不是抵扣错位；分析成本**只用 `cost_total`**，不要再加减它。
 

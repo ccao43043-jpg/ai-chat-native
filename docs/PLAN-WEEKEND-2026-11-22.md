@@ -139,8 +139,8 @@ APK：debug（41c2c67 构建）
 
 **目标**：把周日晚要跑的脚本和口径先准备好，避免晚上临时找文件。
 
-- [ ] 确认账单 CSV 导出路径（`D:\deep seek harness\`）
-- [ ] 确认 `shape.py` / `phase.py` / `flex.py` 可运行
+- [ ] 确认账单 CSV 已从 OpenRouter 重新导出（旧 CSV 与原 `_an\` 脚本已于 11-21 从磁盘消失）
+- [ ] 对账脚本已入库 `tools/billing/`（shape / phase / flex），用 `fixture.csv` 自测通过；口径见 `tools/billing/README.md`
 - [ ] 口径三条：`cost_cache` 是负数（省下钱的独立记录项），分析成本只用 `cost_total`；CSV 的 `created_at` 是 **UTC**（PLAN/ASSESS 里的时刻都是 UTC+8 标签）；分段界 = §3.1 记录的装机时刻
 - [ ] 准备四项指标的空表：
 

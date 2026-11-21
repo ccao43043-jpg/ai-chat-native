@@ -1,0 +1,13 @@
+generation_id,created_at,cost_total,cost_web_search,cost_cache,cost_file_processing,byok_usage_inference,tokens_prompt,tokens_completion,tokens_reasoning,tokens_cached,model_permaslug,provider_name,variant,cancelled,streamed,user,finish_reason_raw,finish_reason_normalized,generation_time_ms,time_to_first_token_ms,user_agent,country,city,asn,asn_organization,app_name,api_key_name,api_key_disabled
+gen-001,2026-11-21 09:00:00.000,0.002652,0,-0.006723,0,0,10000,500,400,9960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1200,300,-,-,-,-,-,ai-chat-native,key-1,false
+gen-002,2026-11-21 10:00:00.000,0.001902,0,-0.006723,0,0,10000,300,0,9960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,900,280,-,-,-,-,-,ai-chat-native,key-1,false
+gen-003,2026-11-21 11:00:00.000,0.0034395,0,-0.0070611,0,0,10500,700,600,10460,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1500,310,-,-,-,-,-,ai-chat-native,key-1,false
+gen-004,2026-11-21 11:30:00.000,0.0105,0,0,0,0,11000,600,500,0,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1800,420,-,-,-,-,-,ai-chat-native,key-1,false
+gen-005,2026-11-21 11:45:00.000,0.001326,0,-0.0033615,0,0,10000,500,400,9960,google/gemini-3.8-flash-20260902,Google,flex,false,true,-,stop,stop,1400,350,-,-,-,-,-,ai-chat-native,key-1,false
+gen-006,2026-11-21 11:55:00.000,0.0045,0,0,0,0,10000,400,0,0,google/gemini-3.8-flash-20260902,Google,flex,false,true,-,stop,stop,1300,330,-,-,-,-,-,ai-chat-native,key-1,false
+gen-007,2026-11-21 12:30:00.000,0.002652,0,-0.006723,0,0,10000,500,400,9960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1200,300,-,-,-,-,-,ai-chat-native,key-1,false
+gen-008,2026-11-21 13:00:00.000,0.00825,0,0,0,0,10000,200,100,0,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1000,260,-,-,-,-,-,ai-chat-native,key-1,false
+gen-009,2026-11-21 13:30:00.000,0.0023895,0,-0.006048,0,0,9000,450,300,8960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1100,290,-,-,-,-,-,ai-chat-native,key-1,false
+gen-010,2026-11-20 09:00:00.000,0.002127,0,-0.005373,0,0,8000,400,0,7960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,950,270,-,-,-,-,-,ai-chat-native,key-1,false
+gen-011,2026-11-20 10:00:00.000,0.0019395,0,-0.005373,0,0,8000,350,0,7960,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,880,265,-,-,-,-,-,ai-chat-native,key-1,false
+gen-012,2026-11-20 11:00:00.000,0.00825,0,0,0,0,8500,500,0,0,google/gemini-3.8-flash-20260902,Google,standard,false,true,-,stop,stop,1250,305,-,-,-,-,-,ai-chat-native,key-1,false

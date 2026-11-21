@@ -20,7 +20,7 @@
 | 批次 | 内容 | 工时 | 出口 |
 |---|---|---|---|
 | **B1** | 图片按服务商计价接入预算路径、`Retry-After`、估算口径与过期注释清理 | 0.75 天 | ✅ **已完成**（PR #98，413 单测全绿）→ 已进入后续发布 |
-| **B2** | 预算系数能力表参数化、`plan()` 单轮估算 memo | 1.5 天 | 待做，版本未指定（拟议开关，未实现） |
+| **B2** | 预算系数能力表参数化 + **预算路径接线**、`plan()` 单轮估算 memo | 1.5 天 | 待做，版本未指定（拟议开关，未实现；设计已细化，见 P2） |
 | **B3** | **D7 文件分块检索**（替代前缀截断） | 2–3 天 | 已发布 v1.7.0（#114） |
 | **B4** | 路由埋点 → 数据两周 → 探索/衰减；校准冷启动先验 | 1–2 天 + 观察 | 视数据决定 |
 | **B5** | 缓存路线接回（千问显式/Anthropic 真打点、单徽章、`rpSegments`）+ R8 发布包 + 落盘与卫生补课 | 2 天 | ✅ **已完成**（PR #106–#110）→ 已进入 v1.6.1 |
@@ -41,8 +41,8 @@ B1 已修正「有意没搬 adaptiveSummary」的过期注释；不要再当作�
 | 2 | 图片按服务商计价 | ✅ 已完成（P1，PR #98） | `TokenEstimator.kt:47-56` `image(provider, dataUrl)`：gemini 258 / anthropic `max(156,w*h/750)` / openai `85+170*tiles` / 其它 1000。现在 `RpCacheCore.estimateItems(items, provider: String? = null)`、`layerTokens(...)`、`computeTrimWindow(st, p, provider)`、`applyTempTrim(st, p, now, provider)`、`itemTokens(m, provider)` 全部透传；`RpCachePlugin` 传 `ctx.provider.presetId.ifEmpty { ctx.provider.id }`。不传 provider 时仍 `FALLBACK = 1000`（golden 字节级兼容） |
 | 3 | 摘要最优停止（D8） | ✅ 已完成 | `RpCacheCore.kt:175-193` `fun summaryTiming(U, g, saved, fixed, limit, h=12, gamma=0.9): Int` 枚举 `t∈0..H` 的折现总成本取 argmin |
 | 4 | 分层预算 `applyLagrangeBudget` | ⛔ 用户已决定不做 | `MASTER-PLAN.md` §5.3 第 1 条（架构演进取代）；当前范围以 MASTER-PLAN §5.3 的关闭决定为准，不把旧注释当作待实施入口 |
-| 5 | 预算系数 | ⚠️ 硬编码 | `RpCacheCore.kt:365-372`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]` |
-| 6 | 能力表参数化 | ❌ 未做 | 同上，`Cap` 只提供 `vendor/window/tier`，无「按 vendor 的预算档」 |
+| 5 | 预算系数 | ⚠️ 硬编码（且**无生产调用方**） | `RpCacheCore.kt:387-407`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]`。全仓唯一引用是测试（`RpCacheCoreTest.kt:158-159`）；`plan()` 的 limit 实际读 RP 检视手填 settings（`RpCacheCore.kt:591-594`）——接线是 B2 前置，见 P2 |
+| 6 | 能力表参数化 | ❌ 未做 | 同上，`Cap` 只提供 `vendor/window/tier`，无「按 vendor 的预算档」；`budget_mode/lagrange_layers/min_history_ratio/auto_budget` 四键只定义不消费（`RpState.kt:30-31`） |
 | 7 | MMR 检索 | ✅ 已完成 | `plugins/rp/RpMemoryCore.kt:581` `val lam = o.mmrLambda`（默认 0.7）、`:535 selectRelevant`、`:395 terms = RetrievalCore.grams`（中文 bigram） |
 | 8 | BM25 索引缓存 | ✅ 已完成 | `RpMemoryCore.kt:437 fun buildIndex(list, prev: Index? = null)` + `:452 buildIndexUncached`（签名命中复用） |
 | 9 | 路由 Beta 折扣 | ✅ 已完成 | `net/Router.kt:251 chooseUpstream`：`:266 hitQuantile(st.a, st.b, zPessimistic)`、`:286 stickyIdleMs`、`:291-296` 切换成本折现 |
@@ -95,35 +95,67 @@ val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = ca
 
 ---
 
-### P2 · 预算系数能力表（B2，1 天）
+### P2 · 预算系数能力表 + 预算路径接线（B2，1.5 天；2026-11-21 设计细化）
 
-**问题**：`autoBudget` 的 0.8/0.1/0.02/0.3/0.12 与 `min(…, 200_000)` 对所有 vendor 一刀切。
-DeepSeek 64K 窗口用 0.8 合理；Gemini 1M 窗口被 200K 封顶等于自废 80%。
+**问题**（三条，2026-11-21 复核勘误）：
 
-**改法**：给 `RpCacheCore` 加一张**只描述差异**的表，默认行与现有常量逐位相同：
+1. **系数硬编码**：`autoBudget`（`RpCacheCore.kt:387-407`）对所有 vendor 一刀切 —— `usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`（下限 8000）、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]`；deepseek 特判整体走常量（`:389-394`，`meta.context` 可豁免）。Gemini 1M 窗口被 200K 封顶等于自废 80%。
+2. **接线缺口（2026-11-21 新发现，B2 的真正前置）**：`autoBudget` 目前**没有生产调用方**（全仓唯一引用是测试 `RpCacheCoreTest.kt:158-159`）。`plan()` 的预算 limit 实际来自 RP 检视面板**手填**的会话 settings（`RpCacheCore.kt:591-594`：`max_context − output_reserve − safety_margin`；写入方 `RpInspect.kt:67-84`）；世界书侧另有一份消费（`RpLoreCore.kt:165/308/345`）。**只参数化系数而不接线，产出的是没人调用的死函数。**
+3. **四个死设置键**：`budget_mode` / `lagrange_layers` / `min_history_ratio` / `auto_budget`（`RpState.kt:30-31`）只有定义+归一（`RpState.kt:61-66, 82-85`），全仓无读取方；`applyLagrangeBudget` 分层预算已按 MASTER-PLAN §5.3 明确不做（`RpCacheCore.kt:451-452` 注释）。B2 落地时要么删除要么真正消费，不许继续挂着。
+
+**改法**（能力表 → 接线 → 任务类型判定 → 测量方案）：
+
+a. **BudgetProfile 能力表** —— 只描述差异，默认行与现有常量逐位相同：
 
 ```kotlin
 data class BudgetProfile(
-    val ctxRatio: Double = 0.8, val hardCap: Int = 200_000,
-    val outRatio: Double = 0.1, val outMin: Int = 4_000, val outMax: Int = 16_000,
-    val marginRatio: Double = 0.02, val marginMin: Int = 1_000, val marginMax: Int = 4_000,
-    val triggerRatio: Double = 0.3,
-    val chapterRatio: Double = 0.12, val chapterMin: Int = 4_000, val chapterMax: Int = 24_000,
+    val hardCap: Int = 200_000,        // usable 的第三道 min（现 RpCacheCore.kt:395）
+    val ctxRatio: Double = 0.8,        // usable × 0.8（:396）
+    val minCtxFloor: Int = 8_000,      // max(8000, …) 下限（:396）
+    val outRatio: Double = 0.1, val outMin: Int = 4_000, val outMax: Int = 16_000,          // :399
+    val marginRatio: Double = 0.02, val marginMin: Int = 1_000, val marginMax: Int = 4_000, // :400
+    val triggerRatio: Double = 0.3,    // :401
+    val chapterRatio: Double = 0.12, val chapterMin: Int = 4_000, val chapterMax: Int = 24_000, // :402
 )
 
 fun profileOf(vendor: String?): BudgetProfile = when (vendor?.lowercase()) {
-    "gemini"   -> DEFAULT.copy(hardCap = 400_000, triggerRatio = 0.35, chapterMax = 48_000)
-    "anthropic","claude" -> DEFAULT.copy(hardCap = 200_000, triggerRatio = 0.32)
-    else -> DEFAULT                      // deepseek / openai / 未知：与今天完全一致
+    "gemini"   -> DEFAULT.copy(hardCap = 400_000, triggerRatio = 0.35, chapterMax = 48_000)  // 拟议，待实测
+    "anthropic","claude" -> DEFAULT.copy(hardCap = 200_000, triggerRatio = 0.32)             // 拟议，待实测
+    else -> DEFAULT                      // deepseek / openai / 未知：与今天逐位一致
 }
 ```
 
-- `autoBudget(cap, model, meta)` 里 `val pf = profileOf(cap?.vendor)`，五个系数改为读 `pf`。
-- **开关**：`rpcache.budgetProfile = "legacy" | "auto"`（默认 `legacy`）。RP 面板加一行下拉。
-  `legacy` 走 `profileOf(null)`，**与今天逐位一致**，保证回归可复现。
-- `hardCap` 提升会提高单轮成本上限，故默认不改行为，需用户显式打开；打开后 `outputReserve` 仍按 10% 且封 16K，不会失控。
+deepseek 特判（vendor==deepseek 且 meta.context 未覆盖 → 整组走 `DEFAULT_*` 常量，`source="deepseek-default"`）保留为表外分支，不进 profile —— 它绕过系数，不是取一组特殊系数。能力表维度：vendor / 模型（`CONTEXT_TABLE` `RpCacheCore.kt:326-345` + `meta.context` 覆盖，即上下文窗口）/ 出参上限（outRatio+clamp）/ 思考档位与任务类型（见 c，进入测量后再定档）。
 
-**验收**：`autoBudgetLegacyMatchesToday`（对 4 组 window/tier 断言与常量公式逐位相同）+ `autoBudgetGeminiUsesBiggerCap`（1M 窗口 → `maxContext = 400k×0.8` 取整）。
+b. **接线**（无此步则能力表是死代码）：
+
+- 开关 `rpcache.budgetProfile = "legacy" | "auto"`，默认 `legacy` = 现状零行为变化；`hardCap` 提升会抬高单轮成本上限，必须用户显式打开。
+- `auto` 时 `plan()` 的 `max_context / output_reserve / safety_margin` 来源从「手填 settings」切到 `autoBudget(capability(...), model, meta)` 产物（接线点 `RpCacheCore.kt:591-594`）；`legacy` 完全不动。
+- RP 检视面板在 auto 模式下把手填值显示为「已被能力表接管」（只读或提示），避免「填了不生效」的静默分歧；legacy 模式保持可编辑。
+- 世界书（`RpLoreCore`）同源消费：auto 模式读 autoBudget 的 maxContext，不再各自手填一份。
+- 死设置键去向：`budget_mode` / `lagrange_layers` / `min_history_ratio` 随 B2 落地一并删除（`normalizeState` 对应分支同步删）；`auto_budget` 要么改成本开关的真正消费方、要么并入 `rpcache.budgetProfile`（实现时二选一，不双开关）。
+
+c. **任务类型判定**（只写判定依据，不写实现；判定层 = `plan()/RpCachePlugin`，不在 net/Router）：
+
+判定层依据：`RequestContext` 在该层有完整信号 —— 轮数（`roundsOf`，`RpCacheCore.kt:465`）、八层 token 分布（plan tokens，`RpCacheCore.kt:576-589`）、图片数、单条消息长度；而 `net/Router.kt:251` 与 `AffinityRouter` 是「OpenRouter 上游 slug 亲和路由」（Beta 后验 × 价格 × 延迟），不接收内容语义，**不纳入**。
+
+| 类型 | 判定依据（现成信号） |
+|---|---|
+| 闲聊 | 轮数多、本轮 input 占比低、无图 |
+| 检索 | 本轮 input 占比突增（注入块/文件片段），history 占比正常 |
+| 长文 | 单条 content 长，或多图（`estimateItems` 图片数 > 0） |
+| 摘要 | askModel 旁路通道天然区分（`summary_model` / overrideModel），无需判 |
+| 工具调用 | **信号缺口**：`WireMessage` 无 tools 字段（`Contracts.kt:118`），现阶段不可判；工具调用上线时补信号 |
+
+d. **测量方案**（系数从「猜」变「算」的路径）：
+
+- 数据源：OpenRouter 导出 CSV（列 `tokens_prompt / tokens_cached / tokens_completion / tokens_reasoning / variant / cost_total / created_at`，**UTC**；本地对账工具已入库 `tools/billing/`）。
+- 本地差距（如实记录）：`usage-stats.jsonl` 条目只有 prompt/completion/hit/miss/cost 六项（`UsageEntry.kt:80-97`），**无 reasoning/variant 字段**；`UsageCodec` 把 gemini `thoughtsTokenCount` 折进 completion。测量期以 CSV 为准；本地账本补字段列为后续提案，不混入 B2。
+- 判据：每 vendor × 任务类型 ≥ 30 条样本后，观察 summary 触发频率、裁剪频率、超预算轮占比对 maxContext 的敏感性，据此把 profile 里的「拟议」数换成实测数；**样本不足不改表**。
+
+**验收**：
+- `autoBudgetLegacyMatchesToday`（对 4 组 window/tier 断言与常量公式逐位相同）+ `autoBudgetGeminiUsesBiggerCap`（1M 窗口 → `maxContext = 400k×0.8` 取整）
+- **接线验收（新增）**：`budgetProfileWiringLegacyByteExact` —— legacy 模式下 plan() 的 limit/used/remaining 与现状 golden 逐位一致；auto 模式下 RP 检视出现接管提示且数值来自 autoBudget。
 
 ---
 
@@ -256,7 +288,7 @@ val unsumTok = estimateItems(unsummarized, provider)
 | 批次 | 实际状态 / 版本 | 证据或限制 |
 |---|---|---|
 | B1 | 已落地，后续发布已包含 | #98；图片公式、Retry-After、估算口径卫生 |
-| B2 | 待做，版本未指定 | P2 能力表未实现；P6 优化先测同图重复解码，不把 CachePolicy 单轮 memo 当成预算 memo 完成 |
+| B2 | 待做，版本未指定 | P2 已细化（2026-11-21）：能力表 + 接线（autoBudget 零调用方是前置缺口）+ 任务类型判定依据 + 测量方案；P6 优化先测同图重复解码，不把 CachePolicy 单轮 memo 当成预算 memo 完成 |
 | B3 | 已发布 v1.7.0 | #114；分块默认开，但设置 UI 未实现，真实长文档效果仍需验收 |
 | B4 | 待做，先埋点再观察，版本未指定 | 已有 Beta 不等于有受控探索/时间衰减 |
 | B5 | 已进入 v1.6.1 | #106–#110；缓存接线/R8/落盘与卫生；不是 AutoChar 全 UI 完成的代称 |
@@ -288,7 +320,7 @@ val unsumTok = estimateItems(unsummarized, provider)
 |---|---|---|
 | `files.chunkRetrieval` | **已实现，true** | false 回到前缀截断；当前设置 UI 尚无专门入口 |
 | `recall.unified` | **已实现，false** | true 才走 RecallBus 单点装配及预算/软去重；false 走兼容路径 |
-| `rpcache.budgetProfile` | **拟议，未实现** | P2 设计的 legacy/auto，不能按现成功能填写 |
+| `rpcache.budgetProfile` | **拟议，未实现** | P2 设计的 legacy/auto（2026-11-21 设计细化：含接线方案与任务类型判定依据），不能按现成功能填写 |
 | `router.explore` / `router.decayDays` | **拟议，未实现** | P7 设计的探索/衰减；当前 Router 不消费这些设置 |
 
 行为变化须有明确回归和转正依据；B3 已随 #114 默认开启，不能再笼统写「所有开关默认保持旧行为」。本次只核对，不改变默认值。
@@ -311,6 +343,7 @@ val unsumTok = estimateItems(unsummarized, provider)
 
 | 日期 | 变更 |
 |---|---|
+| 2026-11-21 | P2 设计细化（B2，只出文档不改代码）：勘误 §1 行号（365-372 → 387-407）；新发现 **autoBudget 无生产调用方**（plan() 的 limit 实际读 RP 检视手填 settings，`RpCacheCore.kt:591-594`）→ B2 范围扩为「参数化 + 接线」；确认 budget_mode/lagrange_layers/min_history_ratio/auto_budget 为死设置键；补任务类型判定依据（判定层定在 plan()/RpCachePlugin，net/Router 是上游亲和路由不纳入）与测量方案（OpenRouter CSV 列映射；本地账本缺 reasoning/variant 字段的差距如实记录）。对账脚本入库 `tools/billing/`。 |
 | 2026-11-20 PST | 复核 v1.7.9；补 B3 实际发布、B2/B4 未实现开关、统一召回默认关闭与设置 UI 缺口；纠正 Full Jitter 术语。当前状态只维护在 MASTER-PLAN。 |
 | 2026-11-17 | 首版。核实 16 项现状，识别 5 件实事（P1/P2/P3/P4/P6 主体）+ 3 件卫生/长线（P5/P7/P8），排入 B1–B4 |
 | 2026-11-17 | **B1 完成**（PR #98）：P1 图片 token 接入预算路径（`estimateItems`/`layerTokens`/`computeTrimWindow`/`applyTempTrim`/`itemTokens` 全部透传 provider，`RpCachePlugin` 传 presetId）；P4 `Retry-After`（秒数 + HTTP-date，封顶 60s）；P5 过期注释与 `TokenEstimator` 说明。单测 403 → **413**，golden 零改动。同时更正两处判断错误：`itemTokens` 不是死代码（§1 第 13 行）、`plan()` 里 `hist` 只算一次（§1 第 14 行 / §2 P6） |
