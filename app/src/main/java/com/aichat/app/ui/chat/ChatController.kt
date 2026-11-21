@@ -495,6 +495,17 @@ class ChatController(
     }
     fun consumeAskSearch() = _state.update { it.copy(askSearchSetup = false) }
 
+    /** 失败恢复：取失败助手消息**前一条 USER 消息**的文本（发送失败时原文只在历史里，给「放回输入框」用）。只读，不改状态机。 */
+    fun restoreInputOf(assistantId: String): String? {
+        val c = _state.value.conv ?: run { toast("没有打开的对话"); return null }
+        val i = c.messages.indexOfFirst { it.id == assistantId }
+        if (i <= 0) { toast("没有找到对应的输入"); return null }
+        val um = c.messages[i - 1].takeIf { it.role == Role.USER } ?: run { toast("没有找到对应的输入"); return null }
+        if (um.content.isBlank()) { toast("这条消息没有可恢复的文字"); return null }
+        toast("已放回输入框")
+        return um.content
+    }
+
     /** 重新生成（app.js regenerate）：最后一条直接开始；较早的回复先确认（RP 对话附加提示）；冻结的不能重新生成 */
     fun planRegenerate(assistantId: String): Plan {
         val c = _state.value.conv ?: return Plan.Done
