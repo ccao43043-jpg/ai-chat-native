@@ -41,7 +41,7 @@ B1 已修正「有意没搬 adaptiveSummary」的过期注释；不要再当作�
 | 2 | 图片按服务商计价 | ✅ 已完成（P1，PR #98） | `TokenEstimator.kt:47-56` `image(provider, dataUrl)`：gemini 258 / anthropic `max(156,w*h/750)` / openai `85+170*tiles` / 其它 1000。现在 `RpCacheCore.estimateItems(items, provider: String? = null)`、`layerTokens(...)`、`computeTrimWindow(st, p, provider)`、`applyTempTrim(st, p, now, provider)`、`itemTokens(m, provider)` 全部透传；`RpCachePlugin` 传 `ctx.provider.presetId.ifEmpty { ctx.provider.id }`。不传 provider 时仍 `FALLBACK = 1000`（golden 字节级兼容） |
 | 3 | 摘要最优停止（D8） | ✅ 已完成 | `RpCacheCore.kt:175-193` `fun summaryTiming(U, g, saved, fixed, limit, h=12, gamma=0.9): Int` 枚举 `t∈0..H` 的折现总成本取 argmin |
 | 4 | 分层预算 `applyLagrangeBudget` | ⛔ 用户已决定不做 | `MASTER-PLAN.md` §5.3 第 1 条（架构演进取代）；当前范围以 MASTER-PLAN §5.3 的关闭决定为准，不把旧注释当作待实施入口 |
-| 5 | 预算系数 | ⚠️ 硬编码（且**无生产调用方**） | `RpCacheCore.kt:387-407`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]`。全仓唯一引用是测试（`RpCacheCoreTest.kt:158-159`）；`plan()` 的 limit 实际读 RP 检视手填 settings（`RpCacheCore.kt:591-594`）——接线是 B2 前置，见 P2 |
+| 5 | 预算系数 | ⚠️ 硬编码（且**无生产调用方**） | `RpCacheCore.kt:387-407`：`usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]`。Kotlin 侧唯一引用是测试（`RpCacheCoreTest.kt:158-159`；旧版 JS 对照资产 `assets/www` 不算）；`plan()` 的 limit 实际读 RP 检视手填 settings（`RpCacheCore.kt:591-594`）——接线是 B2 前置，见 P2 |
 | 6 | 能力表参数化 | ❌ 未做 | 同上，`Cap` 只提供 `vendor/window/tier`，无「按 vendor 的预算档」；`budget_mode/lagrange_layers/min_history_ratio/auto_budget` 四键只定义不消费（`RpState.kt:30-31`） |
 | 7 | MMR 检索 | ✅ 已完成 | `plugins/rp/RpMemoryCore.kt:581` `val lam = o.mmrLambda`（默认 0.7）、`:535 selectRelevant`、`:395 terms = RetrievalCore.grams`（中文 bigram） |
 | 8 | BM25 索引缓存 | ✅ 已完成 | `RpMemoryCore.kt:437 fun buildIndex(list, prev: Index? = null)` + `:452 buildIndexUncached`（签名命中复用） |
@@ -100,7 +100,7 @@ val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = ca
 **问题**（三条，2026-11-21 复核勘误）：
 
 1. **系数硬编码**：`autoBudget`（`RpCacheCore.kt:387-407`）对所有 vendor 一刀切 —— `usable = min(window, tier, 200_000)`、`maxCtx = usable*0.8`（下限 8000）、`outputReserve = maxCtx*0.1 [4k,16k]`、`safetyMargin = maxCtx*0.02 [1k,4k]`、`triggerTokens = maxCtx*0.3`、`chapterCap = maxCtx*0.12 [4k,24k]`；deepseek 特判整体走常量（`:389-394`，`meta.context` 可豁免）。Gemini 1M 窗口被 200K 封顶等于自废 80%。
-2. **接线缺口（2026-11-21 新发现，B2 的真正前置）**：`autoBudget` 目前**没有生产调用方**（全仓唯一引用是测试 `RpCacheCoreTest.kt:158-159`）。`plan()` 的预算 limit 实际来自 RP 检视面板**手填**的会话 settings（`RpCacheCore.kt:591-594`：`max_context − output_reserve − safety_margin`；写入方 `RpInspect.kt:67-84`）；世界书侧另有一份消费（`RpLoreCore.kt:165/308/345`）。**只参数化系数而不接线，产出的是没人调用的死函数。**
+2. **接线缺口（2026-11-21 新发现，B2 的真正前置）**：`autoBudget` 目前**没有生产调用方**（Kotlin 侧唯一引用是测试 `RpCacheCoreTest.kt:158-159`；旧版 JS 对照资产 `assets/www/rp-plugin.js:214` 有对应调用，但 www 仅作移植参照 / golden，原生不执行）。`plan()` 的预算 limit 实际来自 RP 检视面板**手填**的会话 settings（`RpCacheCore.kt:591-594`：`max_context − output_reserve − safety_margin`；写入方 `RpInspect.kt:67-84`）；世界书侧另有一份消费（`RpLoreCore.kt:165/308/345`）。**只参数化系数而不接线，产出的是没人调用的死函数。**
 3. **四个死设置键**：`budget_mode` / `lagrange_layers` / `min_history_ratio` / `auto_budget`（`RpState.kt:30-31`）只有定义+归一（`RpState.kt:61-66, 82-85`），全仓无读取方；`applyLagrangeBudget` 分层预算已按 MASTER-PLAN §5.3 明确不做（`RpCacheCore.kt:451-452` 注释）。B2 落地时要么删除要么真正消费，不许继续挂着。
 
 **改法**（能力表 → 接线 → 任务类型判定 → 测量方案）：
