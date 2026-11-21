@@ -23,6 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -122,6 +126,10 @@ fun PluginErrorDot(count: Int, onClick: () -> Unit, modifier: Modifier = Modifie
     Box(
         modifier
             .testTag("plugin-errors")
+            .semantics {
+                role = Role.Button
+                contentDescription = "插件错误 " + (if (count > 99) "99+" else count.toString()) + " 条，点按查看"
+            }
             .clickable(interactionSource = src, indication = null, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,

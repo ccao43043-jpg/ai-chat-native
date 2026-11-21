@@ -86,6 +86,8 @@ data class MessageActions(
     val onShareScene: (() -> Unit)? = null,
     /** 徽章点击（Badge.action = 面板 id；没有 action 时显示 detail） */
     val onBadge: ((Badge) -> Unit)? = null,
+    /** 失败恢复：把这条失败消息对应的原输入放回输入框（null = 不显示入口） */
+    val onRestoreInput: (() -> Unit)? = null,
 )
 
 /** 插件给出的消息状态（app.js：dim → .msg.dim 透明度 .45；label → 消息上方的状态行；版本切换器 .frozen 透明度 .55） */
@@ -190,7 +192,25 @@ fun MessageItem(
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text("  正在生成…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                m.error?.let { Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                m.error?.let { err ->
+                    // 失败态：淡红壳 + ⚠ 文字（不是只靠颜色）；重试/恢复入口就放在错误旁边，不藏在操作栏里
+                    Surface(
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
+                        shape = botShape,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.25f)),
+                        modifier = Modifier.clip(botShape).testTag("msg-error"),
+                    ) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text("⚠ $err", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                            if (m.role == Role.ASSISTANT && !streaming && (actions.onRegenerate != null || actions.onRestoreInput != null)) {
+                                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    actions.onRegenerate?.let { ActionPill("重试", "retry", it) }
+                                    actions.onRestoreInput?.let { ActionPill("放回输入框", "restore-input", it) }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         if (!streaming) {
@@ -332,12 +352,12 @@ private fun ActionPill(label: String, tag: String, onClick: () -> Unit) {
     }
 }
 
-/** 图标按钮：复制 / 编辑 / 更多，30dp 触摸区，按压有反馈 */
+/** 图标按钮：复制 / 编辑 / 更多，44dp 触控区（视觉 16dp 不变，沿用输入栏「触控区大于视觉」的既有模式），按压有反馈 */
 @Composable
 private fun ActionIcon(icon: ImageVector, desc: String, tag: String, onClick: () -> Unit) {
     val press = remember { MutableInteractionSource() }
     Box(
-        Modifier.size(30.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
+        Modifier.size(44.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
             .clickable(interactionSource = press, indication = null, onClick = onClick).testTag(tag),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, desc, Modifier.size(16.dp), tint = Palette.Fg3) }
@@ -347,7 +367,7 @@ private fun ActionIcon(icon: ImageVector, desc: String, tag: String, onClick: ()
 private fun ActionIconPainter(painter: Painter, desc: String, tag: String, onClick: () -> Unit) {
     val press = remember { MutableInteractionSource() }
     Box(
-        Modifier.size(30.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
+        Modifier.size(44.dp).clip(RoundedCornerShape(Radii.Sm.dp)).pressScale(press)
             .clickable(interactionSource = press, indication = null, onClick = onClick).testTag(tag),
         contentAlignment = Alignment.Center,
     ) { Image(painter, desc, Modifier.size(15.dp), colorFilter = ColorFilter.tint(Palette.Fg3)) }

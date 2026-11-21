@@ -383,6 +383,7 @@ fun ChatScreen(
                                                                         ShareCards.shareCard(ctx, conv?.templateName ?: conv?.title.orEmpty(),
                                         conv?.personaName ?: "角色", conv?.personaEmoji ?: "✦", m.content)
                                 }),
+                                onRestoreInput = if (isUser) null else ({ controller.restoreInputOf(m.id)?.let { input = it } }),
                                 onShareScene = if (isUser) null else ({
                                                                         val all = conv?.messages.orEmpty()
                                     val i = all.indexOfFirst { it.id == m.id }.let { if (it < 0) all.lastIndex else it }
@@ -618,6 +619,7 @@ fun ChatScreen(
         currentThinking = thinking[ProviderRules.thinkingKey(target?.first?.id, target?.second)]
             ?: controller.thinkingLevelOf(target?.first?.id, target?.second),
         onThinkingLevel = { controller.setThinkingLevel(it) },
+        thinkingEnabled = conv != null,
         currentFlex = flex[target?.first?.id ?: ""]
             ?: controller.flexOnOf(target?.first?.id, target?.second),
         onFlexChange = { on -> controller.setFlexOn(target?.first?.id, on) })
