@@ -52,6 +52,8 @@ fun ModelPicker(
     onDismiss: () -> Unit,
     currentThinking: String? = null,
     onThinkingLevel: (String) -> Unit = {},
+    /** 没有打开的对话时 false：胶囊点击只 toast 不乐观变蓝（否则被拒绝后蓝着不落盘） */
+    thinkingEnabled: Boolean = true,
     currentFlex: Boolean = false,
     onFlexChange: (Boolean) -> Unit = {},
 ) {
@@ -61,7 +63,7 @@ fun ModelPicker(
     val level = ProviderRules.normalizeThinkingLevel(currentThinking)
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("model-picker")) {
         LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding()) {
-            item(key = "think") { ThinkingLevelRow(level, onThinkingLevel) }
+            item(key = "think") { ThinkingLevelRow(level, onThinkingLevel, thinkingEnabled) }
             providers.filter { p -> p.models.any { it.isNotBlank() } }.forEach { p ->
                 val isOr = ProviderRules.isOpenRouterProvider(p)
                 item(key = "h-" + p.id) {
@@ -105,9 +107,9 @@ fun ModelPicker(
     }
 }
 
-/** 思考等级：5 档小胶囊。`自动` = 请求体不加任何字段（各模型自己的默认）。 */
+/** 思考等级：5 档小胶囊。`自动` = 请求体不加任何字段（各模型自己的默认）。`enabled=false`（无对话）时点击只回调不乐观变蓝。 */
 @Composable
-private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit) {
+private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit, enabled: Boolean = true) {
     // 点了立刻变：不依赖保存往返（弹层常在磁盘写完前就关了，等 state 回来会有「点了没反应」的手感）
     var picked by remember(level) { mutableStateOf(level) }
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)) {
@@ -124,7 +126,9 @@ private fun ThinkingLevelRow(level: String, onPick: (String) -> Unit) {
                                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
                         .border(1.dp, if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                             RoundedCornerShape(10.dp))
-                        .clickable(role = Role.Button) { picked = key; onPick(key) }
+                        .clickable(role = Role.Button) {
+                            if (enabled) { picked = key; onPick(key) } else onPick(key)   // 被拒绝时不乐观变蓝
+                        }
                         .padding(vertical = 9.dp)
                         .testTag("thinking-" + key),
                     contentAlignment = Alignment.Center,
