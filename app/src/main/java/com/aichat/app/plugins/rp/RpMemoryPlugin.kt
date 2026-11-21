@@ -144,7 +144,12 @@ class RpMemoryPlugin(
                 msgs.map { m -> m.extras.toMutableMap() + mapOf("role" to m.role.wire, "content" to m.content) },
                 entries,
             )
-            val raw = ask(conv, prompt, null) ?: throw IllegalStateException("没有可用的服务商或模型")
+            // W2（B3 修复）：此前这里第三参传 null、注入处又把参数丢弃——summary_model 省钱档对记忆无效。
+            // 现在从 RP 设置读 summary_model 传下去（空 = 走主模型，与摘要同口径）。
+            val rpSettings = Js.fromJson(conv.rpState) as? JObj
+            val summaryModel = ((rpSettings?.get("settings") as? JObj)?.get("summary_model"))
+                ?.let { Js.str(it) }?.ifEmpty { null }
+            val raw = ask(conv, prompt, summaryModel) ?: throw IllegalStateException("没有可用的服务商或模型")
             val items = RpMemoryCore.parseExtraction(raw)
             val turns = userTurns(conv)
             val ledgerIn = (bucket["ledger"] as? List<*>)?.mapNotNull { it as? JObj }

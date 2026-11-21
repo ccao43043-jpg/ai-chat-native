@@ -55,7 +55,11 @@ object UsageStatsCore {
         "priceMode" to (st["priceMode"] ?: JsonNull), "calib" to (st["calib"]?.takeIf { com.aichat.app.net.Js.truthy(it) } ?: JsonObject(emptyMap()))))
 
     // ================= M4：makeEntry / record / 统计（usage-stats.js 逐函数） =================
-    val TYPE_CN: Map<String, String> = linkedMapOf("chat" to "对话", "image" to "图片", "summary" to "摘要")
+    val TYPE_CN: Map<String, String> = linkedMapOf(
+        "chat" to "对话", "image" to "图片", "summary" to "摘要",
+        "chapter_summary" to "章节摘要", "memory_extract" to "记忆抽取",
+        "search_rewrite" to "搜索改写", "auto_char" to "角色生成",
+    )
     private val J = com.aichat.app.net.Js
     private fun str(e: JsonElement?): String = J.str(e)
     private fun orElse(e: JsonElement?, d: JsonElement): JsonElement = if (J.truthy(e)) e!! else d

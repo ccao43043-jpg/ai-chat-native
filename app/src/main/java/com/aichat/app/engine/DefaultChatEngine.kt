@@ -305,7 +305,8 @@ class DefaultChatEngine(
     /** app.js rewriteQuery：非流式、temperature 0、maxTokens 256、20s；失败回退原问题（取消照常抛出） */
     private suspend fun rewriteQuery(p: ProviderConfig, model: String, q: String, history: List<Message>): String = try {
         val prompt = SearchCore.buildRewritePrompt(q, history.map { SearchCore.Turn(it.role.wire, it.content) })
-        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "", ChatOptions(stream = false, temperature = 0.0, maxTokens = 256))
+        // W2（C2）：搜索改写只产出查询串——显式关思考（此前未设，thinking 交给服务商默认）
+        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "", ChatOptions(stream = false, temperature = 0.0, maxTokens = 256, thinkingLevel = "off"))
         val (st, text) = client.requestText(p, req, 20_000)
         if (st >= 400 || st == 0) q
         else SearchCore.cleanRewrite(com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, text)

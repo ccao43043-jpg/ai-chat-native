@@ -97,13 +97,16 @@ class AppGraph(app: Application) {
         rpcache = { host ->
             com.aichat.app.plugins.rp.RpCachePlugin(
                 host,
-                ask = { conv, prompt, model -> askModel(conv, prompt, model) },
+                ask = { conv, prompt, model -> askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.CHAPTER_SUMMARY) },
                 facts = { conv -> factsOf(conv) },
                 resolveImage = { ref -> blobs.dataUrl(ref) },
             )
         },
         memory = { host ->
-            com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt, _ -> askModel(conv, prompt) }
+            // W2（B3 修复）：第三参此前被丢弃——summary_model 省钱档对记忆抽取完全无效；现在透传
+            com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt, model ->
+                askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.MEMORY_EXTRACT)
+            }
         },
     )
 
@@ -128,16 +131,21 @@ class AppGraph(app: Application) {
     }
 
     /**
-     * 插件用的「顺手问一次模型」（旧版 host.callModel）：用当前对话的服务商与模型，
-     * 非流式、温度 0、maxTokens 2048 —— 与 rpmemory.js 的 `maxTokens: 2048` 对齐。
+     * 插件用的「顺手问一次模型」（旧版 host.callModel）：非流式、温度 0，
+     * 出参上限 / 思考档 / 超时按 [task] 分档（PLAN-COST-OPTIMIZATION W1/W2：摘要 1200/off、记忆 800/off、AutoChar 2048/auto）。
      * 失败返回 null（调用方负责把 lastError 记下来并推进 lastTurn，避免每轮重试烧钱）。
      *
-     * [overrideModel] 非空时用它代替对话模型（`settings.summary_model`，省钱档摘要）。
+     * [overrideModel] 非空时用它代替对话模型（`settings.summary_model`，省钱档摘要/记忆）。
+     *
+     * W1（C1）：旁路 usage 此前被 filterIsInstance 丢弃、token 完全不入账（审计 A1/A5），
+     * 现在经 [BypassUsageEntry.of] 独立入账——type = 任务类型、model = 实际使用的模型；
+     * 失败 / 超时 / 无 usage 不记账、不伪造 0 成本。
      */
     private suspend fun askModel(
         conv: com.aichat.app.domain.model.Conversation,
         prompt: String,
         overrideModel: String? = null,
+        task: com.aichat.app.domain.cost.BypassTask = com.aichat.app.domain.cost.BypassTask.CHAPTER_SUMMARY,
     ): String? = runCatching {
         val s = data.settings.settings.value
         val p = s.providers.firstOrNull { it.id == conv.providerId } ?: return@runCatching null
@@ -146,14 +154,26 @@ class AppGraph(app: Application) {
         val req = providerClient.buildChatRequest(
             p, model,
             listOf(com.aichat.app.domain.WireMessage(com.aichat.app.domain.model.Role.USER, prompt)),
-            "", com.aichat.app.domain.ChatOptions(stream = false, temperature = 0.0, maxTokens = 2048),
+            "", com.aichat.app.domain.ChatOptions(
+                stream = false, temperature = 0.0, maxTokens = task.maxTokens, thinkingLevel = task.thinkingLevel,
+            ),
         )
-        val (st, text) = providerClient.requestText(p, req, 60_000)
+        val (st, body) = providerClient.requestText(p, req, task.timeoutMs)
         if (st >= 400 || st == 0) return@runCatching null
-        com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, text)
-            .filterIsInstance<com.aichat.app.net.StreamDelta.Text>()
+        val deltas = com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, body)
+        val text = deltas.filterIsInstance<com.aichat.app.net.StreamDelta.Text>()
             .joinToString("") { it.text }
-            .takeIf { it.isNotBlank() }
+            .takeIf { it.isNotBlank() } ?: return@runCatching null
+        deltas.filterIsInstance<com.aichat.app.net.StreamDelta.UsageDelta>().firstOrNull()?.let { du ->
+            runCatching {
+                val entry = com.aichat.app.domain.cost.BypassUsageEntry.of(task, model, p, conv, du) ?: return@let
+                if (data.usage.meta().isEmpty()) {
+                    data.usage.saveMeta(com.aichat.app.domain.cost.UsageStatsCore.metaOf(com.aichat.app.domain.cost.UsageStatsCore.emptyState()))
+                }
+                data.usage.append(entry)
+            }
+        }
+        text
     }.getOrNull()
     val providerClient = com.aichat.app.net.DefaultProviderClient(secretVault)
     /** 生图客户端（providers.js 的 buildImageRequest / parseImageResponse） */
@@ -195,7 +215,7 @@ class AppGraph(app: Application) {
     fun uiDeps() = com.aichat.app.ui.common.UiDeps(chats = chats, settings = settings, library = library, keys = keys,
         engine = engine, plugins = plugins, migration = migration, isFake = false, charCard = charCard, usage = usage,
         image = imageClient, rpMemory = data.rpMemory, balance = balanceClient, balanceCache = data.balanceCache, knowledge = knowledge, client = providerClient,
-        autoCharAsk = { conv, prompt -> askModel(conv, prompt) })
+        autoCharAsk = { conv, prompt -> askModel(conv, prompt, null, com.aichat.app.domain.cost.BypassTask.AUTO_CHAR) })
 
     // ---- 首次启动迁移：后台执行，不阻塞启动；报告给设置 →「数据与备份」 ----
     private val _migrationReport = MutableStateFlow<MigrationReport?>(null)
