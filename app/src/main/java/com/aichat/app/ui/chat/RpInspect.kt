@@ -182,6 +182,10 @@ fun RpInspectDialog(
                 }
 
                 Text("预算（保存后从下一轮生效）", style = MaterialTheme.typography.labelLarge)
+                if (Js.str((settings.plugins["rpcache"] as? Map<*, *>)?.get("budgetProfile")) == "auto") {
+                    Text("预算已由能力表接管（rpcache.budgetProfile=auto）：下面三项手填值本轮不再生效。",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NumField("上下文上限", maxContext, Modifier.weight(1f)) { maxContext = it }
                     NumField("输出预留", reserve, Modifier.weight(1f)) { reserve = it }

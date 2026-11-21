@@ -171,8 +171,10 @@ class DefaultChatEngine(
 
         fun buildCtx(c: Conversation): RequestContext {
             val lu = c.messages.firstOrNull { it.id == lastUser?.id }
-            val wire = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
-                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins)), it.images.map { img -> blobs?.dataUrl(img) ?: img }, srcId = it.id) }
+            val built = c.messages.filter { it.id != bot.id && it.error == null && !Js.truthy(it.extras["imageGen"]) && !Js.truthy(it.extras["pending"]) }
+                .map { WireMessage(it.role, FileContext.requestContent(it, lu != null && it.id == lu.id, TimeLine.localDateStr(now()), chunk = FileContext.chunkEnabled(settings.plugins), adaptive = ChunkRetrieval.adaptiveEnabled(settings.plugins)), it.images.map { img -> blobs?.dataUrl(img) ?: img }, srcId = it.id) }
+            // W3（C3）：media.retireOldImages 开启时旧图片只从请求退役（默认关 = 逐字节一致；本地图片、UI、导出不动）
+            val wire = if (MediaRetire.enabled(settings.plugins)) MediaRetire.retire(built) else built
             var sys = c.systemPrompt ?: ""
             var msgs = wire
             if (continuing && prior.isNotEmpty()) {
@@ -305,7 +307,8 @@ class DefaultChatEngine(
     /** app.js rewriteQuery：非流式、temperature 0、maxTokens 256、20s；失败回退原问题（取消照常抛出） */
     private suspend fun rewriteQuery(p: ProviderConfig, model: String, q: String, history: List<Message>): String = try {
         val prompt = SearchCore.buildRewritePrompt(q, history.map { SearchCore.Turn(it.role.wire, it.content) })
-        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "", ChatOptions(stream = false, temperature = 0.0, maxTokens = 256))
+        // W2（C2）：搜索改写只产出查询串——显式关思考（此前未设，thinking 交给服务商默认）
+        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "", ChatOptions(stream = false, temperature = 0.0, maxTokens = 256, thinkingLevel = "off"))
         val (st, text) = client.requestText(p, req, 20_000)
         if (st >= 400 || st == 0) q
         else SearchCore.cleanRewrite(com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, text)

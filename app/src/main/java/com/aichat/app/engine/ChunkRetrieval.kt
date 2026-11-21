@@ -49,6 +49,19 @@ object ChunkRetrieval {
         return hardEnd
     }
 
+    /** W4（C4）：按问题形态选 (topK, 单文件预算)。只在 `files.adaptiveBudget` 开启时走；默认路径用固定常量。 */
+    internal val SUMMARY_HINTS = listOf("总结", "全文", "对比", "所有", "逐条")
+    fun adaptiveBudget(question: String): Pair<Int, Int> = when {
+        question.length > 512 || SUMMARY_HINTS.any { question.contains(it) } -> TOP_K to BUDGET_CHARS
+        question.length < 64 -> 6 to 12_000
+        else -> 10 to 24_000
+    }
+
+    /** W4（C4）：`files.adaptiveBudget` 开关（默认关 = 固定 12 块/30k）。 */
+    fun adaptiveEnabled(plugins: JsonObject?): Boolean =
+        (plugins?.get("files") as? JsonObject)?.get("adaptiveBudget")
+            ?.let { it as? JsonPrimitive }?.content == "true"
+
     /**
      * BM25F 打分取 Top-K，预算内贪心：永远保留第 0 块（标题/摘要/目录）；
      * 空查询返回空（调用方降级走旧路径）；预算不够时按分数顺序丢尾部块，不留半块。输出按块序升序。
@@ -104,8 +117,9 @@ object ChunkRetrieval {
      * 分块版 buildFileContext：小文件保持旧格式；长文件以「挑选片段」注入，
      * 并明确告知模型其余内容未包含（否则它以为中间没内容）。包装层与旧版逐字一致。
      */
-    fun buildFileContext(files: List<JsonObject>, question: String, totalMax: Int = FileContext.DEFAULT_TOTAL_MAX): String {
+    fun buildFileContext(files: List<JsonObject>, question: String, totalMax: Int = FileContext.DEFAULT_TOTAL_MAX, adaptive: Boolean = false): String {
         var used = 0
+        val (topK, fileBudget) = if (adaptive) adaptiveBudget(question) else TOP_K to BUDGET_CHARS
         val blocks = files.filter { Js.truthy(it["text"]) }.map { f ->
             val name = f.s("name") ?: ""
             val body = f.s("text") ?: ""
@@ -117,9 +131,9 @@ object ChunkRetrieval {
                 used += body.length
                 head + "\n" + body + "\n【文件结束：$name】"
             } else {
-                val budget = minOf(BUDGET_CHARS, maxOf(0, totalMax - used))
+                val budget = minOf(fileBudget, maxOf(0, totalMax - used))
                 val all = chunk(body)
-                val picked = pickRelevantChunks(all, question, budget)
+                val picked = pickRelevantChunks(all, question, budget, topK)
                 used += picked.sumOf { it.text.length }
                 head + "\n" +
                     "【注意：文件较长，以下为按相关性挑选的 " + picked.size + "/" + all.size + " 个片段，其余内容未包含；片段编号为原文档中的顺序】\n" +

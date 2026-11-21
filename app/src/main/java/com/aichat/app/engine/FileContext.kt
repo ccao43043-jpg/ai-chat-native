@@ -57,14 +57,14 @@ object FileContext {
     fun requestContent(role: String, content: String?, files: List<JsonObject>, search: JsonElement?, injectSearch: Boolean, today: String): String =
         requestContentImpl(role, content, files, search, injectSearch, today, chunk = false)
 
-    /** chunk=true 时长文档走 ChunkRetrieval 挑选片段；否则与旧实现逐字节一致。 */
-    private fun requestContentImpl(role: String, content: String?, files: List<JsonObject>, search: JsonElement?, injectSearch: Boolean, today: String, chunk: Boolean): String {
+    /** chunk=true 时长文档走 ChunkRetrieval 挑选片段；否则与旧实现逐字节一致。adaptive 只影响挑选档位（W4/C4）。 */
+    private fun requestContentImpl(role: String, content: String?, files: List<JsonObject>, search: JsonElement?, injectSearch: Boolean, today: String, chunk: Boolean, adaptive: Boolean = false): String {
         var c = content ?: ""
         if (role == "user" && files.isNotEmpty()) {
             val withText = files.filter { Js.truthy(it["text"]) }
             if (withText.isNotEmpty())
                 c = if (chunk && ChunkRetrieval.needsChunking(withText, c))
-                    ChunkRetrieval.buildFileContext(withText, c)
+                    ChunkRetrieval.buildFileContext(withText, c, adaptive = adaptive)
                 else buildFileContext(withText, c)
             val scanned = files.filter { Js.truthy(it["scanned"]) }
             if (scanned.isNotEmpty()) c = "（附带的 " + scanned.joinToString("、") { "「" + Js.str(it["name"]) + "」" } + " 为扫描版 PDF，已转成图片附上，请识别图片中的文字。）\n" +
@@ -77,8 +77,8 @@ object FileContext {
     }
     fun requestContent(m: Message, injectSearch: Boolean, today: String): String =
         requestContent(m, injectSearch, today, chunk = false)
-    fun requestContent(m: Message, injectSearch: Boolean, today: String, chunk: Boolean): String =
-        requestContentImpl(m.role.wire, m.content, m.files, m.extras["search"], injectSearch, today, chunk)
+    fun requestContent(m: Message, injectSearch: Boolean, today: String, chunk: Boolean, adaptive: Boolean = false): String =
+        requestContentImpl(m.role.wire, m.content, m.files, m.extras["search"], injectSearch, today, chunk, adaptive)
 
     /** 契约 FileAttachment → user.files[] 元素：用 D 的 AttachmentCodec（键名键序同 app.js send()） */
     fun encode(f: FileAttachment): JsonObject = com.aichat.app.data.codec.AttachmentCodec.encode(f)

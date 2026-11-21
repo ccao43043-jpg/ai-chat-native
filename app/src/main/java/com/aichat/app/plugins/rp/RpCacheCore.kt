@@ -6,6 +6,7 @@ import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.abs
 import kotlin.math.max
@@ -383,8 +384,27 @@ object RpCacheCore {
         val source: String,
     )
 
-    /** 上限 = min(窗口, 价格第一档, 200K) × 0.8；输出预留 10%（4K–16K）；余量 2%（1K–4K）。 */
-    fun autoBudget(cap: Cap?, model: String?, meta: JObj? = null): Budget {
+    /** B2（P2）：按 vendor 只描述差异的预算档。默认行与历史常量逐位一致；gemini/anthropic 行「拟议，待实测」。 */
+    data class BudgetProfile(
+        val hardCap: Int = 200_000, val ctxRatio: Double = 0.8, val minCtxFloor: Int = 8_000,
+        val outRatio: Double = 0.1, val outMin: Int = 4_000, val outMax: Int = 16_000,
+        val marginRatio: Double = 0.02, val marginMin: Int = 1_000, val marginMax: Int = 4_000,
+        val triggerRatio: Double = 0.3, val chapterRatio: Double = 0.12, val chapterMin: Int = 4_000, val chapterMax: Int = 24_000,
+    )
+
+    fun profileOf(vendor: String?): BudgetProfile = when (vendor?.lowercase()) {
+        "gemini" -> BudgetProfile(hardCap = 400_000, triggerRatio = 0.35, chapterMax = 48_000)
+        "anthropic", "claude" -> BudgetProfile(triggerRatio = 0.32)
+        else -> BudgetProfile()   // deepseek 特判在 autoBudget 入口走常量分支；openai/未知与今天逐位一致
+    }
+
+    /** W5（C5）：`rpcache.budgetProfile = "auto"` 时预算三项由能力表接管；缺省/legacy = 手填值（逐字节一致）。 */
+    fun budgetAuto(plugins: JsonObject?): Boolean =
+        (plugins?.get("rpcache") as? JsonObject)?.get("budgetProfile")
+            ?.let { it as? JsonPrimitive }?.content == "auto"
+
+    /** 上限 = min(窗口, 价格第一档, hardCap) × ctxRatio；出参/余量/触发/章节按档位比例+钳制（B2，默认档与历史常量逐位一致）。 */
+    fun autoBudget(cap: Cap?, model: String?, meta: JObj? = null, profile: BudgetProfile = profileOf(cap?.vendor)): Budget {
         val ci = contextInfo(model, meta)
         if (cap?.vendor == "deepseek" && ci.source != "meta") {
             return Budget(
@@ -392,14 +412,14 @@ object RpCacheCore {
                 DEFAULT_TRIGGER_TOKENS, DEFAULT_CHAPTER_CAP, ci.window, 0, "deepseek-default"
             )
         }
-        val usable = min(ci.window.toDouble(), if (ci.tier > 0) ci.tier.toDouble() else Double.MAX_VALUE).let { min(it, 200_000.0) }
-        val maxCtx = round1k(max(8000.0, usable * 0.8))
+        val usable = min(ci.window.toDouble(), if (ci.tier > 0) ci.tier.toDouble() else Double.MAX_VALUE).let { min(it, profile.hardCap.toDouble()) }
+        val maxCtx = round1k(max(profile.minCtxFloor.toDouble(), usable * profile.ctxRatio))
         return Budget(
             maxContext = maxCtx,
-            outputReserve = round1k(clamp(maxCtx * 0.1, 4000.0, 16000.0)),
-            safetyMargin = clamp(maxCtx * 0.02, 1000.0, 4000.0).roundToInt(),
-            triggerTokens = round1k(maxCtx * 0.3),
-            chapterCap = round1k(clamp(maxCtx * 0.12, 4000.0, 24000.0)),
+            outputReserve = round1k(clamp(maxCtx * profile.outRatio, profile.outMin.toDouble(), profile.outMax.toDouble())),
+            safetyMargin = clamp(maxCtx * profile.marginRatio, profile.marginMin.toDouble(), profile.marginMax.toDouble()).roundToInt(),
+            triggerTokens = round1k(maxCtx * profile.triggerRatio),
+            chapterCap = round1k(clamp(maxCtx * profile.chapterRatio, profile.chapterMin.toDouble(), profile.chapterMax.toDouble())),
             window = ci.window,
             tier = ci.tier,
             source = ci.source,
@@ -549,6 +569,12 @@ object RpCacheCore {
         facts: String? = null,
         /** 好感度协议进静态层（C5）。false = 与 1.5.3 逐字节一致，由 affect 插件自行追加 */
         affect: Boolean = false,
+        /** W5（C5）：rpcache.budgetProfile=auto 时为 true——预算三项改由能力表接管；false = 手填值逐字节一致 */
+        budgetAuto: Boolean = false,
+        /** budgetAuto=true 时必传：能力表档位（capability 的输出） */
+        cap: Cap? = null,
+        /** budgetAuto=true 时必传：模型串（CONTEXT_TABLE / meta 覆盖用） */
+        model: String? = null,
     ): Plan {
         val st = RpState.normalizeState(st0)
         val s = (st["settings"] as? JObj) ?: JObj()
@@ -588,7 +614,11 @@ object RpCacheCore {
         tok["total"] = total
         tok["raw_total"] = raw.values.sum()
 
-        val limit = maxOf(
+        // W5（C5）：budgetAuto 时三项预算由能力表接管；否则手填值（与历史逐字节一致）
+        val limit = if (budgetAuto && cap != null) {
+            val b = autoBudget(cap, model)
+            maxOf(1000, b.maxContext - b.outputReserve - b.safetyMargin)
+        } else maxOf(
             1000,
             numOf(s["max_context"], 100000) - numOf(s["output_reserve"], 12000) - numOf(s["safety_margin"], 2000),
         )

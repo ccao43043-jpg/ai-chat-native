@@ -160,7 +160,11 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
         // gcache 的分层据此判 ordered=false，「在记忆前劈开前缀」永不触发。
         // activePlugins 是「本轮启用集合」，由 PluginRegistryImpl 一次算好，与本插件先后无关。
         val affectOn = ctx.activePlugins.contains("affect")
-        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn)
+        // W5（C5）：rpcache.budgetProfile=auto 时预算三项由能力表接管；legacy（默认）= 手填值逐字节一致
+        val budgetAuto = RpCacheCore.budgetAuto(ctx.settings.plugins)
+        val budgetCap = if (budgetAuto) RpCacheCore.capability(provId, ctx.provider.baseUrl, ctx.provider.type.wire, ctx.model) else null
+        val p0 = RpCacheCore.plan(stFired, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn,
+            budgetAuto = budgetAuto, cap = budgetCap, model = ctx.model)
 
         // 需要章节摘要时先摘要、再按新状态重排（旧版 rp-plugin.js 是同一个顺序：
         // plan → makeSummary → assemble）。摘要失败就按超预算走临时裁剪，绝不静默丢剧情。
@@ -172,7 +176,8 @@ class RpCachePlugin @Suppress("UNUSED_PARAMETER") constructor(
             if (r != null) { stBase = r; committed = true } else summaryFail = "summary_failed"
         }
         val pRaw = if (stBase !== stFired) {
-            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn)
+            RpCacheCore.plan(stBase, base, itemsLore, meta = calKey, provider = provId, facts = factsText, affect = affectOn,
+                budgetAuto = budgetAuto, cap = budgetCap, model = ctx.model)
         } else p0
 
         val (stTrim, p) = if (pRaw.overBudget) RpCacheCore.applyTempTrim(stBase, pRaw, host.now(), provId) else stBase to pRaw
