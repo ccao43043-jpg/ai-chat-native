@@ -4,7 +4,7 @@
 
 - 仓库：`C:\Users\Administrator\Documents\Codex\2026-11-21\bnag\work\ai-chat-native`
 - 分支：`release/1.8.0`
-- 当前提交：`af21539`（`feat(1.8.0): Flex 即时生效、安全拦截状态、旁路成本与分批角色书`）
+- 功能实现提交：`af21539`（`feat(1.8.0): Flex 即时生效、安全拦截状态、旁路成本与分批角色书`）`n- 交接文档：以远端 `release/1.8.0` 当前 HEAD 为准
 - 远端分支：`origin/release/1.8.0`
 - 远端基线：`eb0cb42`，其代码树与 `origin/main` 的 `2e7794d` 一致
 - 版本：`versionCode 180` / `versionName 1.8.0`
