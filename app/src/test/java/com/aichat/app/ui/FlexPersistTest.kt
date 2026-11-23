@@ -102,4 +102,54 @@ class FlexPersistTest {
             assertEquals(true, onDisk(g, conv.providerId))
         }
     }
+
+    @Test
+    fun flexToggleUpdatesCurrentConversationAndMatchingLastModel() {
+        runBlocking {
+            val (c, g) = make()
+            val conv = g.chats.create("openrouter", "google/gemini-3.8-flash-20260902")
+            c.select(conv.id)
+            until { c.state.value.conv?.id == conv.id }
+
+            // 先建立 lastProviderId = openrouter / lastModel = m
+            c.setModel(conv.providerId, "google/gemini-3.8-flash-20260902")
+            until { c.state.value.conv?.model == "google/gemini-3.8-flash-20260902" }
+            until { c.settings.value.lastModel == "google/gemini-3.8-flash-20260902" }
+
+            c.setFlexOn(conv.providerId, true)
+            until { c.state.value.conv?.model == "google/gemini-3.8-flash-20260902:flex" }
+            until { c.settings.value.lastModel == "google/gemini-3.8-flash-20260902:flex" }
+            assertEquals("google/gemini-3.8-flash-20260902:flex", c.currentTarget()?.second)
+
+            c.setFlexOn(conv.providerId, false)
+            until { c.state.value.conv?.model == "google/gemini-3.8-flash-20260902" }
+            until { c.settings.value.lastModel == "google/gemini-3.8-flash-20260902" }
+        }
+    }
+
+    @Test
+    fun openingLegacyConversationRepairsDuplicateFlexSuffix() {
+        runBlocking {
+            val (c, g) = make()
+            val conv = g.chats.create("openrouter", "google/gemini-3.8-flash-20260902:flex:flex")
+            c.select(conv.id)
+            until { c.state.value.conv?.id == conv.id }
+            assertEquals("google/gemini-3.8-flash-20260902:flex", c.state.value.conv?.model)
+        }
+    }
+
+    @Test
+    fun nonOpenRouterModelIsNeverRewrittenByFlex() {
+        runBlocking {
+            val (c, g) = make()
+            val conv = g.chats.create("deepseek", "deepseek-chat:flex")
+            c.select(conv.id)
+            until { c.state.value.conv?.id == conv.id }
+            assertEquals("加载非 OpenRouter 会话不改模型串", "deepseek-chat:flex", c.state.value.conv?.model)
+
+            c.setFlexOn(conv.providerId, true)
+            until { ProviderRules.flexOf(c.settings.value.extras, conv.providerId) == true }
+            assertEquals("非 OpenRouter 仍不改模型串", "deepseek-chat:flex", c.state.value.conv?.model)
+        }
+    }
 }

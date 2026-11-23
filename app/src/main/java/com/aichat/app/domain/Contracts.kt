@@ -164,8 +164,17 @@ data class RequestContext(
     val fragments: TurnFragments = TurnFragments(),
 )
 
-/** 回合结果（runAfterResponse 的 result） */
-data class TurnResult(val ok: Boolean, val httpStatus: Int, val usage: Usage?, val assistant: Message)
+/** 回合的业务结果。只有 [SUCCESS] 计入成功率；安全拦截即使 HTTP 2xx 也不是成功。 */
+enum class TurnOutcome { SUCCESS, STOPPED, TRUNCATED, SAFETY_BLOCKED, ERROR }
+
+/** 回合结果（runAfterResponse 的 result）。新旧调用点可通过默认 outcome 保持兼容。 */
+data class TurnResult(
+    val ok: Boolean,
+    val httpStatus: Int,
+    val usage: Usage?,
+    val assistant: Message,
+    val outcome: TurnOutcome = if (ok) TurnOutcome.SUCCESS else TurnOutcome.ERROR,
+)
 
 /** action（契约变更 #i）：点击徽章时要打开的面板 id（如 "rpcache.diag"），null = 不可点 */
 data class Badge(val plugin: String, val text: String, val tone: String = "info", val detail: String? = null, val action: String? = null)

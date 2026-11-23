@@ -12,7 +12,9 @@ import com.aichat.app.domain.RequestContext
 import com.aichat.app.domain.SettingsRepository
 import com.aichat.app.domain.StreamEvent
 import com.aichat.app.domain.TurnResult
+import com.aichat.app.domain.TurnOutcome
 import com.aichat.app.domain.WireMessage
+import com.aichat.app.domain.cost.BypassTask
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.ProviderConfig
@@ -67,6 +69,8 @@ class DefaultChatEngine(
     private val rnd: () -> Double = Math::random,
     /** B：图片外置 CAS；null = 不做引用转换与懒迁移（测试 / 旧装配，行为与 1.6 一致） */
     private val blobs: BlobStore? = null,
+    /** 旁路任务（搜索改写等）的 usage 回调：与主对话分开记账，任务类型由调用方给出 */
+    private val onBypassUsage: (suspend (Conversation, ProviderConfig, String, BypassTask, com.aichat.app.net.StreamDelta.UsageDelta) -> Unit)? = null,
 ) : ChatEngine {
     private val running = ConcurrentHashMap<String, Job>()
 
@@ -148,6 +152,10 @@ class DefaultChatEngine(
     private suspend fun ProducerScope<StreamEvent>.turn(convIn: Conversation, botIndex: Int?, continuing: Boolean) {
         val settings = settingsRepo.settings.value
         val provider = settings.providers.firstOrNull { it.id == convIn.providerId } ?: return fail("请先在设置里选择服务商")
+        val requestModel = if (ProviderRules.isOpenRouterProvider(provider)) {
+            val flex = ProviderRules.resolveFlex(settings.extras, provider.id, convIn.model)
+            ProviderRules.effectiveModel(convIn.model, flex) ?: convIn.model
+        } else convIn.model
         // B 懒迁移：历史里的 data: 图就地换 img: 引用（读不出 / 写失败的原样保留）；有变化才多一次 save，自然落盘
         val conv0 = blobs?.let { migrateImages(convIn, it)?.also { c -> chats.save(c) } } ?: convIn
         val reuse = botIndex?.let { conv0.messages[it] }
@@ -156,7 +164,7 @@ class DefaultChatEngine(
         var bot = (reuse ?: Message(uid(), Role.ASSISTANT, "")).copy(
             content = prior, reasoning = if (continuing) reuse?.reasoning ?: "" else "", error = null, truncated = false, finishReason = null,
             createdAt = if (continuing) reuse!!.createdAt.takeIf { it > 0 } ?: now() else now(),
-            model = conv0.model,
+            model = requestModel,
             // 旧版把 model 放在 extras；升级后提为一等字段，extras 里若有同名键要清掉（否则会被 modeled 键挡住、编码丢失）
             extras = JsonObject((reuse?.extras ?: JsonObject(emptyMap())) - "stopped" - "model"),
         )
@@ -183,11 +191,11 @@ class DefaultChatEngine(
             }
             val temp = c.extras["temperature"]?.takeIf { Js.truthy(it) || (it is JsonPrimitive && !it.isString) }
                 ?.let { Js.parseFloat(Js.str(it)).takeIf { d -> !d.isNaN() } } ?: settings.temperature
-            return RequestContext(c, provider, c.model, sys, msgs,
-                ChatOptions(stream = settings.stream, temperature = temp, maxTokens = ProviderRules.resolveMaxTokens(provider, c.model, settings.maxTokens),
+            return RequestContext(c, provider, requestModel, sys, msgs,
+                ChatOptions(stream = settings.stream, temperature = temp, maxTokens = ProviderRules.resolveMaxTokens(provider, requestModel, settings.maxTokens),
                     convId = c.id,
                     // 思考等级按「模型」记（settings.extras.thinkingLevels）；没设过才回落到旧版写在对话里的值
-                    thinkingLevel = ProviderRules.resolveLevel(settings.extras, c.providerId, c.model, Js.str(c.extras["thinkingLevel"]))
+                    thinkingLevel = ProviderRules.resolveLevel(settings.extras, c.providerId, requestModel, Js.str(c.extras["thinkingLevel"]))
                         .takeIf { it != "auto" }), settings, lu?.id)
         }
         var ctx = buildCtx(conv)
@@ -199,7 +207,7 @@ class DefaultChatEngine(
                     var q = Js.trim(lastUser!!.content)
                     if (Js.truthy(settings.search["rewrite"])) {
                         val hist = conv.messages.filter { it.id != bot.id && it.id != lastUser.id && it.error == null && !Js.truthy(it.extras["imageGen"]) }
-                        q = rewriteQuery(provider, conv.model, q, hist)
+                        q = rewriteQuery(conv, provider, requestModel, q, hist)
                     }
                     val sq = SearchCore.sliceUtf16(q, 120)
                     bot = bot.copy(extras = JsonObject(bot.extras + ("searchQuery" to JsonPrimitive(sq))))
@@ -249,7 +257,17 @@ class DefaultChatEngine(
                         is StreamEvent.Reasoning -> { gotDelta = true; bot = bot.copy(reasoning = (bot.reasoning ?: "") + ev.text) }
                         // 只有「正常结束」不算截断：旧版只认 reason=="length"，于是 sub-agent 类的
                         // error / incomplete / MAX_TOKENS(未归一) / SAFETY 等一律被当成完整回复。
-                        is StreamEvent.Finish -> bot = bot.copy(finishReason = ev.reason, truncated = bot.truncated || !FinishReasons.isNormal(ev.reason))
+                        is StreamEvent.Finish -> {
+                            val normalized = FinishReasons.normalize(ev.reason)
+                            val safety = FinishReasons.isSafetyBlocked(normalized)
+                            bot = bot.copy(
+                                finishReason = normalized,
+                                truncated = if (safety) false else bot.truncated || !FinishReasons.isNormal(normalized),
+                                extras = if (safety) JsonObject(bot.extras + ("safetyBlocked" to JsonPrimitive(true)))
+                                    else JsonObject(bot.extras - "safetyBlocked"),
+                            )
+                            if (safety) send(StreamEvent.Notice("内容安全策略拦截，草稿已保留"))
+                        }
                         is StreamEvent.UsageUpdate -> bot = bot.copy(usage = ev.usage)
                         is StreamEvent.RouteChosen -> bot = bot.copy(routeSlug = ev.slug)
                         is StreamEvent.Error -> {
@@ -305,14 +323,20 @@ class DefaultChatEngine(
     }
 
     /** app.js rewriteQuery：非流式、temperature 0、maxTokens 256、20s；失败回退原问题（取消照常抛出） */
-    private suspend fun rewriteQuery(p: ProviderConfig, model: String, q: String, history: List<Message>): String = try {
+    private suspend fun rewriteQuery(conv: Conversation, p: ProviderConfig, model: String, q: String, history: List<Message>): String = try {
         val prompt = SearchCore.buildRewritePrompt(q, history.map { SearchCore.Turn(it.role.wire, it.content) })
-        // W2（C2）：搜索改写只产出查询串——显式关思考（此前未设，thinking 交给服务商默认）
-        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "", ChatOptions(stream = false, temperature = 0.0, maxTokens = 256, thinkingLevel = "off"))
-        val (st, text) = client.requestText(p, req, 20_000)
-        if (st >= 400 || st == 0) q
-        else SearchCore.cleanRewrite(com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, text)
-            .filterIsInstance<com.aichat.app.net.StreamDelta.Text>().joinToString("") { it.text }, q)
+        // 搜索改写只产出查询串：显式关思考，预算与超时统一取 BypassTask.SEARCH。
+        val task = BypassTask.SEARCH
+        val req = client.buildChatRequest(p, model, listOf(WireMessage(Role.USER, prompt)), "",
+            ChatOptions(stream = false, temperature = 0.0, maxTokens = task.maxTokens, thinkingLevel = task.thinkingLevel))
+        val res = client.requestText(p, req, task.timeoutMs)
+        if (!res.isSuccessful) q
+        else {
+            // 即使正文为空，只要上游给了 usage 也真实入账；解析失败 / 空正文不伪造成功。
+            res.usage?.let { du -> runCatching { onBypassUsage?.invoke(conv, p, model, task, du) } }
+            // 安全拦截时不把拦截文案当查询串，保留用户原问题继续搜索。
+            if (res.safetyBlocked) q else SearchCore.cleanRewrite(res.text, q)
+        }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { q }
 
     /** 收尾：写回助手消息 → runAfterResponse → 用量 → 路由观测 → save */
@@ -324,9 +348,19 @@ class DefaultChatEngine(
             val msgs = if (c.messages.any { it.id == bot.id }) c.messages.map { if (it.id == bot.id) bot else it } else c.messages + bot
             c.copy(messages = msgs, updatedAt = now())
         }
-        val ok = bot.error == null && !stopped && status in 200..299
-        val after = try { plugins.runAfterResponse(ctx.copy(conv = conv), TurnResult(ok, status, bot.usage, bot)) } catch (e: Exception) { conv }
-        if (ok && bot.usage != null) onUsage?.invoke(after, provider, ctx.model, bot, bot.usage!!)
+        val outcome = when {
+            stopped -> TurnOutcome.STOPPED
+            bot.error != null || status !in 200..299 -> TurnOutcome.ERROR
+            FinishReasons.isSafetyBlocked(bot.finishReason) -> TurnOutcome.SAFETY_BLOCKED
+            bot.truncated || !FinishReasons.isNormal(bot.finishReason) -> TurnOutcome.TRUNCATED
+            else -> TurnOutcome.SUCCESS
+        }
+        val ok = outcome == TurnOutcome.SUCCESS
+        val after = try {
+            plugins.runAfterResponse(ctx.copy(conv = conv), TurnResult(ok, status, bot.usage, bot, outcome))
+        } catch (e: Exception) { conv }
+        // 安全拦截 / 截断可能已经真实产生 token；只要求上游 2xx 且有 usage，就记账，但不计入成功率。
+        if (bot.usage != null && status in 200..299) onUsage?.invoke(after, provider, ctx.model, bot, bot.usage!!)
         router?.afterResponse(ctx.model, routeSlug, ok, bot.usage, now() - startedAt, now())
         chats.save(after)
         after

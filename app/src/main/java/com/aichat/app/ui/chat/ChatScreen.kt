@@ -1,4 +1,9 @@
 package com.aichat.app.ui.chat
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -51,6 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aichat.app.plugins.rp.AutoChar
+import com.aichat.app.plugins.rp.AutoCharService
+import com.aichat.app.domain.model.Conversation
 import com.aichat.app.net.ProviderRules
 import com.aichat.app.ui.common.ConfirmDialog
 import com.aichat.app.ui.common.EditorAction
@@ -60,6 +68,7 @@ import com.aichat.app.ui.library.PromptSheet
 import com.aichat.app.ui.library.TemplateSheet
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.common.pressScale
+import com.aichat.app.ui.common.rememberAnimationsOn
 import com.aichat.app.ui.conversation.ConversationDrawer
 import com.aichat.app.data.files.FileText
 import com.aichat.app.engine.ChunkRetrieval
@@ -70,8 +79,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.text.font.FontWeight
+import com.aichat.app.ui.theme.Motion
 import com.aichat.app.ui.theme.Palette
 import com.aichat.app.plugins.js.Js
+import com.aichat.app.plugins.js.JObj
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -122,8 +136,10 @@ fun ChatScreen(
     // 用 AI 生成角色设定：AutoChar 那套纯函数一直没接线，新 RP 会话里用户从没被问过
     var autoOffer by remember(st.convId) { mutableStateOf(false) }
     var autoBusy by remember(st.convId) { mutableStateOf(false) }
-    val autoChar = remember(deps) { deps.autoCharAsk?.let { com.aichat.app.plugins.rp.AutoCharService(it) } }
-    // 插件错误：以前只有一个没人读的 StateFlow，插件静默失效时用户完全无感（世界书整版不生效就是这么漏的）
+    var autoProgress by remember(st.convId) { mutableStateOf<AutoCharService.Progress?>(null) }
+    var autoOutcome by remember(st.convId) { mutableStateOf<AutoCharService.Outcome?>(null) }
+    val autoChar = remember(deps) { deps.autoCharAsk?.let { AutoCharService(it) } }
+    val roleChar = remember(deps) { (deps.roleBookAsk ?: deps.autoCharAsk)?.let { AutoCharService(it) } }
     val pluginErrs by deps.plugins.errors.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var exportId by remember { mutableStateOf<String?>(null) }
@@ -201,6 +217,86 @@ fun ChatScreen(
     val prompts by deps.library.prompts.collectAsState()
     val templates by deps.library.templates.collectAsState()
     val worlds by deps.library.worlds.collectAsState()
+    // 重启后先把上一次的检查点恢复成 Outcome，RP 面板才能显示已写入/失败批次并只重跑失败批。
+    LaunchedEffect(st.convId, conv == null) {
+        autoOutcome = conv?.let { restoreAutoOutcome(it, roleChar ?: autoChar) }
+    }
+
+    /**
+     * AutoChar 的唯一执行入口：自动询问、手动生成、覆盖生成和失败批重跑都走这里。
+     * 每批结束先落 rpState 检查点，最终再写状态与开场白；异常只在当前调用内失败，不会卡死 busy。
+     */
+    fun startAutoChar(
+        svc: AutoCharService?,
+        c: Conversation,
+        automatic: Boolean,
+        overwrite: Boolean = false,
+        only: List<String>? = null,
+    ) {
+        if (svc == null) {
+            controller.toast("角色生成未就绪：请先配置可用的服务商")
+            return
+        }
+        if (autoBusy) return
+        autoBusy = true
+        autoOffer = false
+        autoProgress = null
+        if (!automatic && only == null) autoOutcome = null
+        if (!automatic) controller.toast("正在分批生成角色书…")
+        scope.launch {
+            try {
+                controller.saveAutoChar(
+                    c.id,
+                    meta = autoMetaJson(c, svc, status = "running", asked = true),
+                )
+                val result = svc.generate(
+                    c, templates, settings, svc.skillOf(templates),
+                    overwrite = overwrite,
+                    only = only,
+                    onProgress = { progress, checkpoint ->
+                        autoProgress = progress
+                        controller.saveAutoChar(
+                            c.id,
+                            rpState = Js.toJson(checkpoint) as? JsonObject,
+                            meta = autoMetaJson(
+                                c, svc, status = "running", asked = true, progress = progress,
+                            ),
+                        )
+                    },
+                )
+                autoOutcome = result
+                controller.saveAutoChar(
+                    c.id,
+                    rpState = result.state?.let { Js.toJson(it) as? JsonObject },
+                    meta = autoMetaJson(
+                        c, svc, status = result.status, asked = true, outcome = result,
+                        completed = result.status == "done",
+                    ),
+                    opening = result.opening,
+                )
+                val tail = if (result.failedBatches.isNotEmpty()) {
+                    "；${result.failedBatches.size} 个批次失败，可在 RP 面板只重跑失败批次"
+                } else ""
+                controller.toast(result.message + tail)
+                controller.select(c.id)
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                autoOutcome = null
+                controller.saveAutoChar(
+                    c.id,
+                    meta = autoMetaJson(
+                        c, svc, status = "failed", asked = true,
+                        opening = "",
+                    ),
+                )
+                controller.toast("角色生成失败：${t.message ?: "未知错误"}")
+            } finally {
+                autoBusy = false
+                autoProgress = null
+            }
+        }
+    }
     val drawerSummary = remember(settings, personas, prompts, templates, worlds) {
         com.aichat.app.ui.conversation.DrawerSummary(
             enabledPlugins = deps.plugins.plugins.count { com.aichat.app.ui.settings.PluginToggles.enabled(settings, it) },
@@ -237,8 +333,9 @@ fun ChatScreen(
                 val hbadges = if (conv != null) deps.plugins.headerBadges(settings, conv) else emptyList()
                 val modelLabel = when {
                     settings.providers.isEmpty() -> "未配置"
-                    else -> target?.second ?: "选择模型"
+                    else -> target?.let { "实际使用：" + it.second } ?: "选择模型"
                 }
+                val modelMotion = if (rememberAnimationsOn()) Motion.quick else 0
                 Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         val drawerPress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -275,7 +372,14 @@ fun ChatScreen(
                                     .testTag("model-switch"),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(modelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Palette.Fg2)
+                                AnimatedContent(
+                                    targetState = modelLabel,
+                                    transitionSpec = { fadeIn(tween(modelMotion)) togetherWith fadeOut(tween(modelMotion)) },
+                                    label = "model-in-use",
+                                    modifier = Modifier.testTag("model-in-use"),
+                                ) { label ->
+                                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Palette.Fg2)
+                                }
                                 Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp), tint = Palette.Fg3)
                             }
                         }
@@ -409,9 +513,29 @@ fun ChatScreen(
                     }
                 }
                 ChatMounts.headerExtras?.invoke(conv, settings)
-                LaunchedEffect(st.convId, conv?.messages?.size, settings.autoCharMode) {
+                val autoWorldKey = conv?.let { c -> autoChar?.worldKey(c) }.orEmpty()
+                LaunchedEffect(
+                    st.convId,
+                    conv?.messages?.size,
+                    settings.autoCharMode,
+                    autoWorldKey,
+                    autoBusy,
+                ) {
                     val c = conv
-                    autoOffer = c != null && autoChar != null && !autoBusy && autoChar.offer(c, templates, settings)
+                    val svc = autoChar
+                    if (c == null || svc == null) {
+                        autoOffer = false
+                        return@LaunchedEffect
+                    }
+                    if (autoBusy) return@LaunchedEffect
+                    when (svc.modeOf(settings)) {
+                        "off" -> autoOffer = false
+                        "ask" -> autoOffer = svc.offer(c, templates, settings)
+                        else -> {
+                            autoOffer = false
+                            if (svc.offer(c, templates, settings)) startAutoChar(svc, c, automatic = true)
+                        }
+                    }
                 }
                 if (autoOffer && autoChar != null && conv != null) {
                     val inWorld = com.aichat.app.plugins.rp.AutoChar.scopeOf(autoChar.convJs(conv)) ==
@@ -419,35 +543,22 @@ fun ChatScreen(
                     AutoCharOfferBar(
                         inWorld = inWorld,
                         busy = autoBusy,
-                        onDismiss = { autoOffer = false },
+                        onDismiss = {
+                            autoOffer = false
+                            val c = conv
+                            val svc = autoChar
+                            if (c != null && svc != null) scope.launch {
+                                controller.saveAutoChar(
+                                    c.id,
+                                    meta = autoMetaJson(
+                                        c, svc, status = "dismissed", asked = true, dismissed = true,
+                                    ),
+                                )
+                            }
+                        },
                         onGenerate = {
                             val c = conv
-                            if (c != null && !autoBusy) {
-                                autoBusy = true
-                                scope.launch {
-                                    val r = runCatching {
-                                        autoChar.generate(c, templates, settings, autoChar.skillOf(templates))
-                                    }.getOrNull()
-                                    autoBusy = false
-                                    if (r == null) {
-                                        controller.toast("生成失败：没有可用的服务商或模型")
-                                    } else if (r.ok && r.state != null) {
-                                        val saved = runCatching {
-                                            deps.chats.save(c.copy(rpState = Js.toJson(r.state) as JsonObject))
-                                        }
-                                        if (saved.isSuccess) {
-                                            autoOffer = false
-                                            controller.toast(r.message)
-                                            controller.select(c.id)
-                                        } else {
-                                            controller.toast("保存失败：${saved.exceptionOrNull()?.message}")
-                                        }
-                                    } else {
-                                        controller.toast(r.message)
-                                        if (r.status == "already") autoOffer = false
-                                    }
-                                }
-                            }
+                            if (c != null) startAutoChar(autoChar, c, automatic = false)
                         },
                     )
                 }
@@ -563,6 +674,12 @@ fun ChatScreen(
             onSave = { blocks -> controller.setRpBlocks(conv.id, blocks) },
             // 选世界时顺手补开场白（旧版 applyWorld 的行为）；块仍由上面的「保存」统一写
             onPickWorld = { w -> controller.applyWorld(conv.id, w) },
+            busy = autoBusy,
+            progress = autoProgress,
+            outcome = autoOutcome,
+            onGenerate = { overwrite, only ->
+                startAutoChar(roleChar, conv, automatic = false, overwrite = overwrite, only = only)
+            },
         )
     }
     if (rpChapter && conv != null) {
@@ -625,3 +742,104 @@ fun ChatScreen(
 }
 
 
+/** 读取 conv.extras.autoChar，把上次检查点还原成 UI 可展示的 Outcome。 */
+private fun restoreAutoOutcome(
+    conv: Conversation,
+    svc: AutoCharService?,
+): AutoCharService.Outcome? {
+    val meta = conv.extras["autoChar"] as? JsonObject ?: return null
+    val rawStatus = (meta["status"] as? JsonPrimitive)?.content.orEmpty()
+    if (rawStatus !in setOf("running", "done", "partial", "already", "failed")) return null
+    val scope = svc?.let { AutoChar.scopeOf(it.convJs(conv)) } ?: AutoChar.Scope.FULL
+    val applied = jsonStrings(meta, "applied")
+    val dropped = jsonStrings(meta, "dropped")
+    val failed = jsonStrings(meta, "failedBatches")
+    val status = if (rawStatus == "running") {
+        if (applied.isNotEmpty()) "partial" else "failed"
+    } else rawStatus
+    val specs = svc?.batchesOf(scope).orEmpty().associateBy { it.key }
+    val batches = failed.map { key ->
+        AutoCharService.BatchResult(
+            key = key,
+            title = specs[key]?.title ?: key,
+            status = "failed",
+            reason = "上次生成未完成",
+        )
+    }
+    val message = when {
+        rawStatus == "running" -> "上次生成未完成，已写入的字段已保留"
+        status == "partial" -> "部分批次失败，已保留成功字段"
+        status == "already" -> "这个世界的角色卡已经有了，没有覆盖"
+        status == "done" -> "已写入角色设定"
+        else -> "上次生成失败"
+    }
+    return AutoCharService.Outcome(
+        ok = status == "done" || status == "partial" || status == "already",
+        scope = scope,
+        status = status,
+        applied = applied,
+        dropped = dropped,
+        failedBatches = failed,
+        state = Js.fromJson(conv.rpState) as? JObj,
+        opening = (meta["opening"] as? JsonPrimitive)?.content.orEmpty(),
+        batches = batches,
+        message = message,
+    )
+}
+
+/**
+ * conv.extras.autoChar 的统一形状。检查点只追加已有进度，不覆盖 rpState；
+ * 最终结果再带 opening，由 ChatController.saveAutoChar 按正文去重插入。
+ */
+private fun autoMetaJson(
+    conv: Conversation,
+    svc: AutoCharService?,
+    status: String,
+    asked: Boolean,
+    dismissed: Boolean = false,
+    completed: Boolean = false,
+    progress: AutoCharService.Progress? = null,
+    outcome: AutoCharService.Outcome? = null,
+    opening: String? = null,
+): JsonObject {
+    val base = conv.extras["autoChar"] as? JsonObject ?: JsonObject(emptyMap())
+    val batches = outcome?.batches ?: progress?.batches.orEmpty()
+    val applied = when {
+        outcome != null -> outcome.applied
+        progress != null -> batches.flatMap { it.applied }
+        else -> jsonStrings(base, "applied")
+    }.distinct()
+    val dropped = when {
+        outcome != null -> outcome.dropped
+        progress != null -> batches.flatMap { it.dropped }
+        else -> jsonStrings(base, "dropped")
+    }.distinct()
+    val failed = when {
+        outcome != null -> outcome.failedBatches
+        progress != null -> batches.filter { it.status == "failed" }.map { it.key }
+        else -> jsonStrings(base, "failedBatches")
+    }.distinct()
+    val failedTitles = batches.filter { it.status == "failed" }.map { it.title }.distinct()
+    val openingText = opening ?: (base["opening"] as? JsonPrimitive)?.content.orEmpty()
+    val worldId = svc?.worldKey(conv)
+        ?: (base["worldId"] as? JsonPrimitive)?.content.orEmpty()
+    return buildJsonObject {
+        base.forEach { (key, value) -> put(key, value) }
+        put("worldId", JsonPrimitive(worldId))
+        put("asked", JsonPrimitive(asked))
+        put("dismissed", JsonPrimitive(dismissed))
+        put("completed", JsonPrimitive(completed))
+        put("status", JsonPrimitive(status))
+        put("opening", JsonPrimitive(openingText))
+        put("running", JsonPrimitive(if (status == "running") progress?.running.orEmpty() else ""))
+        put("current", JsonPrimitive(progress?.current ?: 0))
+        put("total", JsonPrimitive(progress?.total ?: 0))
+        put("applied", JsonArray(applied.map { JsonPrimitive(it) }))
+        put("dropped", JsonArray(dropped.map { JsonPrimitive(it) }))
+        put("failedBatches", JsonArray(failed.map { JsonPrimitive(it) }))
+        put("failedTitles", JsonArray(failedTitles.map { JsonPrimitive(it) }))
+    }
+}
+
+private fun jsonStrings(obj: JsonObject, key: String): List<String> =
+    (obj[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty()

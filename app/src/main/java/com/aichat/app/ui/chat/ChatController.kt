@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 
 /**
@@ -143,8 +144,20 @@ class ChatController(
                 if (first != null) select(first.id)
                 return@launch
             }
-            _state.update { if (it.convId == id) it.copy(conv = c) else it }
+            val s = settings.value
+            val normalized = c?.let { normalizeConversationTarget(it, s) }
+            _state.update { if (it.convId == id) it.copy(conv = normalized) else it }
+            if (normalized != null && normalized != c) runCatching { deps.chats.save(normalized) }
         }
+    }
+
+    /** 旧会话可能带着重复 `:flex`，或开关已与模型串不一致；加载时按唯一入口修一次。 */
+    private fun normalizeConversationTarget(c: Conversation, s: AppSettings): Conversation {
+        val p = s.providers.firstOrNull { it.id == c.providerId } ?: return c
+        if (!ProviderRules.isOpenRouterProvider(p) || c.model.isBlank()) return c
+        val flex = _flex.value[p.id] ?: ProviderRules.resolveFlex(s.extras, p.id, c.model)
+        val model = ProviderRules.effectiveModel(c.model, flex) ?: return c
+        return if (model == c.model) c else c.copy(model = model)
     }
 
     /** 新建对话；当前对话本就是空的时直接复用（与旧版一致，避免一堆空对话） */
@@ -216,6 +229,34 @@ class ChatController(
             val c = deps.chats.load(id) ?: return@launch
             save(c.copy(rpState = state), touch = false)
         }
+    }
+
+    /**
+     * AutoChar 的本地检查点：角色书按字段批生成，每批结束都要落盘，
+     * 进程被杀后仍能看到已写入字段。meta 写到 conv.extras.autoChar；
+     * opening 仅在最终结果时按正文去重插入。
+     */
+    suspend fun saveAutoChar(
+        id: String,
+        rpState: JsonObject? = null,
+        meta: JsonObject? = null,
+        opening: String? = null,
+    ) {
+        val c = deps.chats.load(id) ?: return
+        var next = c
+        if (rpState != null) next = next.copy(rpState = rpState)
+        if (meta != null) {
+            val extras = next.extras.toMutableMap()
+            extras["autoChar"] = meta
+            next = next.copy(extras = JsonObject(extras))
+        }
+        val text = opening?.trim().orEmpty()
+        var appended = false
+        if (text.isNotEmpty() && next.messages.none { it.role == Role.ASSISTANT && it.content.trim() == text }) {
+            next = next.copy(messages = next.messages + Message(newId(), Role.ASSISTANT, text, now()))
+            appended = true
+        }
+        save(next, touch = appended)
     }
 
     fun setRpBlocks(id: String, blocks: Map<String, String>) {
@@ -292,14 +333,24 @@ class ChatController(
         val p = s.providers.firstOrNull { it.id == pid } ?: s.providers.firstOrNull { it.models.any { m -> m.isNotBlank() } } ?: return null
         val wanted = c?.model?.takeIf { c.providerId == p.id && it.isNotEmpty() } ?: s.lastModel.takeIf { s.lastProviderId == p.id }
         val m = wanted?.takeIf { it.isNotEmpty() } ?: p.models.firstOrNull { it.isNotBlank() } ?: return null
-        return p to m
+        val effective = if (ProviderRules.isOpenRouterProvider(p)) {
+            val flex = _flex.value[p.id] ?: ProviderRules.resolveFlex(s.extras, p.id, m)
+            ProviderRules.effectiveModel(m, flex) ?: m
+        } else m
+        return p to effective
     }
 
     fun setModel(providerId: String, model: String) {
+        val s = settings.value
+        val p = s.providers.firstOrNull { it.id == providerId }
+        val normalized = if (ProviderRules.isOpenRouterProvider(p)) {
+            val flex = _flex.value[providerId] ?: ProviderRules.resolveFlex(s.extras, providerId, model)
+            ProviderRules.effectiveModel(model, flex) ?: model
+        } else model
         scope.launch {
-            deps.settings.update { it.copy(lastProviderId = providerId, lastModel = model) }
+            deps.settings.update { it.copy(lastProviderId = providerId, lastModel = normalized) }
             val c = _state.value.conv ?: return@launch
-            save(c.copy(providerId = providerId, model = model), touch = false)
+            save(c.copy(providerId = providerId, model = normalized), touch = false)
         }
     }
 
@@ -341,7 +392,24 @@ class ChatController(
         // 先盖一层即时值：点一下立刻翻转，不等 settings 那次磁盘写
         _flex.update { it + (key to on) }
         scope.launch {
-            deps.settings.update { s -> s.copy(extras = ProviderRules.withFlex(s.extras, providerId, on)) }
+            val s = settings.value
+            val p = s.providers.firstOrNull { it.id == providerId }
+            val isOr = ProviderRules.isOpenRouterProvider(p)
+            val current = _state.value.conv
+            val applyToCurrent = isOr && current?.providerId == providerId
+            val normalized = if (applyToCurrent) ProviderRules.effectiveModel(current?.model, on) else null
+            if (applyToCurrent && current != null && normalized != null && normalized != current.model) {
+                val updated = current.copy(model = normalized)
+                _state.update { if (it.conv?.id == updated.id) it.copy(conv = updated) else it }
+                save(updated, touch = false)
+            }
+            deps.settings.update { st ->
+                val patchLast = isOr && st.lastProviderId == providerId
+                st.copy(
+                    extras = ProviderRules.withFlex(st.extras, providerId, on),
+                    lastModel = if (patchLast && normalized != null) normalized else st.lastModel,
+                )
+            }
             _flex.update { m -> m - key }
         }
     }
@@ -550,10 +618,12 @@ class ChatController(
     }
 
     private fun stopped(m: Message) = (m.extras["stopped"] as? JsonPrimitive)?.content == "true"
+    private fun safetyBlocked(m: Message) = m.finishReason == "safety_blocked" ||
+        (m.extras["safetyBlocked"] as? JsonPrimitive)?.booleanOrNull == true
 
     /** app.js canContinueMsg */
     fun canContinue(m: Message) = m.role == Role.ASSISTANT && m.content.isNotEmpty() && m.extras["imageGen"] == null &&
-        (m.truncated || m.finishReason == "length" || m.error != null || stopped(m))
+        !safetyBlocked(m) && (m.truncated || m.finishReason == "length" || m.error != null || stopped(m))
 
     fun continueGeneration(assistantId: String) {
         val c = _state.value.conv ?: return

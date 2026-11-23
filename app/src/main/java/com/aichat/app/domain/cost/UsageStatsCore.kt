@@ -56,9 +56,9 @@ object UsageStatsCore {
 
     // ================= M4：makeEntry / record / 统计（usage-stats.js 逐函数） =================
     val TYPE_CN: Map<String, String> = linkedMapOf(
-        "chat" to "对话", "image" to "图片", "summary" to "摘要",
-        "chapter_summary" to "章节摘要", "memory_extract" to "记忆抽取",
-        "search_rewrite" to "搜索改写", "auto_char" to "角色生成",
+        UsageTypes.CHAT to "对话", UsageTypes.IMAGE to "图片", UsageTypes.SUMMARY to "摘要",
+        UsageTypes.MEMORY to "记忆", UsageTypes.SEARCH to "搜索", UsageTypes.AUTOCHAR to "角色生成",
+        UsageTypes.CHARACTER_BOOK to "角色书",
     )
     private val J = com.aichat.app.net.Js
     private fun str(e: JsonElement?): String = J.str(e)
@@ -228,7 +228,7 @@ object UsageStatsCore {
             val m = me as? JsonObject ?: return@forEach
             val u = m["usage"]?.takeIf { J.truthy(it) } as? JsonObject
             if (u != null && u["prompt"] != null && u["prompt"] !is JsonNull && !J.truthy(m["pending"]) && !J.truthy(m["error"])) {
-                val type = if (J.truthy(m["imageGen"])) "image" else "chat"
+                val type = if (J.truthy(m["imageGen"])) UsageTypes.IMAGE else UsageTypes.CHAT
                 val created = m["createdAt"]?.takeIf { J.truthy(it) } ?: JsonPrimitive(0)
                 val compl = if (J.truthy(u["completion"])) J.i32(u["completion"]) else 0
                 val key = "bf:" + (m["id"]?.takeIf { J.truthy(it) }?.let { str(it) } ?: "") + ":" + str(created) + ":" + J.i32(u["prompt"]) + ":" + compl + ":" + type

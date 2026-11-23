@@ -89,10 +89,10 @@ fun ModelPicker(
                     }
                 }
                 items(p.models.filter { it.isNotBlank() }.distinct(), key = { p.id + "/" + it }) { m ->
-                    val want = if (isOr && flexOn) m + ":flex" else m
-                    // 容忍 currentModel 已带 :flex（开关刚关还没重选时），✓ 别消失
-                    val sel = p.id == currentProvider && (currentModel == want || currentModel == want + ":flex")
-                    Text((if (sel) "✓ " else "    ") + if (sel && isOr && flexOn) want else m,
+                    val want = if (isOr) ProviderRules.effectiveModel(m, flexOn) ?: m else m
+                    val current = if (isOr) ProviderRules.effectiveModel(currentModel, flexOn) else currentModel
+                    val sel = p.id == currentProvider && current == want
+                    Text((if (sel) "✓ " else "    ") + if (sel) current.orEmpty() else m,
                         fontWeight = if (sel) FontWeight.SemiBold else null,
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.fillMaxWidth().clickable { onPick(p.id, want) }.padding(horizontal = 20.dp, vertical = 10.dp))

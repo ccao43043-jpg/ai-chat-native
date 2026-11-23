@@ -1,6 +1,11 @@
 package com.aichat.app.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -72,6 +77,8 @@ import com.aichat.app.ui.common.MarkdownReveal
 import com.aichat.app.ui.common.MarkdownText
 import com.aichat.app.ui.common.RemoteImage
 import com.aichat.app.ui.common.pressScale
+import com.aichat.app.ui.common.rememberAnimationsOn
+import com.aichat.app.ui.theme.Motion
 
 /** 单条消息的操作回调（全部可空：为 null 时不显示对应按钮） */
 data class MessageActions(
@@ -191,10 +198,62 @@ fun MessageItem(
                     Text("  正在生成…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 m.error?.let { Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                val safetyBlocked = !streaming && (m.finishReason == "safety_blocked" ||
+                    (m.extras["safetyBlocked"] as? JsonPrimitive)?.booleanOrNull == true)
+                val motion = if (rememberAnimationsOn()) Motion.quick else 0
+                var safetyExpanded by rememberSaveable { mutableStateOf(false) }
+                AnimatedVisibility(
+                    visible = safetyBlocked,
+                    enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+                    exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
+                ) {
+                    Surface(
+                        color = Palette.Surface2,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Palette.Danger.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth().testTag("safety-banner"),
+                    ) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "内容安全策略拦截，草稿已保留",
+                                    color = Palette.Danger,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = { safetyExpanded = !safetyExpanded },
+                                    modifier = Modifier.testTag("safety-banner-toggle"),
+                                ) { Text(if (safetyExpanded) "收起" else "详情", fontSize = 11.sp, color = Palette.Fg2) }
+                            }
+                            AnimatedVisibility(
+                                visible = safetyExpanded,
+                                enter = fadeIn(tween(motion)),
+                                exit = fadeOut(tween(motion)),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        if (m.usage != null) "本次已记录到有效用量。" else "本次未记录到有效用量。",
+                                        color = Palette.Fg2,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        "上游可能已按实际用量计费；修改内容后可主动重新发送。",
+                                        color = Palette.Fg2,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         if (!streaming) {
-            val info = listOfNotNull(if (m.truncated) "已中断" else null, m.usage?.let { u ->
+            val safetyBlocked = m.finishReason == "safety_blocked" ||
+                (m.extras["safetyBlocked"] as? JsonPrimitive)?.booleanOrNull == true
+            val info = listOfNotNull(if (m.truncated && !safetyBlocked) "已中断" else null, m.usage?.let { u ->
                 listOfNotNull(u.prompt?.let { "入 $it" }, u.completion?.let { "出 $it" }, u.hit?.takeIf { it > 0 }?.let { "命中 $it" })
                     .takeIf { it.isNotEmpty() }?.joinToString(" · ")
             }).joinToString("  ")

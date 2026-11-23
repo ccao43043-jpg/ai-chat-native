@@ -54,6 +54,23 @@ class FlexVariantTest {
         assertEquals("google/gemini-2.5-pro:flex", (body["model"] as JsonPrimitive).content)
     }
 
+    @Test fun effectiveModelIsTheSingleFlexNormalizer() {
+        assertEquals("m:flex", ProviderRules.effectiveModel("m", true))
+        assertEquals("m", ProviderRules.effectiveModel("m", false))
+        assertEquals("m:flex", ProviderRules.effectiveModel("m:flex:flex", true))
+        assertEquals("m", ProviderRules.effectiveModel("m:flex:flex", false))
+        assertEquals("m", ProviderRules.effectiveModel("m", false))
+        // 其它 OpenRouter 变体必须保留，只处理末尾 flex
+        assertEquals("m:nitro", ProviderRules.effectiveModel("m:nitro", false))
+        assertEquals("m:nitro:flex", ProviderRules.effectiveModel("m:nitro", true))
+        assertEquals("m:nitro:flex", ProviderRules.effectiveModel("m:nitro:flex:flex", true))
+        // 大小写归一 + 空白处理
+        assertEquals("m:flex", ProviderRules.effectiveModel("  m:FLEX  ", true))
+        assertEquals("m", ProviderRules.effectiveModel("  m:FLEX  ", false))
+        assertNull(ProviderRules.effectiveModel(null, true))
+        assertNull(ProviderRules.effectiveModel("   ", true))
+    }
+
     // ---- flexProviders 存储纯函数（按服务商；T1 持久化的底层） ----
 
     @Test fun flexStorageRoundTrips() {

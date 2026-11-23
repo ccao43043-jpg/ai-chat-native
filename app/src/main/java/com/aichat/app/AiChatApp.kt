@@ -97,7 +97,7 @@ class AppGraph(app: Application) {
         rpcache = { host ->
             com.aichat.app.plugins.rp.RpCachePlugin(
                 host,
-                ask = { conv, prompt, model -> askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.CHAPTER_SUMMARY) },
+                ask = { conv, prompt, model -> askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.SUMMARY) },
                 facts = { conv -> factsOf(conv) },
                 resolveImage = { ref -> blobs.dataUrl(ref) },
             )
@@ -105,7 +105,7 @@ class AppGraph(app: Application) {
         memory = { host ->
             // W2（B3 修复）：第三参此前被丢弃——summary_model 省钱档对记忆抽取完全无效；现在透传
             com.aichat.app.plugins.rp.RpMemoryPlugin(host, data.rpMemory) { conv, prompt, model ->
-                askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.MEMORY_EXTRACT)
+                askModel(conv, prompt, model, com.aichat.app.domain.cost.BypassTask.MEMORY)
             }
         },
     )
@@ -145,12 +145,17 @@ class AppGraph(app: Application) {
         conv: com.aichat.app.domain.model.Conversation,
         prompt: String,
         overrideModel: String? = null,
-        task: com.aichat.app.domain.cost.BypassTask = com.aichat.app.domain.cost.BypassTask.CHAPTER_SUMMARY,
+        task: com.aichat.app.domain.cost.BypassTask = com.aichat.app.domain.cost.BypassTask.SUMMARY,
     ): String? = runCatching {
         val s = data.settings.settings.value
         val p = s.providers.firstOrNull { it.id == conv.providerId } ?: return@runCatching null
-        val model = overrideModel?.takeIf { it.isNotEmpty() } ?: conv.model
-        if (model.isEmpty()) return@runCatching null
+        val baseModel = overrideModel?.takeIf { it.isNotEmpty() } ?: conv.model
+        if (baseModel.isEmpty()) return@runCatching null
+        // 旁路请求与主对话共用同一个 Flex 规范化入口；否则摘要/记忆会在用户已开 Flex 时偷偷走原价档。
+        val model = if (com.aichat.app.net.ProviderRules.isOpenRouterProvider(p)) {
+            val flex = com.aichat.app.net.ProviderRules.resolveFlex(s.extras, p.id, baseModel)
+            com.aichat.app.net.ProviderRules.effectiveModel(baseModel, flex) ?: baseModel
+        } else baseModel
         val req = providerClient.buildChatRequest(
             p, model,
             listOf(com.aichat.app.domain.WireMessage(com.aichat.app.domain.model.Role.USER, prompt)),
@@ -158,23 +163,27 @@ class AppGraph(app: Application) {
                 stream = false, temperature = 0.0, maxTokens = task.maxTokens, thinkingLevel = task.thinkingLevel,
             ),
         )
-        val (st, body) = providerClient.requestText(p, req, task.timeoutMs)
-        if (st >= 400 || st == 0) return@runCatching null
-        val deltas = com.aichat.app.net.Deltas.parseFullResponse(p.type.wire, body)
-        val text = deltas.filterIsInstance<com.aichat.app.net.StreamDelta.Text>()
-            .joinToString("") { it.text }
-            .takeIf { it.isNotBlank() } ?: return@runCatching null
-        deltas.filterIsInstance<com.aichat.app.net.StreamDelta.UsageDelta>().firstOrNull()?.let { du ->
-            runCatching {
-                val entry = com.aichat.app.domain.cost.BypassUsageEntry.of(task, model, p, conv, du) ?: return@let
-                if (data.usage.meta().isEmpty()) {
-                    data.usage.saveMeta(com.aichat.app.domain.cost.UsageStatsCore.metaOf(com.aichat.app.domain.cost.UsageStatsCore.emptyState()))
-                }
-                data.usage.append(entry)
-            }
-        }
-        text
+        val res = providerClient.requestText(p, req, task.timeoutMs)
+        // 先入账再判正文：安全拦截 / 上游错误 / 空正文也可能已产生真实 token；没有 usage 就不写账。
+        // 安全提示和错误文案绝不能写进摘要、记忆或角色卡，统一返回 null。
+        res.usage?.let { du -> runCatching { recordBypassUsage(conv, p, model, task, du) } }
+        if (!res.isSuccessful || res.safetyBlocked || res.error != null) return@runCatching null
+        res.text.takeIf { it.isNotBlank() }
     }.getOrNull()
+
+    private suspend fun recordBypassUsage(
+        conv: com.aichat.app.domain.model.Conversation,
+        p: com.aichat.app.domain.model.ProviderConfig,
+        model: String,
+        task: com.aichat.app.domain.cost.BypassTask,
+        du: com.aichat.app.net.StreamDelta.UsageDelta,
+    ) {
+        val entry = com.aichat.app.domain.cost.BypassUsageEntry.of(task, model, p, conv, du) ?: return
+        if (data.usage.meta().isEmpty()) {
+            data.usage.saveMeta(com.aichat.app.domain.cost.UsageStatsCore.metaOf(com.aichat.app.domain.cost.UsageStatsCore.emptyState()))
+        }
+        data.usage.append(entry)
+    }
     val providerClient = com.aichat.app.net.DefaultProviderClient(secretVault)
     /** 生图客户端（providers.js 的 buildImageRequest / parseImageResponse） */
     val imageClient = com.aichat.app.net.DefaultImageClient(secretVault)
@@ -189,6 +198,8 @@ class AppGraph(app: Application) {
         // 开关仍是 settings.searchOn，未配置 Key 时 ChatController 会先弹「去设置搜索」。
         search = com.aichat.app.net.DefaultSearchClient(secretVault),
         blobs = blobs,
+        // 搜索改写等旁路请求与摘要/记忆共用同一账本入口，避免只入摘要不漏搜索。
+        onBypassUsage = { conv, p, model, task, du -> recordBypassUsage(conv, p, model, task, du) },
     )
 
     init {
@@ -215,7 +226,8 @@ class AppGraph(app: Application) {
     fun uiDeps() = com.aichat.app.ui.common.UiDeps(chats = chats, settings = settings, library = library, keys = keys,
         engine = engine, plugins = plugins, migration = migration, isFake = false, charCard = charCard, usage = usage,
         image = imageClient, rpMemory = data.rpMemory, balance = balanceClient, balanceCache = data.balanceCache, knowledge = knowledge, client = providerClient,
-        autoCharAsk = { conv, prompt -> askModel(conv, prompt, null, com.aichat.app.domain.cost.BypassTask.AUTO_CHAR) })
+        autoCharAsk = { conv, prompt -> askModel(conv, prompt, null, com.aichat.app.domain.cost.BypassTask.AUTO_CHAR) },
+        roleBookAsk = { conv, prompt -> askModel(conv, prompt, null, com.aichat.app.domain.cost.BypassTask.CHARACTER_BOOK) })
 
     // ---- 首次启动迁移：后台执行，不阻塞启动；报告给设置 →「数据与备份」 ----
     private val _migrationReport = MutableStateFlow<MigrationReport?>(null)

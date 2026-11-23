@@ -40,14 +40,22 @@ sealed interface StreamDelta {
 object FinishReasons {
     /** 客户端补发：上游既没给 finish_reason 也没有 [DONE]，直接把连接关了 */
     const val INCOMPLETE = "incomplete"
+    /** 内容安全策略拦截：请求可能 2xx、也可能已有部分正文，但本轮绝不是成功。 */
+    const val SAFETY_BLOCKED = "safety_blocked"
 
     /** 正常结束。其余一律视为「没写完」（截断） */
     private val NORMAL = setOf("stop", "end_turn", "eos", "stop_sequence", "tool_calls", "function_call")
+    private val SAFETY = setOf(
+        "prohibited_content", "content_filter", "safety", "blocked",
+        "safety_blocked", "content_policy_violation", "harmful_content",
+    )
 
     fun isNormal(reason: String?): Boolean {
-        val r = reason?.trim()?.lowercase() ?: return true
-        return r.isEmpty() || r in NORMAL
+        val r = normalize(reason) ?: return true
+        return r in NORMAL
     }
+
+    fun isSafetyBlocked(reason: String?): Boolean = normalize(reason) == SAFETY_BLOCKED
 
     /** 各家 → 统一口径：MAX_TOKENS/length/max_output_tokens → length；STOP/END_TURN/eos → stop；其余小写透传 */
     fun normalize(raw: String?): String? {
@@ -56,6 +64,7 @@ object FinishReasons {
         return when (r) {
             "max_tokens", "length", "max_output_tokens", "model_context_window_exceeded" -> "length"
             "stop", "end_turn", "eos", "stop_sequence" -> "stop"
+            in SAFETY -> SAFETY_BLOCKED
             else -> r
         }
     }
@@ -98,6 +107,10 @@ object Deltas {
                             "text" -> out += StreamDelta.Text(Js.str(co?.get("text")))
                             "thinking" -> out += StreamDelta.Reasoning(Js.str(co?.get("thinking")))
                         }
+                    }
+                    // 非流式 Messages API 的 stop_reason 在消息顶层（流式在 message_delta.delta）
+                    if (t == "message" && Js.truthy(ob["stop_reason"])) {
+                        FinishReasons.normalize(s(ob["stop_reason"]))?.let { out += StreamDelta.Finish(it) }
                     }
                 }
             }
