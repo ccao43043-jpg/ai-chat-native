@@ -88,6 +88,15 @@ fun MarkdownReveal(text: String, modifier: Modifier = Modifier, onCopy: (String)
     MarkdownText(if (shown >= text.length) text else text.substring(0, shown), modifier, onCopy)
 }
 
+/**
+ * 渲染单个 Markdown 块。
+ *
+ * 对话分层（DialogueBody）会把代码块、表格、列表原样交回 Markdown 渲染，
+ * 所以这里要有一个公开入口，而不是让 DialogueView 复制一份块渲染逻辑。
+ */
+@Composable
+fun MarkdownBlock(b: MdBlock, onCopy: (String) -> Unit = {}) = MdBlockView(b, onCopy)
+
 @Composable
 private fun MdBlockView(b: MdBlock, onCopy: (String) -> Unit) {
     val typo = MaterialTheme.typography

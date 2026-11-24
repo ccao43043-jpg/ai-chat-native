@@ -80,6 +80,9 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.longOrNull
 import com.aichat.app.domain.model.Message
 import com.aichat.app.domain.model.Role
+import com.aichat.app.ui.common.Dialogue
+import com.aichat.app.ui.common.DialogueBody
+import com.aichat.app.ui.common.DialogueReveal
 import com.aichat.app.ui.common.MarkdownReveal
 import com.aichat.app.ui.common.MarkdownText
 import com.aichat.app.ui.common.RemoteImage
@@ -109,6 +112,13 @@ data class MessageView(
     val label: String? = null,
     val isLast: Boolean = false,
     val headName: String? = null,       // 「助手名 · 模型」
+    /**
+     * 当前台面上唯一角色的名字（会话 persona）。
+     *
+     * 对话分层用它给「裸台词」认领说话人：单角色 RP 里模型常常直接写
+     * 「先喝一口。我听着。」而不带「名字：」前缀，没有它就全是无名台词。
+     */
+    val speaker: String? = null,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -187,18 +197,34 @@ fun MessageItem(
                     com.aichat.app.ui.theme.Radii.Bubble.dp, com.aichat.app.ui.theme.Radii.Bubble.dp,
                     com.aichat.app.ui.theme.Radii.Bubble.dp, com.aichat.app.ui.theme.Radii.BubbleTail.dp,
                 )
-                if (m.content.isNotEmpty()) Surface(
-                    // 旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
-                    color = com.aichat.app.ui.theme.Palette.AssistantBubble,
-                    shape = botShape,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                    modifier = Modifier.widthIn(max = BubbleMax).clip(botShape).testTag("msg-assistant-body"),
-                ) {
-                    SelectionContainer {
-                        androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            // 流式中逐字揭示；已落定的消息直接整块渲染（无动画开销）
-                            if (streaming) MarkdownReveal(m.content, onCopy = onToast)
-                            else MarkdownText(m.content, onCopy = onToast)
+                // 是否按 RP 对话分层渲染。流式期间内容在变，每块都要重判 ——
+                // 判定是 O(n) 的几次正则扫描，相对逐帧 Markdown 解析不算开销。
+                val dialogue = remember(m.content) { Dialogue.isDialogue(m.content) }
+                if (m.content.isNotEmpty()) {
+                    if (dialogue) {
+                        // 对话消息不套通用助手气泡：每个角色卡片就是消息内部的分组单位。
+                        // 外层再画一个灰盒子只会形成「盒中盒」，吃掉台词卡片的存在感。
+                        SelectionContainer {
+                            androidx.compose.foundation.layout.Box(
+                                Modifier.widthIn(max = BubbleMax).testTag("msg-assistant-body").padding(top = 1.dp),
+                            ) {
+                                if (streaming) DialogueReveal(m.content, view.speaker, onCopy = onToast)
+                                else DialogueBody(m.content, view.speaker, onCopy = onToast)
+                            }
+                        }
+                    } else Surface(
+                        // 普通助手消息保留旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
+                        color = com.aichat.app.ui.theme.Palette.AssistantBubble,
+                        shape = botShape,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
+                        modifier = Modifier.widthIn(max = BubbleMax).clip(botShape).testTag("msg-assistant-body"),
+                    ) {
+                        SelectionContainer {
+                            androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                // 流式中逐字揭示；已落定的消息直接整块渲染（无动画开销）
+                                if (streaming) MarkdownReveal(m.content, onCopy = onToast)
+                                else MarkdownText(m.content, onCopy = onToast)
+                            }
                         }
                     }
                 }
