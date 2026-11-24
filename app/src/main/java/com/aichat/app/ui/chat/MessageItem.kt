@@ -200,26 +200,31 @@ fun MessageItem(
                 // 是否按 RP 对话分层渲染。流式期间内容在变，每块都要重判 ——
                 // 判定是 O(n) 的几次正则扫描，相对逐帧 Markdown 解析不算开销。
                 val dialogue = remember(m.content) { Dialogue.isDialogue(m.content) }
-                if (m.content.isNotEmpty()) Surface(
-                    // 旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
-                    color = com.aichat.app.ui.theme.Palette.AssistantBubble,
-                    shape = botShape,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
-                    modifier = Modifier.widthIn(max = BubbleMax).clip(botShape).testTag("msg-assistant-body"),
-                ) {
-                    SelectionContainer {
-                        androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            // RP 正文（引号台词 / 星号动作 / 旁白）走分层渲染：
-                            // 台词按说话人上色成气泡，动作斜体，旁白衬线灰字。
-                            // 判定见 Dialogue.isDialogue —— 代码块、列表、低中文占比一律
-                            // 走原来的 Markdown，技术问答的观感不变。
-                            if (dialogue) {
+                if (m.content.isNotEmpty()) {
+                    if (dialogue) {
+                        // 对话消息不套通用助手气泡：每个角色卡片就是消息内部的分组单位。
+                        // 外层再画一个灰盒子只会形成「盒中盒」，吃掉台词卡片的存在感。
+                        SelectionContainer {
+                            androidx.compose.foundation.layout.Box(
+                                Modifier.widthIn(max = BubbleMax).testTag("msg-assistant-body").padding(top = 1.dp),
+                            ) {
                                 if (streaming) DialogueReveal(m.content, view.speaker, onCopy = onToast)
                                 else DialogueBody(m.content, view.speaker, onCopy = onToast)
                             }
-                            // 流式中逐字揭示；已落定的消息直接整块渲染（无动画开销）
-                            else if (streaming) MarkdownReveal(m.content, onCopy = onToast)
-                            else MarkdownText(m.content, onCopy = onToast)
+                        }
+                    } else Surface(
+                        // 普通助手消息保留旧版 .bot-body：16/16/16/4 的反向尖角，半透明底 + 一条细边
+                        color = com.aichat.app.ui.theme.Palette.AssistantBubble,
+                        shape = botShape,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, com.aichat.app.ui.theme.Palette.Line),
+                        modifier = Modifier.widthIn(max = BubbleMax).clip(botShape).testTag("msg-assistant-body"),
+                    ) {
+                        SelectionContainer {
+                            androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                // 流式中逐字揭示；已落定的消息直接整块渲染（无动画开销）
+                                if (streaming) MarkdownReveal(m.content, onCopy = onToast)
+                                else MarkdownText(m.content, onCopy = onToast)
+                            }
                         }
                     }
                 }
