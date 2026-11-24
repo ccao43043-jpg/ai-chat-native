@@ -152,4 +152,21 @@ class DialogueTest {
     @Test fun nullSpeakerGetsDefaultSkin() {
         assertNotNull(Speakers.skin(null))
     }
+
+    // ---- 跨段沿用说话人（空行分段是小说排版常态） ----
+
+    @Test fun speakerCarriesAcrossBlankLine() {
+        // 回归：Markdown.segments 按空行切段，每段都会重新 scan；
+        // 说话人若不跨段沿用，第二段裸台词会掉回默认角色，同一个人上下两句两种颜色
+        val ps = Dialogue.parts("苏晚：（……他倒是会做人。）\n\n「我只是在等雨停。」", "林墨")
+        assertEquals(DlgPart.Inner("……他倒是会做人。", "苏晚"), ps[0])
+        assertEquals(DlgPart.Speech("苏晚", "我只是在等雨停。"), ps[1])
+    }
+
+    @Test fun speakerCarriesAcrossActionParagraph() {
+        val ps = Dialogue.parts("林墨：「开。这场雨不停，我就不关。」\n\n*他抬眼看窗外。*\n\n「苏晚，过来坐。」", "林墨")
+        assertEquals(DlgPart.Speech("林墨", "开。这场雨不停，我就不关。"), ps[0])
+        assertEquals(DlgPart.Action("他抬眼看窗外。"), ps[1])
+        assertEquals(DlgPart.Speech("林墨", "苏晚，过来坐。"), ps[2])
+    }
 }

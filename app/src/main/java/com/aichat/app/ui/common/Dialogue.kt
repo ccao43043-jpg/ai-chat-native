@@ -125,14 +125,21 @@ object Dialogue {
         if (text.isBlank()) return emptyList()
         val known = collectSpeakers(text, defaultSpeaker)
         val out = ArrayList<DlgPart>()
+        // 说话人要跨段沿用：Markdown.segments 按空行切段（每次换行分段在小说排版里
+        // 极常见），如果每段都从 null 重新开始，「苏晚：（…他倒是会做人。）」
+        // 后面紧跟的裸台词就会掉回会话默认角色 —— 同一个人上下两句被染成两种颜色。
+        val carry = SpeakerCarry()
         for (seg in Markdown.segments(text)) {
             val blocks = Markdown.parseSegment(seg)
             val only = blocks.singleOrNull()
-            if (only is MdBlock.Paragraph) out += scan(only.text, known, defaultSpeaker)
+            if (only is MdBlock.Paragraph) out += scan(only.text, known, defaultSpeaker, carry)
             else blocks.forEach { out += DlgPart.Block(it) }
         }
         return out
     }
+
+    /** 跨段携带的「当前说话人」（parts 内部用，不对外暴露） */
+    private class SpeakerCarry { var name: String? = null }
 
     /**
      * 先扫一遍全篇，收集「确定是说话人」的名字。
@@ -176,15 +183,17 @@ object Dialogue {
 
     private fun hasMarker(s: String) = s.any { it in "「『“\"*（(" }
 
-    private fun scan(text: String, known: Set<String>, default: String?): List<DlgPart> {
+    private fun scan(text: String, known: Set<String>, default: String?, carry: SpeakerCarry): List<DlgPart> {
         val out = ArrayList<DlgPart>()
         val buf = StringBuilder()
         var i = 0
         var lineStart = true
         var innerOk = true
-        // 当前的说话人：一旦出现过「名字：」就沿用下去
+        // 当前的说话人：一旦出现过「名字：」就沿用下去（含跨段）
         // （小说里同一段对话的后续行通常不再重复写名字），没出现过则用 default
-        var cur: String? = null
+        var cur: String? = carry.name
+
+        fun setCur(n: String?) { cur = n; carry.name = n }
 
         fun flush() {
             val s = buf.toString().trim()
@@ -205,7 +214,7 @@ object Dialogue {
                 val hit = speakerAt(text, i, known)
                 if (hit != null) {
                     flush()
-                    cur = hit.first
+                    setCur(hit.first)
                     val lineEnd = text.indexOf('\n', hit.second).let { if (it < 0) text.length else it }
                     val rest = text.substring(hit.second, lineEnd)
                     // 「林墨：早啊。」——有引号时交给下面的扫描器；没引号但名字可信就直接收作台词

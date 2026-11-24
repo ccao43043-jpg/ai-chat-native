@@ -71,15 +71,13 @@ fun DialogueBody(
     }
     val fallback = defaultSpeaker.orEmpty()
     // 连续同一个角色说话时不重复标名字（中间插了动作/旁白也一样）：
-    // 一段对话里名字刷屏比不标更烦
+    // 一段对话里名字刷屏比不标更烦。
+    // 内心独白不参与去重：`苏晚：（…）` 后面紧跟的裸台词必须重新标名字，
+    // 否则读者只看见一个没有署名的气泡，不知道是谁终于开了口。
     var lastSpeech: String? = null
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         parts.forEach { p ->
-            val who = when (p) {
-                is DlgPart.Speech -> (p.speaker ?: fallback).trim()
-                is DlgPart.Inner -> (p.speaker ?: fallback).trim()
-                else -> null
-            }
+            val who = (p as? DlgPart.Speech)?.let { (it.speaker ?: fallback).trim() }
             val showName = who != null && who != lastSpeech
             if (who != null) lastSpeech = who
             DlgPartView(p, fallback, showName, onCopy)
