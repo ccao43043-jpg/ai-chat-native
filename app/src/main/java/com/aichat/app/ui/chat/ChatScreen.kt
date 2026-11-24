@@ -528,7 +528,9 @@ fun ChatScreen(
                             ) }
                             MessageItem(m, streaming = live && !isUser, badges = badges,
                                 onToast = controller::toast, onImage = { viewing = it },
-                                view = MessageView(busy = busy, dim = ms?.dim == true, label = ms?.label, isLast = isLast, headName = headName),
+                                view = MessageView(busy = busy, dim = ms?.dim == true, label = ms?.label, isLast = isLast, headName = headName,
+                                    // 对话分层的默认说话人：会话里唯一的角色
+                                    speaker = (m.extras["personaName"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: conv?.personaName),
                                 actions = actions)
                         }
                         LazyColumn(state = listState, reverseLayout = true,
