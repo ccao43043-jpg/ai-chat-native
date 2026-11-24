@@ -405,6 +405,10 @@ fun ChatScreen(
                                 Icon(Icons.Filled.ArrowDropDown, null, Modifier.size(16.dp), tint = Palette.Fg3)
                             }
                         }
+                        // 红点独立成一个行内目标：44dp 命中盒不能再叠在同样 44dp 的「更多」按钮上，
+                        // 否则会把按钮的点击整块截走——有插件错误时溢出菜单反而打不开。
+                        // 放在「更多」左侧：出错时按钮左移 44dp，只在错误出现/清空时跳动一次。
+                        PluginErrorDot(count = pluginErrs.size, onClick = { pluginErrPanel = true })
                         Box {
 
                             val morePress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -416,11 +420,6 @@ fun ChatScreen(
                                         onClickLabel = "更多操作") { menu = true },
                                 contentAlignment = Alignment.Center,
                             ) { Icon(Icons.Filled.MoreVert, "更多") }
-                            PluginErrorDot(
-                                count = pluginErrs.size,
-                                onClick = { pluginErrPanel = true },
-                                modifier = Modifier.align(Alignment.TopEnd),
-                            )
                             ChatOverflowMenu(
                                 expanded = menu,
                                 onDismiss = { menu = false },
@@ -533,8 +532,12 @@ fun ChatScreen(
                                 actions = actions)
                         }
                         LazyColumn(state = listState, reverseLayout = true,
-                            modifier = Modifier.fillMaxSize()
+                            // widthIn 必须在 fillMaxSize 外层：反过来的话 fillMaxSize 先把
+                            // 约束锁成「屏宽」，内层 widthIn 的 720 会被 Constraints.constrain
+                            // 抬回屏宽，宽屏收口就成了空操作。
+                            modifier = Modifier
                                 .let { if (wide) it.widthIn(max = Adaptive.contentMax) else it }
+                                .fillMaxSize()
                                 .testTag("messages"),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)) {
                             if (liveKey != null) item(key = liveKey, contentType = "live") {

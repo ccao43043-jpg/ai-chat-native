@@ -118,6 +118,9 @@ fun PluginErrorsDialog(
 /**
  * 顶栏那个红色数字气泡：只在有错误时出现，点开就是上面的面板。
  * 用数字而不是纯圆点 —— 「1 个错误」和「12 个错误」的处理意愿完全不同。
+ *
+ * 调用方把它放在「更多」按钮左侧，作为独立的 44dp 行内目标；不要再做成叠在
+ * 按钮右上角的角标 —— 两个 44dp 命中盒完全重合时，红点会把「更多」的点击整块截走。
  */
 @Composable
 fun PluginErrorDot(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -126,8 +129,7 @@ fun PluginErrorDot(count: Int, onClick: () -> Unit, modifier: Modifier = Modifie
     Box(
         modifier
             .testTag("plugin-errors")
-            // 44dp 命中区：红点本体只有约 18×14dp，又紧贴「更多」按钮，
-            // 不扩基本点不中。外层是透明 Box，红点视觉位置不变。
+            // 红点本体只有约 18×14dp，不扩基本点不中；扩出来的部分全透明。
             .size(44.dp)
             .clickable(interactionSource = src, indication = null, role = Role.Button,
                 onClickLabel = "查看插件错误", onClick = onClick)

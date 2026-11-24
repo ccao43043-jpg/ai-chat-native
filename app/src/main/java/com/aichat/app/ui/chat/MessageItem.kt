@@ -425,14 +425,17 @@ private fun VersionPill(k: Int, n: Int, dim: Boolean, a: MessageActions) {
 /**
  * 文字胶囊：只在真正高频、且需要文字说明的动作上用（继续生成 / 重新生成）。
  *
- * 胶囊本体仍是 28dp 高（视觉不变），外面套一层 40dp 的透明命中区。
+ * 胶囊本体仍是 28dp 高（视觉不变），外面套一层 40dp 高的透明命中区。
  * 外层 Box 没有背景、没有涟漪，所以扩出来的 6dp 上下是完全看不见的。
+ *
+ * 只能用 heightIn 限制高度：写成 size(40.dp) 会把宽度也锁成 40dp，
+ * 「重新生成」这类四五个字的标签（≈66–78dp）会被裁成一个半字。
  */
 @Composable
 private fun ActionPill(label: String, tag: String, onClick: () -> Unit) {
     val press = remember { MutableInteractionSource() }
     Box(
-        Modifier.size(40.dp).pressScale(press)
+        Modifier.heightIn(min = 40.dp).pressScale(press)
             .clickable(interactionSource = press, indication = null, onClickLabel = label, onClick = onClick)
             .testTag(tag),
         contentAlignment = Alignment.Center,
