@@ -3,7 +3,6 @@ package com.aichat.app.ui.common
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aichat.app.ui.theme.Palette
 
 /** 全局段缓存：流式时只有最后一段被重新解析 */
 private val sharedCache = MarkdownCache()
@@ -157,16 +157,23 @@ private fun Double.em() = androidx.compose.ui.unit.TextUnit(this.toFloat(), andr
 
 @Composable
 fun CodeBlock(b: MdBlock.Code, onCopy: (String) -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val bg = if (dark) Color(0xFF1E1F24) else Color(0xFFF4F4F7)
-    val palette = if (dark) CodePalette.Dark else CodePalette.Light
-    val annotated = remember(b.code, b.lang, dark) { highlight(b.code, b.lang, palette) }
+    // 固定深色。本 app 只有一套暗色皮肤（AiChatTheme 只传 darkColorScheme，
+    // 见 Theme.kt 顶部注释：旧版 www/app.css 就是 color-scheme: dark）。
+    // 旧代码在这里读 isSystemInDarkTheme()，于是系统切浅色时，代码块会渲染成
+    // #F4F4F7 白底 + Light 语法配色，嵌在深色的助手气泡里 —— 一块刺眼的白斑。
+    // 主题不跟随系统，这里的判断也就不该跟随系统。
+    val bg = Color(0xFF1E1F24)
+    val palette = CodePalette.Dark
+    val annotated = remember(b.code, b.lang) { highlight(b.code, b.lang, palette) }
     val clip = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth().background(bg, RoundedCornerShape(8.dp))) {
         Row(Modifier.fillMaxWidth().padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(b.lang.ifEmpty { "code" } + if (!b.closed) " …" else "", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            TextButton(onClick = { clip.setText(AnnotatedString(b.code)); onCopy("已复制代码") }) { Text("复制", fontSize = 12.sp) }
+            TextButton(onClick = { clip.setText(AnnotatedString(b.code)); onCopy("已复制代码") }) {
+                // primary(#7C3AED) 当文字只有 3.49:1，低于 AA；AccentText 8.87:1
+                Text("复制", fontSize = 12.sp, color = Palette.AccentText)
+            }
         }
         SelectionContainer {
             Text(annotated, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp,

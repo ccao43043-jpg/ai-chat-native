@@ -153,17 +153,19 @@ fun InputBar(
                     images.forEachIndexed { i, src ->
                         Box {
                             RemoteImage(src, Modifier.size(60.dp).clip(RoundedCornerShape(com.aichat.app.ui.theme.Radii.Sm.dp)),
-                                contentDescription = "待发送图片")
+                                contentDescription = "待发送图片，第 ${i + 1} 张")
                             Box(
-                                // 触控区 28dp，视觉仍是 20dp 的圆：小按钮不至于点不准
-                                Modifier.align(Alignment.TopEnd).size(28.dp)
-                                    .clickable { onImages(images.filterIndexed { j, _ -> j != i }) }
+                                // 命中区 36dp（原 28dp），视觉仍是 20dp 的圆钉在右上角：
+                                // 透明 Box 向左下扩出命中范围，圆的位置一个像素没动。
+                                Modifier.align(Alignment.TopEnd).size(36.dp)
+                                    .clickable(onClickLabel = "移除这张图片") { onImages(images.filterIndexed { j, _ -> j != i }) }
                                     .testTag("remove-image"),
+                                contentAlignment = Alignment.TopEnd,
                             ) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.inverseSurface,
                                     shape = CircleShape,
-                                    modifier = Modifier.size(20.dp).align(Alignment.TopEnd),
+                                    modifier = Modifier.size(20.dp),
                                 ) {
                                     Icon(
                                         Icons.Filled.Close, "移除图片",
@@ -227,24 +229,28 @@ fun InputBar(
             // 正文气泡会跟着每帧重排，反而发涩。
             val minH = 48.dp
             val fieldH = 20.dp
-            val topPad = 4.dp
             Surface(
                 shape = RoundedCornerShape(28.dp),
                 color = Palette.Surface2,
                 modifier = Modifier.fillMaxWidth().heightIn(min = minH),
             ) {
                 Row(
-                    Modifier.padding(start = 4.dp, end = 6.dp, top = topPad, bottom = 4.dp),
+                    // 上下内边距 4→2：圆钮命中盒从 36dp 扩到 44dp，
+                    // 44 + 2 + 2 = 48dp，正好等于 heightIn(min=48dp)，输入条总高不变。
+                    Modifier.padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box {
                         Box(
-                            Modifier.padding(top = 2.dp).size(36.dp).clip(CircleShape)
-                                .background(Palette.Surface3)
-                                .clickable { attachMenu = true }.testTag("attach"),
+                            // 44dp 透明命中盒，里面是 36dp 的视觉圆 —— 视觉不变，手指好点
+                            Modifier.size(44.dp)
+                                .clickable(onClickLabel = "添加附件") { attachMenu = true }.testTag("attach"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Add, "添加附件", Modifier.size(20.dp), tint = Palette.Fg)
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape).background(Palette.Surface3),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Filled.Add, "添加附件", Modifier.size(20.dp), tint = Palette.Fg) }
                         }
                         DropdownMenu(attachMenu, { attachMenu = false }) {
                             DropdownMenuItem(text = { Text("从相册选择") }, modifier = Modifier.testTag("attach-image"), onClick = {
@@ -274,22 +280,33 @@ fun InputBar(
                     }
                     if (streaming) {
                         Box(
-                            Modifier.padding(bottom = 2.dp).size(36.dp).clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.18f))
-                                .clickable(onClick = onStop).testTag("stop"),
+                            Modifier.size(44.dp)
+                                .clickable(onClickLabel = "停止生成", onClick = onStop).testTag("stop"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Close, "停止", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Filled.Close, "停止", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error) }
                         }
                     } else {
                         Box(
-                            Modifier.padding(bottom = 2.dp).size(36.dp).clip(CircleShape)
-                                .background(if (canSend) Palette.Grad else Brush.linearGradient(listOf(Palette.Surface3, Palette.Surface3)))
-                                .clickable(enabled = canSend, onClick = onSend)
+                            Modifier.size(44.dp)
+                                .clickable(enabled = canSend, onClickLabel = "发送", onClick = onSend)
                                 .testTag("send"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, "发送", tint = if (canSend) Color.White else Palette.Fg3, modifier = Modifier.size(18.dp))
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape)
+                                    .background(if (canSend) Palette.Grad else Brush.linearGradient(listOf(Palette.Surface3, Palette.Surface3))),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                // 不可发送时图标用 Disabled（原 Fg3 已为对比度提亮，
+                                // 提亮后「能发」和「不能发」的灰就分不开了）
+                                Icon(Icons.AutoMirrored.Filled.Send, "发送",
+                                    tint = if (canSend) Color.White else Palette.Disabled, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                 }

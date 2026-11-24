@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -118,6 +119,7 @@ fun SettingsScreen(start: SettingsDestination, onClose: () -> Unit, onStartPerso
             pageDest == SettingsDestination.Personas -> com.aichat.app.ui.library.PersonasScreen(onBack = back, toast = toast,
                 onStart = { p -> onStartPersona?.invoke(p); onClose() })
             pageDest == SettingsDestination.General -> GeneralSettings(onBack = back, toast = toast)
+            pageDest == SettingsDestination.AutoChar -> AutoCharSettings(onBack = back, toast = toast)
             pageDest == SettingsDestination.Usage -> UsageScreen(onBack = back, toast = toast)
             pageDest == SettingsDestination.Providers -> ProvidersScreen(onBack = back, toast = toast)
             pageDest == SettingsDestination.DataBackup -> DataBackupScreen(onBack = back, toast = toast)
@@ -203,6 +205,9 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
                     tag = "row-plugins") { open(SettingsDestination.Plugins) }
                 SettingsTileRow(Icons.Filled.Face, "助手库", "常用助手、角色卡导入导出",
                     tag = "row-personas") { open(SettingsDestination.Personas) }
+                SettingsTileRow(Icons.Filled.Face, "角色生成", "RP 首条消息后自动生成 / 先询问",
+                    value = when (s.autoCharMode.ifEmpty { "auto" }) { "off" -> "已关闭"; "ask" -> "先询问"; else -> "直接生成" },
+                    tag = "row-autochar") { open(SettingsDestination.AutoChar) }
             }
 
             SettingsGroup("内容") {
@@ -229,7 +234,7 @@ private fun SettingsMain(onBack: () -> Unit, open: (SettingsDestination) -> Unit
 
             Spacer(Modifier.height(Space.group))
             Text(
-                "版本 1.0.0-alpha1 · 数据只存在这台设备上",
+                "版本 1.8.0 · 数据只存在这台设备上",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Space.tight, vertical = Space.titleGap),
@@ -278,6 +283,50 @@ private fun GeneralSettings(onBack: () -> Unit, toast: (String) -> Unit) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("流式输出", modifier = Modifier.weight(1f)); Switch(stream, { stream = it })
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoCharSettings(onBack: () -> Unit, toast: (String) -> Unit) {
+    val deps = LocalUiDeps.current
+    val s by deps.settings.settings.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val current = s.autoCharMode.ifEmpty { "auto" }
+    val description = when (current) {
+        "off" -> "不自动询问，也不自动生成；RP 面板里仍可手动生成角色卡。"
+        "ask" -> "首条用户消息后显示询问条；点「不用」会记住这个世界的选择。"
+        else -> "首条用户消息满足条件时直接生成，不显示询问条；换世界后会重新判断。"
+    }
+    SettingsPageScaffold("角色生成", onBack) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("首条消息后", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("off" to "不自动", "ask" to "先询问", "auto" to "直接生成").forEach { (key, label) ->
+                    FilterChip(
+                        selected = current == key,
+                        onClick = {
+                            scope.launch {
+                                deps.settings.update { it.copy(autoCharMode = key) }
+                                toast("已切换为$label")
+                            }
+                        },
+                        label = { Text(label) },
+                        modifier = Modifier.testTag("autochar-mode-$key"),
+                    )
+                }
+            }
+            Text(description, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingsGroup("生成方式") {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("按字段分成 2–4 个短批次", style = MaterialTheme.typography.bodyMedium)
+                    Text("每批只带相关上下文；单批失败不会清空已成功字段，可从失败批次继续。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("世界模板中只补角色卡与示例对白，不改写世界观。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

@@ -31,7 +31,9 @@ internal fun MenuEntry(label: String, onClick: () -> Unit) {
         text = { Text(label, style = MaterialTheme.typography.bodyMedium, color = Palette.Fg) },
         onClick = onClick,
         contentPadding = MenuItemPad,
-        modifier = Modifier.height(40.dp),
+        // 48dp 是 Material 3 菜单项的默认高度；原来的 40dp 在长按弹出的
+        // 溢出菜单里偏挤，连续点几项容易误触相邻项。
+        modifier = Modifier.height(48.dp),
     )
 }
 

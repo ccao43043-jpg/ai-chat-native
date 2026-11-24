@@ -67,7 +67,10 @@ fun AutoCharOfferBar(
                     androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
                 } else {
                     TextButton(onClick = onGenerate, modifier = Modifier.testTag("auto-char-yes")) {
-                        Text("生成", color = Palette.Accent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                        // Accent(#7C3AED) 当文字只有 3.49:1，12.5sp 的按钮字低于 AA；
+                        // AccentText 是同色相浅档，8.87:1。转圈指示器那处 Accent 保留
+                        // —— 那是图形元素，标准是 3:1，本来就过。
+                        Text("生成", color = Palette.AccentText, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }

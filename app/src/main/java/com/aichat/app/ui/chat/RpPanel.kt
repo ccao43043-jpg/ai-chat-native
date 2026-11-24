@@ -1,6 +1,8 @@
 package com.aichat.app.ui.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -26,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -33,11 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.aichat.app.ui.theme.Palette
+import com.aichat.app.ui.common.rememberAnimationsOn
+import com.aichat.app.ui.theme.Motion
 import com.aichat.app.domain.model.Conversation
 import com.aichat.app.domain.model.World
 import com.aichat.app.plugins.js.JObj
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.rp.RpState
+import com.aichat.app.plugins.rp.AutoCharService
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -57,6 +64,11 @@ fun RpPanelDialog(
     onSave: (Map<String, String>) -> Unit,
     /** 选中某个世界模板时额外回调一次（用来补开场白；块本身仍由 onSave 统一写） */
     onPickWorld: ((World) -> Unit)? = null,
+    /** 角色书分批生成状态；busy 时禁止重复提交，失败批可只重跑 */
+    busy: Boolean = false,
+    progress: AutoCharService.Progress? = null,
+    outcome: AutoCharService.Outcome? = null,
+    onGenerate: ((overwrite: Boolean, only: List<String>?) -> Unit)? = null,
 ) {
     val defs = remember { RpState.BLOCK_DEFS.filter { it["layer"] == "L1" } }
     val original = remember(conv.id, conv.rpState) { blockContents(conv) }
@@ -86,6 +98,13 @@ fun RpPanelDialog(
                         Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(top = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
+                        AutoCharGenerateSection(
+                            hasCharacter = valueOf("character").isNotBlank(),
+                            busy = busy,
+                            progress = progress,
+                            outcome = outcome,
+                            onGenerate = onGenerate,
+                        )
                         if (worlds.isNotEmpty()) {
                             Box {
                                 Surface(
@@ -149,13 +168,106 @@ fun RpPanelDialog(
 }
 
 @Composable
+private fun AutoCharGenerateSection(
+    hasCharacter: Boolean,
+    busy: Boolean,
+    progress: AutoCharService.Progress?,
+    outcome: AutoCharService.Outcome?,
+    onGenerate: ((overwrite: Boolean, only: List<String>?) -> Unit)?,
+) {
+    val motion = if (rememberAnimationsOn()) Motion.quick else 0
+    val fraction by animateFloatAsState(
+        targetValue = progress?.let { it.current.toFloat() / it.total.coerceAtLeast(1) } ?: 0f,
+        animationSpec = tween(motion),
+        label = "rolebook-progress",
+    )
+    val retry = outcome?.failedBatches.orEmpty()
+    val failedTitles = retry.map { key ->
+        outcome?.batches?.firstOrNull { it.key == key }?.title ?: key
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("AI 角色书", color = Palette.Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "按字段分批生成；失败批次不会清空已写入字段。",
+            color = Palette.Fg3,
+            fontSize = 12.sp,
+        )
+        if (busy) {
+            val p = progress
+            Text(
+                if (p != null) "正在生成「${p.title}」 ${p.current}/${p.total}" else "正在准备生成…",
+                color = Palette.Fg2,
+                fontSize = 12.sp,
+            )
+            if (p != null) {
+                LinearProgressIndicator(
+                    progress = { fraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().testTag("rolebook-progress"),
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (retry.isNotEmpty()) {
+                    TextButton(
+                        onClick = { onGenerate?.invoke(false, retry) },
+                        modifier = Modifier.testTag("rolebook-retry-failed"),
+                    ) { Text("只重跑失败批次", fontSize = 12.sp, color = Palette.AccentText) }
+                }
+                if (outcome?.status == "already") {
+                    Text(outcome.message, color = Palette.Fg2, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                }
+                Surface(
+                    onClick = { onGenerate?.invoke(hasCharacter, null) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = Palette.AccentSoft,
+                    modifier = Modifier.weight(1f).testTag(if (hasCharacter) "rolebook-overwrite" else "rolebook-generate"),
+                ) {
+                    Text(
+                        if (hasCharacter) "重新生成角色卡" else "用 AI 生成角色卡",
+                        color = Palette.AccentText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        }
+        if (outcome?.applied?.isNotEmpty() == true) {
+            Text(
+                "已写入：${outcome.applied.joinToString("、")}",
+                color = Palette.AccentText,
+                fontSize = 12.sp,
+                modifier = Modifier.testTag("rolebook-applied"),
+            )
+        }
+        if (outcome?.dropped?.isNotEmpty() == true) {
+            Text(
+                "已丢弃：${outcome.dropped.joinToString("、")}",
+                color = Palette.Fg3,
+                fontSize = 12.sp,
+                modifier = Modifier.testTag("rolebook-dropped"),
+            )
+        }
+        if (failedTitles.isNotEmpty()) {
+            Text(
+                "失败批次：${failedTitles.joinToString("、")}",
+                color = Palette.Danger,
+                fontSize = 12.sp,
+                modifier = Modifier.testTag("rolebook-failed"),
+            )
+        }
+    }
+}
+
+@Composable
 private fun RpField(title: String, tag: String, hint: String, value: String, onChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Palette.Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (tag.isNotEmpty()) {
                 Surface(shape = RoundedCornerShape(999.dp), color = Palette.AccentSoft) {
-                    Text(tag, color = Palette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                    // 11sp 小字叠在 AccentSoft 上，Accent 只有 2.98:1；AccentText 7.58:1
+                    Text(tag, color = Palette.AccentText, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                 }
             }
         }

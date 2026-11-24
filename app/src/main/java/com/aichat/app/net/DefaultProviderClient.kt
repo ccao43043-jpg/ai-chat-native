@@ -29,6 +29,19 @@ import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
 
+/** 非流式请求的完整结果。旁路任务必须据此判断 2xx / usage / 结束原因，不能只看正文是否为空。 */
+data class TextResponse(
+    val status: Int,
+    val body: String,
+    val text: String,
+    val usage: StreamDelta.UsageDelta?,
+    val finishReason: String?,
+    val error: String?,
+) {
+    val isSuccessful: Boolean get() = status in 200..299
+    val safetyBlocked: Boolean get() = FinishReasons.isSafetyBlocked(finishReason)
+}
+
 /**
  * ProviderClient 实现（工作流 B）。三种请求格式（openai 兼容 / anthropic / gemini）的构造 + 流式；模型列表 / OpenRouter endpoints；RouteChosen。
  * 流式语义对照 app.js 2236–2320：
@@ -176,11 +189,21 @@ class DefaultProviderClient(
      * app.js requestText(authed(req, p.id), _, timeoutMs)：已认证的一次性请求 → (status, body)。
      * 超时抛 IOException("请求超时")；取消随协程取消 Call。改写搜索查询（rewriteQuery）用。
      */
-    suspend fun requestText(provider: ProviderConfig, req: BuiltRequest, timeoutMs: Long): Pair<Int, String> = withContext(Dispatchers.IO) {
+    suspend fun requestText(provider: ProviderConfig, req: BuiltRequest, timeoutMs: Long): TextResponse = withContext(Dispatchers.IO) {
         val authed = auth.authorize(provider.id, req)
         val call = client.newBuilder().callTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS).build().newCall(toOkHttp(authed))
         kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { if (it != null) call.cancel() }
-        try { call.execute().use { r -> r.code to (r.body?.string() ?: "") } }
+        try {
+            call.execute().use { r ->
+                val body = r.body?.string() ?: ""
+                val deltas = if (body.isBlank()) emptyList() else Deltas.parseFullResponse(provider.type.wire, body)
+                val text = deltas.filterIsInstance<StreamDelta.Text>().joinToString("") { it.text }
+                val usage = deltas.filterIsInstance<StreamDelta.UsageDelta>().lastOrNull()
+                val finish = deltas.filterIsInstance<StreamDelta.Finish>().lastOrNull()?.reason
+                val error = deltas.filterIsInstance<StreamDelta.Error>().lastOrNull()?.text
+                TextResponse(r.code, body, text, usage, finish, error)
+            }
+        }
         catch (e: java.io.InterruptedIOException) { if (call.isCanceled()) throw e; throw IOException("请求超时") }
     }
 

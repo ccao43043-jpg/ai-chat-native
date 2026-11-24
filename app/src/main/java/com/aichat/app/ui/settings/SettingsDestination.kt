@@ -16,6 +16,7 @@ enum class SettingsDestination(val title: String, val owner: String) {
     Prompts("提示词库", "A"),
     Templates("提示词模板", "A"),
     Personas("助手库", "A"),
+    AutoChar("角色生成", "A"),
     Usage("用量统计", "B"),
     Balance("余额", "B"),
     Worlds("世界模板", "C"),

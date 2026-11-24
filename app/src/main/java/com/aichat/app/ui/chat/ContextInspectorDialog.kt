@@ -177,7 +177,7 @@ private fun SlotRow(s: Slot, owners: String?, segments: JsonObject?) {
                 )
                 .padding(vertical = 2.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(s.code, fontSize = 10.sp, color = if (owned) Palette.Accent else Palette.Fg3) }
+        ) { Text(s.code, fontSize = 10.sp, color = if (owned) Palette.AccentText else Palette.Fg3) }
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(s.label, fontSize = 12.5.sp, color = if (owned) Palette.Fg else Palette.Fg3)

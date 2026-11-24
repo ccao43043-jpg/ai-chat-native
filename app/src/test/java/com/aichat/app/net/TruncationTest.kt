@@ -38,8 +38,9 @@ class TruncationTest {
 
     @Test fun geminiSafetyBlockIsNotNormal() {
         val ds = parser("gemini", "data: {\"candidates\":[{\"finishReason\":\"SAFETY\"}]}\n\n")
-        assertEquals(listOf("safety"), reasons(ds))
+        assertEquals(listOf(FinishReasons.SAFETY_BLOCKED), reasons(ds))
         assertFalse(FinishReasons.isNormal(reasons(ds)[0]))
+        assertTrue(FinishReasons.isSafetyBlocked(reasons(ds)[0]))
     }
 
     /** OpenRouter 流中途报错时把 error 嵌在 choices[0] 里（顶层没有 error），旧版直接吞掉 */
@@ -59,6 +60,21 @@ class TruncationTest {
         }
         for (r in listOf("length", "incomplete", "error", "content_filter", "safety", "recitation")) {
             assertFalse("$r 应算截断", FinishReasons.isNormal(r))
+        }
+    }
+
+    @Test fun safetyAliasesMapToOneOutcome() {
+        for (r in listOf(
+            "PROHIBITED_CONTENT",
+            "content_filter",
+            "SAFETY",
+            "blocked",
+            "safety_blocked",
+            "content_policy_violation",
+            "harmful_content",
+        )) {
+            assertEquals("$r 必须归一到安全拦截", FinishReasons.SAFETY_BLOCKED, FinishReasons.normalize(r))
+            assertTrue("$r 必须识别为安全拦截", FinishReasons.isSafetyBlocked(r))
         }
     }
 

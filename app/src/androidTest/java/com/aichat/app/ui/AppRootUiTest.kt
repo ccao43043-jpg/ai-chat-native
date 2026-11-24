@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isRoot
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.printToLog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aichat.app.ui.common.fake.FakeDeps
 import com.aichat.app.ui.theme.AiChatTheme
+import androidx.compose.ui.unit.dp
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -118,6 +120,22 @@ class AppRootUiTest {
         rule.onNodeWithTag("send").performClick()
         rule.waitUntilExists("copy")
         rule.onAllNodesWithTag("copy")[0].performClick()
+    }
+
+    /**
+     * 动作胶囊的宽度必须由文字撑开。
+     *
+     * 回归用例：曾经把外层的 40dp 命中盒写成 `size(40.dp)`，宽度也被锁成 40dp，
+     * 「重新生成」（11.5sp × 4 字 + 左右各 10dp ≈ 66dp）被裁成只剩一个半字。
+     */
+    @Test
+    fun actionPillKeepsFullLabel() {
+        launch()
+        rule.onNodeWithTag("input").performTextInput("测试")
+        closeKeyboard()
+        rule.onNodeWithTag("send").performClick()
+        rule.waitUntilExists("regen")
+        rule.onNodeWithTag("regen").assertWidthIsAtLeast(60.dp)
     }
 
     /** M2：重新生成 → ‹ 2/2 ›；切回 1/2；编辑用户消息打开全屏编辑器 */

@@ -26,18 +26,23 @@ class BypassTaskGuardTest {
     )
 
     @Test fun perTaskProfilesMatchThePlan() {
-        assertEquals(1200 to "off", BypassTask.CHAPTER_SUMMARY.let { it.maxTokens to it.thinkingLevel })
-        assertEquals(800 to "off", BypassTask.MEMORY_EXTRACT.let { it.maxTokens to it.thinkingLevel })
-        assertEquals(256 to "off", BypassTask.SEARCH_REWRITE.let { it.maxTokens to it.thinkingLevel })
-        assertEquals(2048, BypassTask.AUTO_CHAR.maxTokens)
+        assertEquals(512 to "off", BypassTask.SUMMARY.let { it.maxTokens to it.thinkingLevel })
+        assertEquals(512 to "off", BypassTask.MEMORY.let { it.maxTokens to it.thinkingLevel })
+        assertEquals(256 to "off", BypassTask.SEARCH.let { it.maxTokens to it.thinkingLevel })
+        assertEquals(768, BypassTask.AUTO_CHAR.maxTokens)
+        assertEquals(900, BypassTask.CHARACTER_BOOK.maxTokens)
         assertNull("AutoChar 质量敏感：不发思考字段", BypassTask.AUTO_CHAR.thinkingLevel)
-        assertEquals(45_000L, BypassTask.MEMORY_EXTRACT.timeoutMs)
+        assertNull("角色书质量敏感：不发思考字段", BypassTask.CHARACTER_BOOK.thinkingLevel)
+        assertEquals(45_000L, BypassTask.MEMORY.timeoutMs)
+        assertEquals(20_000L, BypassTask.SEARCH.timeoutMs)
     }
 
     @Test fun usageTypesAreKnownToTypeCn() {
         BypassTask.entries.forEach { t ->
             assertTrue("${t.usageType} 要能显示中文", UsageStatsCore.TYPE_CN.containsKey(t.usageType))
         }
+        UsageTypes.ALL.forEach { t -> assertTrue("$t 要能显示中文", UsageStatsCore.TYPE_CN.containsKey(t)) }
+        assertEquals(7, UsageTypes.ALL.toSet().size)
     }
 
     @Test fun bypassUsageEntryRecordsIndependentTypeAndModel() {
@@ -47,8 +52,8 @@ class BypassTaskGuardTest {
             put("cacheSupported", JsonPrimitive(false))
             put("cost", JsonPrimitive(0.0004))
         })
-        val e = BypassUsageEntry.of(BypassTask.MEMORY_EXTRACT, "z-ai/glm-5.3", provider(), conv(), du, at = 1000L)!!
-        assertEquals("memory_extract", (e["type"] as JsonPrimitive).content)
+        val e = BypassUsageEntry.of(BypassTask.MEMORY, "z-ai/glm-5.3", provider(), conv(), du, at = 1000L)!!
+        assertEquals("memory", (e["type"] as JsonPrimitive).content)
         assertEquals("实际模型要入账，不是对话模型", "z-ai/glm-5.3", (e["model"] as JsonPrimitive).content)
         assertEquals(100, (e["prompt"] as JsonPrimitive).content.toInt())
         assertEquals(0.0004, (e["actualCost"] as JsonPrimitive).content.toDouble(), 1e-12)
@@ -56,20 +61,20 @@ class BypassTaskGuardTest {
 
     @Test fun bypassUsageEntryWithoutPromptReturnsNullNotZero() {
         val du = StreamDelta.UsageDelta(buildJsonObject { put("completion", JsonPrimitive(10)) })
-        assertNull("usage 缺 prompt → 不入账，不伪造 0 成本", BypassUsageEntry.of(BypassTask.CHAPTER_SUMMARY, "m", provider(), conv(), du))
+        assertNull("usage 缺 prompt → 不入账，不伪造 0 成本", BypassUsageEntry.of(BypassTask.SUMMARY, "m", provider(), conv(), du))
     }
 
     @Test fun bypassUsageTypesAreDistinct() {
-        assertEquals(4, BypassTask.entries.map { it.usageType }.toSet().size)
+        assertEquals(5, BypassTask.entries.map { it.usageType }.toSet().size)
     }
 
     @Test fun makeEntryHonorsExplicitType() {
         val e = UsageStatsCore.makeEntry(buildJsonObject {
             put("usage", buildJsonObject { put("prompt", JsonPrimitive(10)); put("completion", JsonPrimitive(2)) })
-            put("type", JsonPrimitive("chapter_summary"))
+            put("type", JsonPrimitive("summary"))
             put("msgId", JsonPrimitive("m1"))
         })
-        assertEquals("record 路径必须尊重显式任务类型", "chapter_summary", (e["type"] as JsonPrimitive).content)
+        assertEquals("record 路径必须尊重显式任务类型", "summary", (e["type"] as JsonPrimitive).content)
     }
 
     @Test fun usageEntryFromMessageStillTypeChat() {
@@ -83,11 +88,11 @@ class BypassTaskGuardTest {
     @Test fun recordRoutesExplicitTypeIntoLog() {
         val e = UsageStatsCore.makeEntry(buildJsonObject {
             put("usage", buildJsonObject { put("prompt", JsonPrimitive(10)); put("completion", JsonPrimitive(2)) })
-            put("type", JsonPrimitive("memory_extract"))
+            put("type", JsonPrimitive("memory"))
             put("msgId", JsonPrimitive("m1"))
         })
         val s = UsageStatsCore.record(UsageStatsCore.emptyState(), e)
         val inLog = (s["log"] as kotlinx.serialization.json.JsonArray).first() as JsonObject
-        assertEquals("memory_extract", (inLog["type"] as JsonPrimitive).content)
+        assertEquals("memory", (inLog["type"] as JsonPrimitive).content)
     }
 }

@@ -50,7 +50,8 @@ object AutoChar {
         val msgs = (Js.or(conv["messages"], ArrayList<Any?>()) as? List<*>) ?: emptyList<Any?>()
         val us = msgs.filter { it["role"] == "user" && !Js.truthy(it["error"]) && !Js.truthy(it["imageGen"]) }
         if (us.size != 1 || Js.trim(s(us[0]["content"])).isEmpty()) return false
-        if (msgs.any { it["role"] == "assistant" && !Js.truthy(it["error"]) && Js.trim(s(it["content"])).isNotEmpty() }) return false
+        // 世界里开聊时开场白就是一条 assistant 消息；不能因为有开场白就永远不问。
+        // 用「恰好一条用户消息」作为边界：发第二条消息后不再询问，自动生成期间由调用方先落 asked。
         // 世界里开聊用的是沉浸式 RP 模板，但用户也可能换成别的模板；
         // 只要这个对话已经绑定了世界，就该问「要不要生成一个符合这个世界的角色」。
         val rp = isRpTemplate(conv, templates) || worldOf(conv) != null
@@ -59,8 +60,7 @@ object AutoChar {
     fun fromUserText(text: Any?): JObj? { val f = parse(text); return if (f != null && Js.truthy(f["character"])) f else null }
     const val FORMAT = "【世界观】\n【角色卡】\n【RP规则】\n【输出格式】\n【示例对白】\n【禁止事项】\n【写作风格】\n【开场白】"
     fun buildPrompt(firstText: Any?, systemPrompt: Any?, skillContent: Any?): String {
-        val rules = if (Js.truthy(skillContent) && Js.trim(Js.str(skillContent)).isNotEmpty()) Js.trim(Js.str(skillContent))
-            else "你是角色卡生成器。把用户的想法整理成可直接角色扮演的完整设定，信息不足时合理补全，角色卡写具体可扮演的细节（姓名、年龄性别、外貌、身份、背景经历、性格优缺点、说话方式、喜好禁忌、秘密、人物关系、与用户的关系、目标动机）。"
+        val rules = rulesOf(Scope.FULL, skillContent)
         val story = "\n6. 一次到位：【世界观】除了时代、地点、势力与规则，还要写「- 主线剧情：」（核心冲突、阶段走向、伏笔）和「- 当前局势：」（故事从哪里开始）；【角色卡】写主角之外再列出 2–4 个重要配角 / NPC（姓名、身份、与主角关系、动机）；【RP规则】写明用户扮演的身份；所有内容写成成品，不留任何 {{变量}}、「待定」或需要用户填写的空位。"
         return rules + "\n\n---\n下面是一场角色扮演的设定上下文，请据此直接输出完整 8 段设定。\n硬性要求：\n1. 每段以单独一行的【标题】开头，标题字面与下列完全一致，按顺序输出，不要加序号、不要用 Markdown 标题或代码块；\n2. 段内用「- 」列表；【角色卡】第一行写「- 姓名：xxx」；\n3. 用户首条消息里已经给出的名字、身份、关系、场景必须原样保留，只补全缺失部分，不要改写用户的设定；\n4. 【开场白】写一段符合当前 RP 模板文风、以角色口吻展开的开场；\n5. 不要寒暄、不要解释、不要提问，直接从【世界观】开始输出。" + story + "\n" + FORMAT +
             (if (Js.truthy(systemPrompt)) "\n\n【当前 RP 模板（系统提示词，供参考，保持一致）】\n" + Js.slice(Js.str(systemPrompt), 0, 6000) else "") +
@@ -99,6 +99,29 @@ object AutoChar {
         }
         return f
     }
+
+    /**
+     * 字段级批次解析：一次请求只应该带 1–2 个标题，因此不能再依赖
+     * [RpState.parseSections] 的「至少两个非开场白字段」门槛。
+     *
+     * 这里仍走同一套 [normalize] 容错，只接受本批明确请求的标题，避免模型顺手
+     * 多写别的段落污染世界设定。`opening` 不在 [TITLES] 里，但它也是合法批次字段。
+     */
+    fun parseBatch(raw: Any?, ids: List<String>): JObj {
+        val text = normalize(raw)
+        val out = JObj()
+        for (id in ids.distinct()) {
+            val title = TITLES[id] ?: if (id == "opening") "开场白" else id
+            val m = Regex("【" + title + "】\\s*([\\s\\S]*?)(?=\\n\\s*【|$)").find(text) ?: continue
+            val value = Js.trim(m.groupValues.getOrNull(1).orEmpty())
+            if (value.isNotEmpty()) out[id] = value
+        }
+        // 单字段「角色卡」允许模型省略标题，沿用旧版 JSON/纯文本兜底。
+        if (ids == listOf("character") && !Js.truthy(out["character"])) {
+            parse(text)?.let { parsed -> if (Js.truthy(parsed["character"])) out["character"] = parsed["character"] }
+        }
+        return out
+    }
     val TITLES = linkedMapOf("world" to "世界观", "character" to "角色卡", "rules" to "RP规则", "format" to "输出格式", "fewshot" to "示例对白", "prohibit" to "禁止事项", "style" to "写作风格")
     fun toPromptAppend(fields: Any?): String =
         "\n\n=== 自动生成的角色卡 ===\n" + TITLES.keys.filter { Js.truthy(fields[it]) }.joinToString("\n\n") { "【" + TITLES[it] + "】\n" + Js.str(fields[it]) }
@@ -134,8 +157,17 @@ object AutoChar {
 
     private val CHAR_ONLY_IDS = listOf("character", "fewshot")
 
+    private const val FULL_RULES = "你是角色卡生成器。把用户的想法整理成可直接角色扮演的完整设定，信息不足时合理补全，" +
+        "角色卡写具体可扮演的细节（姓名、年龄性别、外貌、身份、背景经历、性格优缺点、说话方式、喜好禁忌、秘密、人物关系、与用户的关系、目标动机）。"
     private const val CHAR_RULES = "你是角色卡生成器。世界观已经存在，你只负责为它设计一个可以立刻扮演的角色，" +
         "写具体可扮演的细节（姓名、年龄性别、外貌、身份、背景经历、性格优缺点、说话方式、喜好禁忌、秘密、人物关系、与用户的关系、目标动机）。"
+
+    /** 生成规则：有 Skill 模板就用模板正文，否则按作用域选内置规则。批次提示词与整本提示词共用这一处。 */
+    fun rulesOf(scope: Scope, skillContent: Any?): String {
+        val s = Js.str(skillContent)
+        if (Js.truthy(skillContent) && Js.trim(s).isNotEmpty()) return Js.trim(s)
+        return if (scope == Scope.CHARACTER_ONLY) CHAR_RULES else FULL_RULES
+    }
 
     private fun blockText(st: Any?, id: String): String = Js.trim(s(RpState.getBlock(st, id)?.get("content")))
 
@@ -151,7 +183,7 @@ object AutoChar {
 
     /** 世界里用的提示词：世界是只读约束，只要角色卡（可选示例对白）。 */
     fun buildCharacterPrompt(firstText: Any?, systemPrompt: Any?, world: WorldContext?, skillContent: Any?): String {
-        val rules = if (Js.truthy(s(skillContent)) && Js.trim(Js.str(skillContent)).isNotEmpty()) Js.trim(Js.str(skillContent)) else CHAR_RULES
+        val rules = rulesOf(Scope.CHARACTER_ONLY, skillContent)
         val w = world?.world.orEmpty()
         val lore = world?.lore.orEmpty()
         return rules + "\n\n---\n下面是一场角色扮演，世界观与规则**已经写好**，你只负责为它生成一个角色。\n" +
@@ -194,7 +226,8 @@ object AutoChar {
         val st = RpState.normalizeState(st0)
         val f = filterFields(fields, scope)
         if (f.fields.isEmpty()) return Applied(st, emptyList(), f.dropped, "empty")
-        if (scope == Scope.CHARACTER_ONLY && !overwrite && blockText(st, "character").isNotEmpty()) {
+        // 只挡住「character」这一块本身；分批生成时，fewshot 不该因为角色卡已存在而被连带丢弃。
+        if (scope == Scope.CHARACTER_ONLY && !overwrite && Js.truthy(f.fields["character"]) && blockText(st, "character").isNotEmpty()) {
             return Applied(st, emptyList(), f.dropped, "already")
         }
         var cur = st; val applied = ArrayList<String>()

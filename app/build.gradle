@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 180                  // 原生 v1.8.0：旁路成本分账 + 图片退役 + 自适应检索预算 + B2 接线
-        versionName '1.8.0'
+        versionCode 181                  // 原生 v1.8.1：Flex 即时生效 + 安全拦截 + 分批角色书 + UI 优化
+        versionName '1.8.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

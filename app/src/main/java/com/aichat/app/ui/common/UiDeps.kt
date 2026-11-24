@@ -44,6 +44,8 @@ data class UiDeps(
      * 为 null 时角色生成等辅助功能一律显示「未就绪」，不会静默失败。
      */
     val autoCharAsk: (suspend (com.aichat.app.domain.model.Conversation, String) -> String?)? = null,
+    /** 面板里手动生成角色书用的同一契约；独立归因为 CHARACTER_BOOK，缺省回退到 autoCharAsk */
+    val roleBookAsk: (suspend (com.aichat.app.domain.model.Conversation, String) -> String?)? = null,
 )
 
 val LocalUiDeps = staticCompositionLocalOf<UiDeps> { error("UiDeps 未提供") }

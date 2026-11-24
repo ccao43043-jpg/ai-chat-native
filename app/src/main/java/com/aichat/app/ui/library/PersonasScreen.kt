@@ -43,6 +43,7 @@ import com.aichat.app.domain.model.Persona
 import com.aichat.app.ui.common.ConfirmDialog
 import com.aichat.app.ui.common.LocalUiDeps
 import com.aichat.app.ui.settings.SettingsPageScaffold
+import com.aichat.app.ui.theme.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -160,7 +161,7 @@ fun PersonasScreen(onBack: () -> Unit, toast: (String) -> Unit, onStart: (Person
                     Text(ps.desc.ifEmpty { ps.systemPrompt.take(40) }, style = MaterialTheme.typography.bodySmall, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     val tags = listOfNotNull(prov?.let { ps.model.ifEmpty { it.name } }, ps.temperature?.let { "温度 ${fmt(it)}" }, if (ps.builtin) "内置" else null)
-                    if (tags.isNotEmpty()) Text(tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    if (tags.isNotEmpty()) Text(tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Palette.AccentText)
                 }
                 Box {
                     IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "更多") }

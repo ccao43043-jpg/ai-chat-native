@@ -112,6 +112,18 @@ object ProviderRules {
         return if (i < 0) m else m.substring(0, i).takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * 唯一模型变体规范化入口：Flex 开关只能决定末尾是否恰好有一个 `:flex`。
+     *
+     * 这里是纯函数，不做 Provider 判断；调用方先用 [isOpenRouterProvider] 门禁。
+     * 只剥 *末尾连续* 的 flex 后缀，保留 `:nitro` / `:floor` 等其它 OpenRouter 变体。
+     */
+    fun effectiveModel(baseModel: String?, flexEnabled: Boolean): String? {
+        val m = baseModel?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val withoutFlex = m.replace(Regex("(?i)(?::flex)+\\s*$"), "")
+        return if (flexEnabled) "$withoutFlex:flex" else withoutFlex
+    }
+
     /** 精确键优先、miss 回退剥变体后缀——modelMeta 的统一查找入口（flex/nitro 等 :variant 串共享基础模型的元数据） */
     fun metaFor(modelMeta: JsonObject?, model: String?): JsonObject? {
         if (modelMeta == null || model.isNullOrEmpty()) return null

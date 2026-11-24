@@ -87,7 +87,7 @@ object UsageEntry {
     ): JsonObject? = of(
         u = u,
         at = at,
-        type = "chat",
+        type = UsageTypes.CHAT,
         model = model.ifEmpty { conv.model },
         providerId = p.presetId.ifEmpty { p.id },
         providerName = p.name,

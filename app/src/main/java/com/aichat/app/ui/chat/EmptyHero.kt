@@ -3,13 +3,16 @@ package com.aichat.app.ui.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,13 +48,26 @@ internal fun EmptyHero(hasProvider: Boolean, onSetup: () -> Unit, onPick: (Strin
     val suggestions = remember {
         listOf("解释量子计算", "写一封感谢信", "推荐一个周末可以去的地方")
     }
-    Box(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        contentAlignment = Alignment.Center,
-    ) {
+    // 旧写法是 `Box(fillMaxSize().verticalScroll(), contentAlignment = Center)`。
+    // 这两者凑在一起有个经典陷阱：内容比视口高时，Box 把子项按「视口高度」居中，
+    // 溢出部分同时从**上下两端**跑出去，而滚动只能往下滚 —— 顶部那块永远滚不到。
+    // 横屏（可用高度约 300dp，内容约 420dp）或系统大字号时必现：
+    // 88dp 的品牌图标和标题上半截被切掉，用户只看到三个建议 pill。
+    //
+    // 改成 BoxWithConstraints 拿到视口高度，内层 Column 用 heightIn(min = 视口高) +
+    // verticalArrangement = Center：内容矮时照样垂直居中，内容高时自然撑开、
+    // 从顶部开始完整可滚。
+    //
+    // 注意 BoxWithConstraints 必须在 verticalScroll **外面**：滚动修饰符会把传给
+    // 子节点的 maxHeight 改成 Infinity，写在里面的话 `maxHeight` 拿到的是无穷大，
+    // heightIn(min = Infinity) 直接量崩。外层这层只读约束、不产生滚动。
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val viewport = maxHeight
+        Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+            Modifier.fillMaxWidth().heightIn(min = viewport).padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Box(
                 Modifier.size(88.dp)
@@ -92,17 +108,23 @@ internal fun EmptyHero(hasProvider: Boolean, onSetup: () -> Unit, onPick: (Strin
                         // 撑满整行会让人以为那是三个并列的大按钮。按文字收口、居中。
                         modifier = Modifier.padding(vertical = 4.dp).widthIn(max = 300.dp),
                     ) {
-                        Text(
-                            s,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                        )
+                        // 命中区提到 44dp。不能直接在 Surface 上写 heightIn(min=44)：
+                        // Surface 会把 min 约束传播给子节点，Text 被拉到 44dp 高后
+                        // 文字贴顶，胶囊里的字就偏上了。用居中 Box 兜住。
+                        Box(Modifier.heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                s,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                            )
+                        }
                     }
                 }
             } else {
                 SetupCard(onSetup)
             }
+        }
         }
     }
 }
