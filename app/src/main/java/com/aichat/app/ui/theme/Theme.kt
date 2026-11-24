@@ -23,12 +23,41 @@ object Palette {
     val Surface3 = Color(0xFF3F3F46)
     val Fg = Color(0xFFF4F4F5)
     val Fg2 = Color(0xFFA1A1AA)
-    val Fg3 = Color(0xFF71717A)
+
+    /**
+     * 三级文字（时间戳、用量、占位符、副标题）。
+     *
+     * 旧版直接照抄 app.css 的 `--fg-3 #71717a`，在 `--bg #09090b` 上只有 **4.12:1**，
+     * 在 `--surface-2 #27272a` 上只有 **3.08:1** —— 都低于 WCAG AA 对正文要求的 4.5:1。
+     * 而这个 token 恰恰全用在 11–12sp 的小字上，是最需要对比度的地方。
+     * 提到 #8E8E98 后：Bg 上 6.13:1、Surface2 上 4.59:1，双双达标；
+     * 与 Fg2(#A1A1AA) 仍有明显层级差，不会把三级文字读成二级。
+     */
+    val Fg3 = Color(0xFF8E8E98)
+
+    /**
+     * 真正「不可用」的元素：版本胶囊到头时的 ‹ ›、没有内容可发时的发送钮。
+     *
+     * 单独留一个 token 而不是复用 Fg3 —— Fg3 提亮之后，可用/禁用就分不开了。
+     * 这里保留旧 Fg3 的暗度，禁用态依旧明显退后。
+     */
+    val Disabled = Color(0xFF71717A)
     val Line = Color(0x14FFFFFF)
     val Line2 = Color(0x24FFFFFF)
     val Accent = Color(0xFF7C3AED)
     val Accent2 = Color(0xFFD946EF)
     val Accent3 = Color(0xFFA78BFA)
+
+    /**
+     * 强调色**当文字/图标用**时的颜色。
+     *
+     * Accent(#7C3AED) 做按钮底 + 白字是 5.70:1，没问题；但当文字直接画在深底上只有
+     * **3.49:1**，画在 AccentSoft 胶囊底上更低到 **2.98:1** —— 版本号「1/2」、
+     * 「生成」、世界书 Pill 这些 11–13sp 的紫字全都看不清。
+     * 浅一档的 #B4A0FB：Bg 上 8.87:1、Surface2 上 6.64:1、AccentSoft 上 7.58:1，
+     * 色相不变（还是同一支紫），只是亮度抬到可读区间。
+     */
+    val AccentText = Color(0xFFB4A0FB)
     val AccentSoft = Color(0x387C3AED)
     val UserBubble = Color(0xFF7C3AED)
     val AssistantBubble = Color(0x9927272A)

@@ -211,7 +211,7 @@ private fun AutoCharGenerateSection(
                     TextButton(
                         onClick = { onGenerate?.invoke(false, retry) },
                         modifier = Modifier.testTag("rolebook-retry-failed"),
-                    ) { Text("只重跑失败批次", fontSize = 12.sp, color = Palette.Accent) }
+                    ) { Text("只重跑失败批次", fontSize = 12.sp, color = Palette.AccentText) }
                 }
                 if (outcome?.status == "already") {
                     Text(outcome.message, color = Palette.Fg2, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -224,7 +224,7 @@ private fun AutoCharGenerateSection(
                 ) {
                     Text(
                         if (hasCharacter) "重新生成角色卡" else "用 AI 生成角色卡",
-                        color = Palette.Accent,
+                        color = Palette.AccentText,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -235,7 +235,7 @@ private fun AutoCharGenerateSection(
         if (outcome?.applied?.isNotEmpty() == true) {
             Text(
                 "已写入：${outcome.applied.joinToString("、")}",
-                color = Palette.Accent,
+                color = Palette.AccentText,
                 fontSize = 12.sp,
                 modifier = Modifier.testTag("rolebook-applied"),
             )
@@ -266,7 +266,8 @@ private fun RpField(title: String, tag: String, hint: String, value: String, onC
             Text(title, color = Palette.Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (tag.isNotEmpty()) {
                 Surface(shape = RoundedCornerShape(999.dp), color = Palette.AccentSoft) {
-                    Text(tag, color = Palette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                    // 11sp 小字叠在 AccentSoft 上，Accent 只有 2.98:1；AccentText 7.58:1
+                    Text(tag, color = Palette.AccentText, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                 }
             }
         }

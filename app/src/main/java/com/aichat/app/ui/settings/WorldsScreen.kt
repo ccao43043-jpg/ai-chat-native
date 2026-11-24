@@ -260,7 +260,7 @@ private fun Labeled(text: String) = Text(text, color = Palette.Fg2, fontSize = 1
 
 @Composable
 private fun Pill(text: String) = Surface(shape = RoundedCornerShape(999.dp), color = Palette.AccentSoft) {
-    Text(text, color = Palette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+    Text(text, color = Palette.AccentText, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
 }
 
 @Composable

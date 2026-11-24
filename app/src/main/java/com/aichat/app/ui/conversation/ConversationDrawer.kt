@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -274,7 +278,7 @@ private fun SearchRow(query: String, onQuery: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp).testTag("drawer-search"),
     ) {
         Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = Palette.Fg3)
+            Icon(Icons.Filled.Search, "搜索对话", Modifier.size(18.dp), tint = Palette.Fg3)
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) {
@@ -305,6 +309,10 @@ private fun ConvRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
+    // 局部变量必须和参数 `selected` 区分：semantics lambda 的接收者
+    // SemanticsPropertyReceiver 自己也有 selected 属性，写 `selected = selected`
+    // 右边会解析到接收者上，变成自己赋给自己。
+    val isSel = selected
     Surface(
         color = Color.Transparent,
         shape = RoundedCornerShape(12.dp),
@@ -315,10 +323,18 @@ private fun ConvRow(
                 indication = LocalIndication.current,
                 onClick = onClick,
                 onLongClick = { menu = true },
-            ).testTag("conv-${m.id}"),
+                role = Role.Button,
+            )
+            // 读屏要能听出「这是当前打开的对话」：原来选中态只体现在
+            // 字色 Fg vs Fg2 和字重上，视觉之外完全没有信息。
+            // combinedClickable 没有 selected 参数，所以单独挂 semantics。
+            .semantics(mergeDescendants = true) { this.selected = isSel }
+            .testTag("conv-${m.id}"),
     ) {
         Row(
-            Modifier.padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+            // 行高 7+7+内容 → 至少 48dp：原来两行文字约 46dp、单行只有 32dp，
+            // 单行标题的会话在列表里很难点中。
+            Modifier.heightIn(min = 48.dp).padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -336,8 +352,10 @@ private fun ConvRow(
                 }
             }
             Box {
-                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.MoreVert, "更多", Modifier.size(18.dp), tint = Palette.Fg3)
+                // 44dp 命中区（原 36dp）：这个按钮紧贴行右缘，36dp 时手指
+                // 很容易滑到行本身上，变成「打开对话」而不是「打开菜单」。
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Filled.MoreVert, "更多操作", Modifier.size(18.dp), tint = Palette.Fg3)
                 }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("重命名") }, onClick = { menu = false; onRename() })
@@ -396,15 +414,43 @@ private fun DrawerEntry(
     }
 }
 
-/** 今天显示 HH:mm，今年显示 M/d，否则 yyyy/M/d */
+/**
+ * 今天显示 HH:mm，今年显示 M/d，否则 yyyy/M/d。
+ *
+ * 原来每次调用都 new 四个 [SimpleDateFormat]。这个函数在 LazyColumn 的
+ * item 里被逐行调用，抽屉一滚就是几十次 —— 而 SimpleDateFormat 的构造要解析
+ * pattern、查 Locale、建 Calendar 和 DecimalFormat，是这条路径上最贵的分配。
+ * 改成 ThreadLocal 缓存后，每线程只构造一次，滚动时零分配。
+ *
+ * 用 ThreadLocal 而不是普通 val：SimpleDateFormat 不是线程安全的，
+ * 而 Compose 的重组/预组合可能落在不同线程上。
+ */
+/**
+ * 按 pattern 取一个线程私用的 SimpleDateFormat。
+ *
+ * 返回类型显式写成非空 `SimpleDateFormat`：ThreadLocal.get() 在 Kotlin 里是
+ * 平台类型（SimpleDateFormat!），不写的话每次 .format() 都会报
+ * 「Only safe (?.) or non-null asserted (!!.) calls are allowed」。
+ * initialValue() 恒返回非空，所以这个声明是成立的。
+ */
+private fun fmt(pattern: String): ThreadLocal<SimpleDateFormat> = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat(pattern, Locale.ROOT)
+}
+
+private val fmtDay = fmt("yyyyMMdd")
+private val fmtYear = fmt("yyyy")
+private val fmtTime = fmt("HH:mm")
+private val fmtMonthDay = fmt("M/d")
+private val fmtFull = fmt("yyyy/M/d")
+
+private fun ThreadLocal<SimpleDateFormat>.fmtOf(d: Date): String = get()!!.format(d)
+
 fun formatTime(ms: Long, nowMs: Long = System.currentTimeMillis()): String {
     if (ms <= 0) return ""
     val d = Date(ms); val n = Date(nowMs)
-    val day = SimpleDateFormat("yyyyMMdd", Locale.ROOT)
-    val year = SimpleDateFormat("yyyy", Locale.ROOT)
     return when {
-        day.format(d) == day.format(n) -> SimpleDateFormat("HH:mm", Locale.ROOT).format(d)
-        year.format(d) == year.format(n) -> SimpleDateFormat("M/d", Locale.ROOT).format(d)
-        else -> SimpleDateFormat("yyyy/M/d", Locale.ROOT).format(d)
+        fmtDay.fmtOf(d) == fmtDay.fmtOf(n) -> fmtTime.fmtOf(d)
+        fmtYear.fmtOf(d) == fmtYear.fmtOf(n) -> fmtMonthDay.fmtOf(d)
+        else -> fmtFull.fmtOf(d)
     }
 }

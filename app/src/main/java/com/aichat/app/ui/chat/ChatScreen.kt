@@ -1,5 +1,6 @@
 package com.aichat.app.ui.chat
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -7,6 +8,10 @@ import androidx.compose.animation.togetherWith
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
@@ -14,6 +19,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DrawerValue
@@ -67,7 +74,11 @@ import com.aichat.app.ui.common.ImageViewer
 import com.aichat.app.ui.library.PromptSheet
 import com.aichat.app.ui.library.TemplateSheet
 import com.aichat.app.ui.common.LocalUiDeps
+import com.aichat.app.ui.common.Adaptive
 import com.aichat.app.ui.common.pressScale
+import com.aichat.app.ui.common.rememberIsWideScreen
+import com.aichat.app.domain.Badge
+import androidx.compose.ui.semantics.Role
 import com.aichat.app.ui.common.rememberAnimationsOn
 import com.aichat.app.ui.conversation.ConversationDrawer
 import com.aichat.app.data.files.FileText
@@ -330,7 +341,12 @@ fun ChatScreen(
             // 底部没有 Tab 栏了，Snackbar 默认会压住输入条，抬到它上面
             snackbarHost = { SnackbarHost(snack, modifier = Modifier.padding(bottom = 112.dp)) },
             topBar = {
-                val hbadges = if (conv != null) deps.plugins.headerBadges(settings, conv) else emptyList()
+                // headerBadges 会走插件 hook（RP 插件里是 O(n) 扫描消息），
+                // 而 topBar 这个 lambda 在流式期间每帧都可能重组。
+                // 不 remember 的话，打字/流式时顶栏会反复触发全量扫描。
+                val hbadges = remember(conv, settings) {
+                    if (conv != null) deps.plugins.headerBadges(settings, conv) else emptyList<Badge>()
+                }
                 val modelLabel = when {
                     settings.providers.isEmpty() -> "未配置"
                     else -> target?.let { "实际使用：" + it.second } ?: "选择模型"
@@ -340,10 +356,11 @@ fun ChatScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         val drawerPress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         Box(
-                            Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            Modifier.size(44.dp).clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(Palette.Surface2)
                                 .pressScale(drawerPress)
-                                .clickable(interactionSource = drawerPress, indication = null) { scope.launch { drawer.open() } }
+                                .clickable(interactionSource = drawerPress, indication = null, role = Role.Button,
+                                    onClickLabel = "打开对话列表") { scope.launch { drawer.open() } }
                                 .testTag("open-drawer"),
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Filled.Menu, "对话列表") }
@@ -365,7 +382,12 @@ fun ChatScreen(
                             Row(
                                 Modifier.padding(start = 8.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
                                     .pressScale(modelPress)
-                                    .clickable(interactionSource = modelPress, indication = null) {
+                                    .clickable(
+                                        interactionSource = modelPress,
+                                        indication = null,
+                                        role = Role.Button,
+                                        onClickLabel = "切换模型",
+                                    ) {
                                         if (settings.providers.isEmpty()) onOpenSettings(SettingsDestination.Providers) else picker = true
                                     }
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -387,10 +409,11 @@ fun ChatScreen(
 
                             val morePress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                             Box(
-                                Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                Modifier.size(44.dp).clip(androidx.compose.foundation.shape.CircleShape)
                                     .background(Palette.Surface2)
                                     .pressScale(morePress)
-                                    .clickable(interactionSource = morePress, indication = null) { menu = true },
+                                    .clickable(interactionSource = morePress, indication = null, role = Role.Button,
+                                        onClickLabel = "更多操作") { menu = true },
                                 contentAlignment = Alignment.Center,
                             ) { Icon(Icons.Filled.MoreVert, "更多") }
                             PluginErrorDot(
@@ -450,7 +473,15 @@ fun ChatScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
                 // fillMaxWidth 不能省：Column 默认 Start 对齐，Box 只按内容宽度测量，
                 // 空对话时里面的「有什么可以帮你？」会被挤到左边贴边，而不是居中。
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                // 大屏限宽：平板/折叠屏展开态下，消息列表和输入条会被拉到全宽，
+                // 一行六十多个汉字读起来很费劲，输入条也宽到拇指够不着发送键。
+                // 这里把两者收口到 720dp 并居中；手机（<600dp）走 else 分支，
+                // Modifier 与改动前完全一致，布局逐像素不变。
+                val wide = rememberIsWideScreen()
+                Box(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = if (wide) Alignment.TopCenter else Alignment.TopStart,
+                ) {
                     if (messages.isEmpty()) {
                         EmptyHero(
                         hasProvider = settings.providers.isNotEmpty(),
@@ -501,7 +532,10 @@ fun ChatScreen(
                                 view = MessageView(busy = busy, dim = ms?.dim == true, label = ms?.label, isLast = isLast, headName = headName),
                                 actions = actions)
                         }
-                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("messages"),
+                        LazyColumn(state = listState, reverseLayout = true,
+                            modifier = Modifier.fillMaxSize()
+                                .let { if (wide) it.widthIn(max = Adaptive.contentMax) else it }
+                                .testTag("messages"),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)) {
                             if (liveKey != null) item(key = liveKey, contentType = "live") {
                                 // live 气泡是唯一订阅流式热数据的地方：每次 flush 只重组这一个 item
@@ -509,6 +543,41 @@ fun ChatScreen(
                                 s?.toLiveMessage()?.let { row(it, true) }
                             }
                             items(rev, key = { it.id }, contentType = { it.role }) { m -> row(m, m.id == ChatController.PENDING_USER_ID) }
+                        }
+                        // 「回到底部」浮标。列表是 reverseLayout，index 0 = 最新一条，
+                        // 所以 follow=false 意味着用户往上翻历史了。
+                        //
+                        // 原来没有任何回到底部的入口：往上翻几十条之后，想回到最新
+                        // 消息只能一路手动滑回去；更糟的是流式生成期间用户根本不知道
+                        // 新内容正在下面追加。这里补一个 44dp 的浮标，点一下回到最新。
+                        // 用 animateFloatAsState + graphicsLayer 而不是 AnimatedVisibility：
+                        // 这个 Box 嵌在 Column 里，AnimatedVisibility 会解析到
+                        // ColumnScope 的重载，和 Modifier.align(BoxScope) 打架。
+                        val fabAlpha by animateFloatAsState(
+                            targetValue = if (follow) 0f else 1f,
+                            animationSpec = tween(Motion.quick),
+                            label = "scroll-bottom",
+                        )
+                        if (fabAlpha > 0f) {
+                            val press = remember { MutableInteractionSource() }
+                            Box(
+                                Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
+                                    .graphicsLayer { alpha = fabAlpha }
+                                    .size(44.dp).clip(CircleShape)
+                                    .background(Palette.Surface2)
+                                    .border(1.dp, Palette.Line, CircleShape)
+                                    .pressScale(press)
+                                    .clickable(interactionSource = press, indication = null,
+                                        role = Role.Button, onClickLabel = "回到最新消息") {
+                                        follow = true
+                                        scope.launch { listState.animateScrollToItem(0) }
+                                    }
+                                    .testTag("scroll-bottom"),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Filled.KeyboardArrowDown, "回到最新消息",
+                                    Modifier.size(24.dp), tint = Palette.Fg2)
+                            }
                         }
                     }
                 }
@@ -566,7 +635,10 @@ fun ChatScreen(
                 val tplEmoji = conv?.templateEmoji.orEmpty()
                 InputBar(input, { input = it }, st.draftImages, controller::setDraftImages, busy,
                     onSend = { if (controller.send(input, st.draftImages, st.draftFiles)) { input = ""; controller.setDraftImages(emptyList()); controller.setDraftFiles(emptyList()) } },
-                    onStop = controller::stop, onToast = controller::toast, modifier = Modifier.imePadding(),
+                    onStop = controller::stop, onToast = controller::toast,
+                    // 与消息列表同宽居中，否则大屏上正文收口了、输入条还横贯全屏
+                    modifier = Modifier.imePadding().align(Alignment.CenterHorizontally)
+                        .let { if (wide) it.widthIn(max = Adaptive.contentMax) else it },
                     files = st.draftFiles, onFiles = controller::setDraftFiles,
                     fileSourceMax = if (FileContext.chunkEnabled(settings.plugins)) ChunkRetrieval.SOURCE_MAX else FileText.DEFAULT_FILE_MAX,
                     tools = InputTools(onPrompts = { sheet = 1 }, onTemplates = { sheet = 2 },

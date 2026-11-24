@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +33,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
@@ -84,11 +88,23 @@ object ImageLoader {
 @Composable
 fun RemoteImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop, maxDim: Int = 1024,
                 contentDescription: String? = null) {
-    val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, src) { value = ImageLoader.load(src, maxDim)?.asImageBitmap() }
+    // 区分「加载中」和「加载失败」：原来两种状态都显示一个永久的「…」，
+    // 图片拉取失败（断网、URL 过期、img: 引用没挂解析器）时那个省略号会一直挂着，
+    // 用户分不清是还在转圈还是已经挂了，也没有任何可重试的提示。
+    var loaded by remember(src) { mutableStateOf(false) }
+    val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, src) {
+        value = ImageLoader.load(src, maxDim)?.asImageBitmap()
+        loaded = true
+    }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         val b = bmp
-        if (b != null) Image(b, contentDescription = contentDescription, contentScale = contentScale, modifier = Modifier.fillMaxSize())
-        else Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when {
+            b != null -> Image(b, contentDescription = contentDescription, contentScale = contentScale, modifier = Modifier.fillMaxSize())
+            loaded -> Text("图片加载失败", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(4.dp))
+            else -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

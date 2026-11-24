@@ -335,7 +335,7 @@ private fun ProviderRow(name: String, sub: String, tag: String, onClick: () -> U
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(24.dp).clip(CircleShape).background(Palette.AccentSoft), contentAlignment = Alignment.Center) {
-                Text(name.take(1), fontSize = 11.sp, color = Palette.Accent)
+                Text(name.take(1), fontSize = 11.sp, color = Palette.AccentText)
             }
             Column(Modifier.weight(1f)) {
                 Text(name, fontSize = 14.sp, color = Palette.Fg, maxLines = 1, overflow = TextOverflow.Ellipsis)

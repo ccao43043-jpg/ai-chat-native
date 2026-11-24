@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -122,7 +126,13 @@ fun PluginErrorDot(count: Int, onClick: () -> Unit, modifier: Modifier = Modifie
     Box(
         modifier
             .testTag("plugin-errors")
-            .clickable(interactionSource = src, indication = null, onClick = onClick)
+            // 44dp 命中区：红点本体只有约 18×14dp，又紧贴「更多」按钮，
+            // 不扩基本点不中。外层是透明 Box，红点视觉位置不变。
+            .size(44.dp)
+            .clickable(interactionSource = src, indication = null, role = Role.Button,
+                onClickLabel = "查看插件错误", onClick = onClick)
+            // 纯数字对读屏毫无意义（只会念「3」），补完整描述
+            .semantics { contentDescription = "$count 个插件错误，查看详情" }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {

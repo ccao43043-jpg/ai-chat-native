@@ -352,7 +352,8 @@ fun ImageScreen(onBack: (() -> Unit)? = null) {
         }
         notice?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            // primary 当文字 3.49:1，bodySmall 下不达标
+            Text(it, color = Palette.AccentText, style = MaterialTheme.typography.bodySmall)
         }
 
         if (results.isEmpty() && !busy) {
