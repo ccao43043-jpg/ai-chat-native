@@ -40,9 +40,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.aichat.app.net.HttpClients
+import okhttp3.Request
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 /** 消息图片：data URL 或 http(s) URL → Bitmap（带内存缓存）。不经过 net 层：这里只拉公开图片，不带任何认证头。 */
 object ImageLoader {
@@ -50,17 +50,22 @@ object ImageLoader {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
-    suspend fun load(src: String, maxDim: Int = 2048): Bitmap? = cache.get(src) ?: withContext(Dispatchers.IO) {
-        runCatching {
-            // B：img:<sha1> 引用先经 BlobGate 归一成 data:（AppGraph 启动时挂解析器；未挂则渲染占位）
-            val s = if (src.startsWith("img:")) com.aichat.app.data.store.BlobGate.dataUrl?.invoke(src) ?: return@runCatching null else src
-            val bytes = if (s.startsWith("data:")) Base64.decode(s.substringAfter(","), Base64.DEFAULT)
-            else (URL(s).openConnection() as HttpURLConnection).run {
-                connectTimeout = 15000; readTimeout = 30000; instanceFollowRedirects = true
-                try { inputStream.use { it.readBytes() } } finally { disconnect() }
-            }
-            decodeScaled(bytes, maxDim)
-        }.getOrNull()?.also { cache.put(src, it) }
+    private fun cacheKey(src: String, maxDim: Int) = "$src@$maxDim"
+
+    suspend fun load(src: String, maxDim: Int = 2048): Bitmap? {
+        val key = cacheKey(src, maxDim)
+        return cache.get(key) ?: withContext(Dispatchers.IO) {
+            runCatching {
+                // B：img:<sha1> 引用先经 BlobGate 归一成 data:（AppGraph 启动时挂解析器；未挂则渲染占位）
+                val s = if (src.startsWith("img:")) com.aichat.app.data.store.BlobGate.dataUrl?.invoke(src) ?: return@runCatching null else src
+                val bytes = if (s.startsWith("data:")) Base64.decode(s.substringAfter(","), Base64.DEFAULT)
+                else HttpClients.image.newCall(Request.Builder().url(s).build()).execute().use {
+                    check(it.isSuccessful)
+                    it.body?.bytes() ?: error("empty image body")
+                }
+                decodeScaled(bytes, maxDim)
+            }.getOrNull()?.also { cache.put(key, it) }
+        }
     }
 
     fun decodeScaled(bytes: ByteArray, maxDim: Int): Bitmap? {
@@ -78,9 +83,14 @@ object ImageLoader {
             val bmp = decodeScaled(bytes, maxDim) ?: return@runCatching null
             val scale = minOf(1f, maxDim.toFloat() / maxOf(bmp.width, bmp.height))
             val out = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
-            val bos = ByteArrayOutputStream()
-            out.compress(Bitmap.CompressFormat.JPEG, 85, bos)
-            "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+            try {
+                val bos = ByteArrayOutputStream()
+                out.compress(Bitmap.CompressFormat.JPEG, 85, bos)
+                "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+            } finally {
+                if (out !== bmp) out.recycle()
+                bmp.recycle()
+            }
         }.getOrNull()
     }
 }
@@ -91,8 +101,8 @@ fun RemoteImage(src: String, modifier: Modifier = Modifier, contentScale: Conten
     // 区分「加载中」和「加载失败」：原来两种状态都显示一个永久的「…」，
     // 图片拉取失败（断网、URL 过期、img: 引用没挂解析器）时那个省略号会一直挂着，
     // 用户分不清是还在转圈还是已经挂了，也没有任何可重试的提示。
-    var loaded by remember(src) { mutableStateOf(false) }
-    val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, src) {
+    var loaded by remember(src, maxDim) { mutableStateOf(false) }
+    val bmp: ImageBitmap? by produceState<ImageBitmap?>(null, src, maxDim) {
         value = ImageLoader.load(src, maxDim)?.asImageBitmap()
         loaded = true
     }

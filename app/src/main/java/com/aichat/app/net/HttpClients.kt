@@ -18,4 +18,14 @@ object HttpClients {
     }
     /** 带 Key 的请求：不跟随重定向，避免认证头被带到其他主机 */
     val authed: OkHttpClient by lazy { base.newBuilder().followRedirects(false).followSslRedirects(false).build() }
+
+    /** 公开图片：短超时 + 可重试连接；不要复用 base 的 600s 流式读超时。 */
+    val image: OkHttpClient by lazy {
+        base.newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 }

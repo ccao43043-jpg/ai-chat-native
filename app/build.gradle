@@ -31,8 +31,8 @@ android {
         applicationId 'com.aichat.app'   // 不可改：覆盖安装
         minSdk 24
         targetSdk 34
-        versionCode 190                  // 原生 v1.9.0：RP 对话脚本化分层
-        versionName '1.9.0'
+        versionCode 191                  // 原生 v1.9.1：安全检索与图片加载优化
+        versionName '1.9.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

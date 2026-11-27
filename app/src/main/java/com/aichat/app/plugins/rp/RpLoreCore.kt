@@ -111,26 +111,43 @@ object RpLoreCore {
 
     // ------------------------------------------------------------------ 关键词匹配
 
+    private val regexCache = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, Regex?>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Regex?>?) = size > 256
+        },
+    )
+    private val wordPatternCache = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, java.util.regex.Pattern?>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, java.util.regex.Pattern?>?) = size > 256
+        },
+    )
+
+    private fun cachedRegex(key: String, caseSensitive: Boolean): Regex? {
+        val ck = (if (caseSensitive) "1:" else "0:") + key
+        synchronized(regexCache) { if (regexCache.containsKey(ck)) return regexCache[ck] }
+        val compiled = runCatching {
+            Regex(key, if (caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE))
+        }.getOrNull()
+        synchronized(regexCache) { regexCache[ck] = compiled }
+        return compiled
+    }
+
+    private fun cachedWordPattern(key: String, caseSensitive: Boolean): java.util.regex.Pattern? {
+        val ck = (if (caseSensitive) "1:" else "0:") + key
+        synchronized(wordPatternCache) { if (wordPatternCache.containsKey(ck)) return wordPatternCache[ck] }
+        val needle = java.util.regex.Pattern.quote(if (caseSensitive) key else key.lowercase())
+        val src = "(?:^|[^\\w\\u4e00-\\u9fff])" + needle + "(?:$|[^\\w\\u4e00-\\u9fff])"
+        val flags = if (caseSensitive) 0 else java.util.regex.Pattern.CASE_INSENSITIVE
+        val compiled = runCatching { java.util.regex.Pattern.compile(src, flags) }.getOrNull()
+        synchronized(wordPatternCache) { wordPatternCache[ck] = compiled }
+        return compiled
+    }
+
     fun matchKey(scan: String, key: String, e: JObj): Boolean {
         if (key.isEmpty()) return false
         val caseSensitive = Js.truthy(e["caseSensitive"])
-        if (Js.truthy(e["useRegex"])) {
-            return try {
-                Regex(key, if (caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)).containsMatchIn(scan)
-            } catch (_: Exception) {
-                false
-            }
-        }
-        if (Js.truthy(e["matchWholeWords"])) {
-            val needle = java.util.regex.Pattern.quote(if (caseSensitive) key else key.lowercase())
-            val src = "(?:^|[^\\w\\u4e00-\\u9fff])" + needle + "(?:$|[^\\w\\u4e00-\\u9fff])"
-            val flags = if (caseSensitive) 0 else java.util.regex.Pattern.CASE_INSENSITIVE
-            return try {
-                java.util.regex.Pattern.compile(src, flags).matcher(scan).find()
-            } catch (_: Exception) {
-                false
-            }
-        }
+        if (Js.truthy(e["useRegex"])) return cachedRegex(key, caseSensitive)?.containsMatchIn(scan) ?: false
+        if (Js.truthy(e["matchWholeWords"])) return cachedWordPattern(key, caseSensitive)?.matcher(scan)?.find() ?: false
         val hay = if (caseSensitive) scan else scan.lowercase()
         val needle = if (caseSensitive) key else key.lowercase()
         return hay.contains(needle)
