@@ -3,6 +3,7 @@ package com.aichat.app.plugins.rp
 import com.aichat.app.plugins.js.Js
 import com.aichat.app.plugins.js.jobj
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -115,5 +116,21 @@ class RpLoreCoreTest {
         assertTrue("没有世界书条目时不该有触发", fired.isEmpty())
         // 旧版即使一条也没触发，也会推进 turn 并写 loreTrace（rpcache.js:716），这里只断言"没冻结任何条目"
         assertNull(after["loreFired"])
+    }
+
+    @Test
+    fun keywordMatchingFlagsStayStableAcrossCachedCalls() {
+        val regex = jobj("useRegex" to true)
+        assertTrue(RpLoreCore.matchKey("Lighthouse 7", "light\\s*house", regex))
+        assertTrue(RpLoreCore.matchKey("LIGHTHOUSE", "light\\s*house", regex))
+        assertFalse(RpLoreCore.matchKey("shore", "[invalid", regex))
+
+        val words = jobj("matchWholeWords" to true)
+        assertTrue(RpLoreCore.matchKey("a Cat!", "cat", words))
+        assertFalse(RpLoreCore.matchKey("scatter", "cat", words))
+
+        val cases = jobj("caseSensitive" to true)
+        assertTrue(RpLoreCore.matchKey("Harbor", "Harbor", cases))
+        assertFalse(RpLoreCore.matchKey("Harbor", "harbor", cases))
     }
 }

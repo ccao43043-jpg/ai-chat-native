@@ -117,17 +117,31 @@ object RetrievalCore {
     /** seed：初始已选集——只参与冗余度计算，不进输出、不占 limit（D11：置顶强制先入后，普通条目仍要避开与置顶重复的内容） */
     fun mmr(cands: List<JObj>?, lambda: Double?, sim: ((JObj, JObj) -> Double)?, maxN: Int?, seed: List<JObj>?): MutableList<JObj> {
         val lam = lambda ?: 0.7
-        val simFn = sim ?: { a, b -> jaccard3(Js.or(a["text"], ""), Js.or(b["text"], "")) }
         val list = cands ?: emptyList()
         val limit = maxN ?: list.size
-        // 增量实现（D1）：maxSim[i] 维护候选 i 与已选集（seed + 已入选）的最大相似度，
-        // 每轮只对新入选者各算一次 sim，复杂度 O(k·n)（原逐轮对全部已选重算为 O(k²·n)）。
-        // sim 对称时输出顺序与逐轮重算完全一致；平局时同取先出现者（严格大于），差分测试见 RetrievalCoreMmrTest。
         val seedL = seed ?: emptyList()
+
+        // 默认 jaccard 路径预计算一次 3-gram；自定义相似度仍走原回调，语义不变。
+        val candGrams = if (sim == null) Array(list.size) { charGrams3(Js.or(list[it]["text"], "")) } else null
+        val seedGrams = if (sim == null) Array(seedL.size) { charGrams3(Js.or(seedL[it]["text"], "")) } else null
+        fun gramsSim(a: Set<String>, b: Set<String>): Double {
+            if (a.isEmpty() && b.isEmpty()) return 1.0
+            if (a.isEmpty() || b.isEmpty()) return 0.0
+            val (small, large) = if (a.size <= b.size) a to b else b to a
+            var inter = 0
+            for (g in small) if (g in large) inter++
+            return inter.toDouble() / (a.size + b.size - inter)
+        }
+        fun simAt(i: Int, j: Int): Double =
+            if (sim != null) sim(list[i], list[j]) else gramsSim(candGrams!![i], candGrams[j])
+        fun seedSimAt(i: Int, si: Int): Double =
+            if (sim != null) sim(list[i], seedL[si]) else gramsSim(candGrams!![i], seedGrams!![si])
+
+        // maxSim[i] 维护候选与已选集的最大相似度；每轮只对新入选者计算一次。
         val maxSim = DoubleArray(list.size); val used = BooleanArray(list.size)
         for (i in list.indices) {
             var m = if (seedL.isEmpty()) 0.0 else Double.NEGATIVE_INFINITY
-            for (y in seedL) { val s = simFn(list[i], y); if (s > m) m = s }
+            for (si in seedL.indices) { val x = seedSimAt(i, si); if (x > m) m = x }
             maxSim[i] = m
         }
         val out = ArrayList<JObj>()
@@ -143,8 +157,8 @@ object RetrievalCore {
             used[bi] = true; out += list[bi]; picked++
             for (i in list.indices) {
                 if (used[i]) continue
-                val s = simFn(list[i], list[bi])
-                if (s > maxSim[i]) maxSim[i] = s
+                val x = simAt(i, bi)
+                if (x > maxSim[i]) maxSim[i] = x
             }
         }
         return out
